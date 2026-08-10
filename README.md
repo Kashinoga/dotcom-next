@@ -1,7 +1,12 @@
-# dotcom
+# dotcom-next
 
-The personal website of kashinoga.com, and the reference example of the Kashinoga
-Design System.
+Where the next version of **kashinoga.com** is developed, and the reference
+example of the Kashinoga Design System.
+
+The site that serves kashinoga.com today is
+[`Kashinoga/dotcom`](https://github.com/Kashinoga/dotcom). This repository is
+where its replacement is built and tried out. Treat anything here as unfinished
+until it moves across.
 
 This is a pnpm monorepo. It contains one app at the moment.
 
@@ -18,9 +23,16 @@ This is a pnpm monorepo. It contains one app at the moment.
 
 Run these from the repository root.
 
-| Command       | What it does                            |
-| ------------- | --------------------------------------- |
+| Command        | What it does                             |
+| -------------- | ---------------------------------------- |
 | `pnpm install` | Install the dependencies of all packages |
-| `pnpm dev`    | Start the dev server for `apps/web`     |
-| `pnpm build`  | Build all packages                      |
-| `pnpm check`  | Type-check all packages                 |
+| `pnpm dev`     | Start the dev server for `apps/web`      |
+| `pnpm build`   | Build all packages                       |
+| `pnpm check`   | Type-check all packages                  |
+
+`pnpm dev` does not forward arguments to vite. To choose a port, run the app
+directly:
+
+```sh
+pnpm --filter web dev --port 5174 --strictPort
+```
