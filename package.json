@@ -1,0 +1,11 @@
+{
+	"name": "dotcom",
+	"private": true,
+	"type": "module",
+	"packageManager": "pnpm@11.21.0",
+	"scripts": {
+		"dev": "pnpm --filter web dev",
+		"build": "pnpm -r build",
+		"check": "pnpm -r check"
+	}
+}

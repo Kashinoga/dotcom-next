@@ -1,0 +1,25 @@
+packages:
+  - apps/*
+  - packages/*
+
+# A FLAT node_modules, not pnpm's default symlink tree.
+#
+# This repository lives on the network share (see the root CLAUDE.md), which is
+# mounted with sshfs. That server refuses `readlink` on any symlink whose target
+# contains a '/', and every link pnpm makes has one. The default layout
+# therefore installs and then cannot be read: `EPERM ... open
+# 'apps/web/node_modules/svelte/package.json'`.
+#
+# `hoisted` gives the npm-style flat tree, with no links to read. The cost is
+# that a package can import something it did not declare, and pnpm will not stop
+# it. Declare each dependency you use.
+#
+# pnpm 11 reads this setting HERE and not from .npmrc.
+nodeLinker: hoisted
+
+# pnpm 10+ blocks install scripts by default. Both of these must run their own,
+# or the build fails: workerd is Cloudflare's runtime, and esbuild fetches its
+# platform binary.
+allowBuilds:
+  esbuild: true
+  workerd: true
