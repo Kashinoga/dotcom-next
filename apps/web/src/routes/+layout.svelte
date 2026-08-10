@@ -89,16 +89,28 @@
 </svelte:head>
 
 <!--
+	<header> and <main> are LANDMARKS. A screen reader can jump between them, and
+	a keyboard visitor can skip straight to the content. They cost two tags. The
+	button is chrome and belongs to the site, so it sits outside the content.
+
 	The icon draws itself in `currentColor`, so it needs no rule of its own. Note
 	that inside a button `currentColor` is the colour of the BUTTON, and not the
 	one on <html>. `color-scheme` in app.css is what makes the two agree.
 -->
-<button onclick={cycle}>
-	<Icon size={16} />
-	Display Mode: {mode === 'system' ? `System (${dark ? 'Dark' : 'Light'})` : mode === 'dark' ? 'Dark' : 'Light'}
-</button>
+<header>
+	<button onclick={cycle}>
+		<Icon size={16} />
+		Display Mode: {mode === 'system'
+			? `System (${dark ? 'Dark' : 'Light'})`
+			: mode === 'dark'
+				? 'Dark'
+				: 'Light'}
+	</button>
+</header>
 
-{@render children()}
+<main>
+	{@render children()}
+</main>
 
 <style>
 	/*
@@ -113,6 +125,10 @@
 	button {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.4em;
+		gap: var(--space-xs);
+	}
+
+	header {
+		padding: var(--space-m);
 	}
 </style>

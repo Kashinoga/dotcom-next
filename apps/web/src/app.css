@@ -115,6 +115,51 @@ body {
 	font-family: var(--font-ui);
 }
 
+/* ─── The scales ─────────────────────────────────────────────────────────────
+ * The reset above set every margin to zero, so each piece of space on this site
+ * is now chosen. These are the values it may be chosen from. A scale is worth
+ * more than a set of free numbers: two things one step apart look related, and
+ * a page built from seven values looks deliberate where a page built from forty
+ * looks accidental.
+ *
+ * Everything here is in `rem`, which answers the text size the VISITOR set in
+ * their browser. A scale in `px` ignores them.
+ */
+:root {
+	/* SPACE. Each step is about 1.5 times the one before — far enough apart to
+	 * be told apart, and few enough to hold in your head. */
+	--space-2xs: 0.25rem;
+	--space-xs: 0.5rem;
+	--space-s: 0.75rem;
+	--space-m: 1rem;
+	--space-l: 1.5rem;
+	--space-xl: 2.5rem;
+	--space-2xl: 4rem;
+
+	/* TYPE. A major third (1.25) from 1rem. */
+	--text-s: 0.875rem;
+	--text-m: 1rem;
+	--text-l: 1.25rem;
+	--text-xl: 1.5rem;
+	--text-2xl: 2rem;
+
+	/* The two sizes that answer the WIDTH OF THE WINDOW rather than the scale.
+	 * `clamp` gives a floor, a rate of change, and a ceiling: the name fills a
+	 * phone, grows with the window, and stops before it runs off a desktop. No
+	 * media query, and no size between the two ends that was never looked at. */
+	--text-display: clamp(2.5rem, 9vw, 4.5rem);
+	--text-tagline: clamp(1.25rem, 4vw, 2rem);
+
+	/* A line longer than about 65 characters is hard to come back from at the
+	 * end of it: the eye loses which line it was on. `ch` is the width of a '0'
+	 * in the current font, so this measure follows the font and the text size. */
+	--measure: 65ch;
+
+	/* Headings need less leading than prose. The words are larger, so the 1.5 of
+	 * the body would leave too much air between the lines of a title. */
+	--leading-tight: 1.1;
+}
+
 /* `System`: follow the machine. `:not([data-mode='light'])` is what lets an
  * explicit choice of light win here. */
 @media (prefers-color-scheme: dark) {
