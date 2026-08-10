@@ -5,6 +5,27 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
 		<!--
+			THE SITE MARK: Lucide's heart-handshake, in static/favicon.svg.
+
+			It is a FILE at a fixed address and not an imported asset. SvelteKit
+			would hash the name and, under 4 KB, inline the whole thing into a data
+			URI on every page — comment included. A favicon is fetched once and
+			cached, and plenty of things that are not this browser look for it:
+			readers, unfurlers, bookmark lists. They need an address that holds
+			still.
+
+			An SVG favicon may carry CSS, and the one in that file answers
+			`prefers-color-scheme` — because a browser TAB is painted in the colours
+			of the system, and not in the display mode this site was set to. So the
+			mark is black on a light tab and white on a dark one, whichever way the
+			page itself is showing.
+
+			There is no .ico. A browser too old for an SVG favicon shows its own
+			blank mark, which is a fair trade for not keeping a second copy of the
+			same drawing in a format from 1990.
+		-->
+		<link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
+		<!--
 			THE STORED DISPLAY MODE, SET BEFORE THE FIRST PAINT.
 
 			The page is rendered on the server, which cannot know what this visitor

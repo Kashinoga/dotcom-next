@@ -23,8 +23,6 @@
 	// import puts them in front of every page.
 	import '../app.css';
 
-	import favicon from '$lib/assets/favicon.svg';
-
 	/*
 	 * ONE IMPORT PER ICON, and never `from '@lucide/svelte'`.
 	 *
@@ -103,10 +101,6 @@
 	// variable is rendered as <Icon />, which Svelte 5 permits.
 	const Icon = $derived(mode === 'system' ? Monitor : mode === 'dark' ? Moon : Sun);
 </script>
-
-<svelte:head>
-	<link rel="icon" href={favicon} />
-</svelte:head>
 
 <!--
 	<header> and <main> are LANDMARKS. A screen reader can jump between them, and
