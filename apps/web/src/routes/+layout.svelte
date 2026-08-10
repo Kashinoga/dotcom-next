@@ -92,7 +92,18 @@
 	that inside a button `currentColor` is the colour of the BUTTON, and not the
 	one set on <html>. `colorScheme` above is what makes the two agree.
 -->
-<button onclick={cycle}>
+<!--
+	THE THREE DECLARATIONS BELOW ARE THE ONLY CSS ON THIS SITE, and they are here
+	because no HTML can do this. An <svg> is an inline box, so it sits on the
+	BASELINE of the text and stands 3.5px too high beside it — measured.
+	`align-items: center` puts the middle of the icon on the middle of the line,
+	which needs the button to be a flex box. `gap` then makes the space, because a
+	flex box drops the whitespace that separated the two before.
+
+	They are an attribute and not a stylesheet, so nothing on this page is styled
+	that does not have to be.
+-->
+<button onclick={cycle} style="display: inline-flex; align-items: center; gap: 0.4em">
 	<Icon size={16} />
 	Display Mode: {mode === 'system' ? `System (${dark ? 'Dark' : 'Light'})` : mode === 'dark' ? 'Dark' : 'Light'}
 </button>
