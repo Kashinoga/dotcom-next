@@ -212,6 +212,21 @@ body {
 	 * a pill on a bar, which is what "round" means in both cases.
 	 */
 	--radius-round: 9999px;
+
+	/*
+	 * THE ACCENT, and the one colour on this site that is not black or white.
+	 *
+	 * `--accent-faint` is the SAME yellow held at 12%, made with `color-mix`
+	 * rather than written out as a second hex value. That is the point: change
+	 * the yellow above and the wash follows it, because the two cannot drift when
+	 * only one of them is a decision.
+	 *
+	 * `in oklab` and not `in srgb`. Mixing in sRGB runs a colour through a dip in
+	 * lightness on the way to transparent; oklab is built so that a step of the
+	 * same size looks the same size to an eye.
+	 */
+	--accent: #ffd60a;
+	--accent-faint: color-mix(in oklab, var(--accent) 12%, transparent);
 }
 
 /* `System`: follow the machine. `:not([data-mode='light'])` is what lets an

@@ -20,7 +20,15 @@
 -->
 <section class="hero">
 	<div class="masthead">
-		<h1>Kashinoga</h1>
+		<!--
+			A <span> and NOT a <mark>, which is what this started as. <mark> means
+			"relevant to what the reader is doing right now" — a search hit, the
+			passage under discussion — and a name is not that. Some screen readers
+			announce "highlight" around it, which would put a word with no meaning
+			into the reading of the title. The highlight here is decoration, and
+			decoration belongs in an element that claims nothing.
+		-->
+		<h1><span class="highlight">Kashinoga</span></h1>
 		<p class="tagline">So Alive, No Disguise</p>
 	</div>
 
@@ -88,29 +96,47 @@
 		letter-spacing: var(--tracking-tight);
 
 		/*
-		 * OPTICAL ALIGNMENT, and the reason this number is not round.
+		 * OPTICAL ALIGNMENT. THE TEXT IS THE EDGE, and the highlight hangs off it.
 		 *
-		 * Every glyph carries built-in space to its LEFT — its side bearing — and
-		 * that space is part of the letter, so it grows with the font size. The
-		 * box of this title and the box of the tagline start at the same x, and
-		 * the letters do not: measured in the browser, Inter's bold K at 72px
-		 * carries 3px of bearing and its regular S at 32px carries 1px. The eye
-		 * sees the ink, so it sees the title indented by 2px.
+		 * A highlighter does not respect a margin. Someone drawing one over a word
+		 * starts a little before the first letter and stops a little after the
+		 * last, and the WORDS stay where the words were. So the K meets the S of
+		 * the tagline, and the yellow runs out past both — which is the whole
+		 * effect: a real stroke, drawn by a machine that never wobbles.
 		 *
-		 * 2px at 72px is 0.028em, and `em` is what makes this hold: --text-display
-		 * is fluid, so a pixel value would be right at one window width and wrong
-		 * at every other.
+		 * -0.028em is the old correction, and it is still doing the same job: the K
+		 * carries 3px of side bearing at 72px against the tagline's 1px, so the
+		 * title has to come left by the 2px difference to sit level.
 		 *
-		 * CSS has no property for this. `text-box-trim` answers the same problem
-		 * on the vertical axis and there is no horizontal equal.
+		 * The box then adds its own border and padding in front of the K, and the
+		 * calc takes both back. Written against the SAME two properties the box
+		 * uses, so changing the padding moves the alignment with it instead of
+		 * leaving a number behind that used to be right.
 		 *
-		 * THIS FIGURE BELONGS TO INTER. It was -0.07em while the site used
-		 * `system-ui`, because that resolved to Noto Sans here and Noto's K
-		 * carries twice the bearing. That is the hidden cost of a system font,
-		 * and paying a self-hosted file is what makes one measurement true on
-		 * every machine. Measure again if the typeface ever changes.
+		 * CSS has no property for any of this. `text-box-trim` answers the same
+		 * problem on the vertical axis and there is no horizontal equal.
 		 */
-		margin-left: -0.028em;
+		--highlight-border: 0.03em;
+		--highlight-pad: 0.08em;
+		margin-left: calc(-0.028em - var(--highlight-border) - var(--highlight-pad));
+	}
+
+	/*
+	 * THE HIGHLIGHT. A solid rule of the accent, and a wash of the same yellow at
+	 * 12% inside it.
+	 *
+	 * Both measures are in `em`, so they hold their proportion to the letters as
+	 * --text-display moves between 40px and 72px. A 2px rule that looked right on
+	 * a desktop would be a heavy line around a title on a phone.
+	 *
+	 * They are declared on the h1 above rather than here, because the alignment
+	 * of the title has to subtract them and a value that two rules depend on
+	 * should be written once.
+	 */
+	.highlight {
+		background-color: var(--accent-faint);
+		border: var(--highlight-border) solid var(--accent);
+		padding-inline: var(--highlight-pad);
 	}
 
 	.tagline {
