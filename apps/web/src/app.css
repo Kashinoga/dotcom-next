@@ -1,0 +1,119 @@
+/*
+ * THE GLOBAL STYLESHEET. src/routes/+layout.svelte loads it, so it reaches every
+ * page. It holds two things and nothing else:
+ *
+ *   1. A reset, which levels the stylesheet the browser ships.
+ *   2. The tokens of the display mode.
+ *
+ * A component keeps its own rules in its own <style> block, where Svelte scopes
+ * them to it. Put a rule here only when it is true of the whole site.
+ */
+
+/* ─── The reset ──────────────────────────────────────────────────────────────
+ * Every browser ships a stylesheet of its own. It is why <h1> is large, <p> has
+ * space around it, and <button> has grey chrome that nobody asked for. These
+ * lines correct the defaults that are agreed to be wrong, and leave the rest.
+ * A larger reset made sense when browsers disagreed more than they do now.
+ */
+
+/* Padding and border stop making a box wider than the width you gave it. */
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+/* Space becomes a decision. <body> alone has a margin of 8px by default. */
+* {
+	margin: 0;
+}
+
+body {
+	/* Fill the window, so a short page still paints its background everywhere.
+	 * `dvh` and not `vh`, because a phone's bars move. */
+	min-height: 100dvh;
+	/* 1.5 for prose. The default of `normal` is near 1.2, which is tight. */
+	line-height: 1.5;
+}
+
+/* An <svg> or an <img> is an inline box by default, so it sits on the BASELINE
+ * of the text and leaves a gap under it. `max-width` stops a wide picture from
+ * pushing the page sideways. */
+img,
+svg,
+video,
+canvas {
+	display: block;
+	max-width: 100%;
+}
+
+/* A form control does not inherit the font of the page. It uses the font of the
+ * system, and it is the one place in HTML where that happens. */
+input,
+button,
+textarea,
+select {
+	font: inherit;
+}
+
+/* One long word — a URL, an identifier — can otherwise make the whole page
+ * scroll sideways. */
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	overflow-wrap: break-word;
+}
+
+/* ─── The display mode ───────────────────────────────────────────────────────
+ * The colours live HERE, and not in JavaScript. The app sets one attribute,
+ * `data-mode`, on <html>, and this decides what that means. No attribute means
+ * `System`, so the media query below is what answers.
+ *
+ * `background-color` and `color` are declared ONCE, on :root, against the two
+ * custom properties. Each rule under it therefore has to change only the
+ * properties: the declarations that read them resolve again by themselves.
+ *
+ * `color-scheme` is not decoration. It tells the browser which system colours to
+ * paint a button, a scrollbar and every other control with. Without it the page
+ * goes black and the controls on it stay light.
+ *
+ * ORDER MATTERS. The media query comes before the two explicit settings, so a
+ * visitor who has chosen light keeps light on a dark machine.
+ */
+:root {
+	--bg: #fff;
+	--fg: #000;
+
+	color-scheme: light;
+	background-color: var(--bg);
+	color: var(--fg);
+}
+
+/* `System`: follow the machine. `:not([data-mode='light'])` is what lets an
+ * explicit choice of light win here. */
+@media (prefers-color-scheme: dark) {
+	:root:not([data-mode='light']) {
+		--bg: #000;
+		--fg: #fff;
+
+		color-scheme: dark;
+	}
+}
+
+:root[data-mode='light'] {
+	--bg: #fff;
+	--fg: #000;
+
+	color-scheme: light;
+}
+
+:root[data-mode='dark'] {
+	--bg: #000;
+	--fg: #fff;
+
+	color-scheme: dark;
+}

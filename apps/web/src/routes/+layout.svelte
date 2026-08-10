@@ -1,4 +1,8 @@
 <script lang="ts">
+	// The reset and the display-mode tokens. This is the root layout, so the
+	// import puts them in front of every page.
+	import '../app.css';
+
 	import favicon from '$lib/assets/favicon.svg';
 
 	/*
@@ -25,8 +29,8 @@
 	 * `system` on the server AND on the first client render, so the two agree and
 	 * hydration has nothing to correct. The stored choice arrives one tick later,
 	 * in the first effect. The COLOURS are already correct by then, because the
-	 * script in app.html sets them before the first paint. Only the label of the
-	 * button can change, and it is below the fold of a visitor's attention.
+	 * script in app.html sets the attribute before the first paint. Only the label
+	 * of the button can change.
 	 */
 	// `$state<Mode>` and not `let mode: Mode`. With the annotation, TypeScript sees
 	// only the initial value and narrows the type to 'system', because each write
@@ -35,6 +39,11 @@
 	let mode = $state<Mode>('system');
 	let systemDark = $state(false);
 
+	/*
+	 * `dark` is for the LABEL of the button, and for nothing else. app.css decides
+	 * what the page looks like. Keep it that way: two places that hold the same
+	 * rule will disagree in the end.
+	 */
 	const dark = $derived(mode === 'dark' || (mode === 'system' && systemDark));
 
 	// Read the stored choice once, then follow the system setting for as long as
@@ -53,23 +62,15 @@
 	});
 
 	/*
-	 * The colours go on <html>, and not on a wrapper element around the page. The
-	 * background of <html> fills the whole window, so the default margin of <body>
-	 * shows no white edge in dark mode. This is also why there is no stylesheet:
-	 * three properties on one element need none.
-	 *
-	 * `colorScheme` is the third, and it is not decoration. A <button> does not
-	 * inherit `color`: the browser paints it with its own system colours, which
-	 * are the LIGHT ones until this property says otherwise. Without it the site
-	 * went black and the one button on it stayed a light grey slab with black
-	 * text — measured, in a screenshot. It also fixes the scrollbar and each form
-	 * control the site will grow later.
+	 * ONE ATTRIBUTE ON <html>, and no colours. app.css reads it. No attribute is
+	 * what `System` means there, so the setting is REMOVED rather than written —
+	 * the CSS media query is then free to answer, and it answers again by itself
+	 * when the machine changes.
 	 */
 	$effect(() => {
 		const root = document.documentElement;
-		root.style.backgroundColor = dark ? '#000' : '#fff';
-		root.style.color = dark ? '#fff' : '#000';
-		root.style.colorScheme = dark ? 'dark' : 'light';
+		if (mode === 'system') root.removeAttribute('data-mode');
+		else root.dataset.mode = mode;
 	});
 
 	function cycle() {
@@ -90,22 +91,28 @@
 <!--
 	The icon draws itself in `currentColor`, so it needs no rule of its own. Note
 	that inside a button `currentColor` is the colour of the BUTTON, and not the
-	one set on <html>. `colorScheme` above is what makes the two agree.
+	one on <html>. `color-scheme` in app.css is what makes the two agree.
 -->
-<!--
-	THE THREE DECLARATIONS BELOW ARE THE ONLY CSS ON THIS SITE, and they are here
-	because no HTML can do this. An <svg> is an inline box, so it sits on the
-	BASELINE of the text and stands 3.5px too high beside it — measured.
-	`align-items: center` puts the middle of the icon on the middle of the line,
-	which needs the button to be a flex box. `gap` then makes the space, because a
-	flex box drops the whitespace that separated the two before.
-
-	They are an attribute and not a stylesheet, so nothing on this page is styled
-	that does not have to be.
--->
-<button onclick={cycle} style="display: inline-flex; align-items: center; gap: 0.4em">
+<button onclick={cycle}>
 	<Icon size={16} />
 	Display Mode: {mode === 'system' ? `System (${dark ? 'Dark' : 'Light'})` : mode === 'dark' ? 'Dark' : 'Light'}
 </button>
 
 {@render children()}
+
+<style>
+	/*
+	 * The rules of this component, which Svelte scopes to it. The button keeps the
+	 * chrome the browser gives it; these three lines only put the icon and the
+	 * text on one line, level with each other.
+	 *
+	 * An <svg> would otherwise sit on the BASELINE of the text and stand 3.5px too
+	 * high — measured. `align-items` levels them, which needs a flex box, and
+	 * `gap` then makes the space that the flex box takes away.
+	 */
+	button {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4em;
+	}
+</style>
