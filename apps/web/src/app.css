@@ -93,6 +93,28 @@ h6 {
 	color: var(--fg);
 }
 
+/* ─── The font ───────────────────────────────────────────────────────────────
+ * `system-ui` is the font the operating system uses for its OWN interface:
+ * Segoe UI on Windows, San Francisco on an Apple system, Roboto on Android,
+ * and whatever the desktop chose on Linux. Each one is a sans-serif, and the
+ * fallback keeps that true where the keyword cannot resolve. Nothing is
+ * downloaded, and the site reads as native on each machine.
+ *
+ * It is set on <body> and not on :root, because a token belongs to :root and
+ * the use of it belongs where the text is. `font: inherit` in the reset above
+ * is what carries it into a button and every other control.
+ *
+ * ONE token today, named for what it is FOR and not for what it looks like. A
+ * site with prose on it will want a second, and the two may well differ.
+ */
+:root {
+	--font-ui: system-ui, sans-serif;
+}
+
+body {
+	font-family: var(--font-ui);
+}
+
 /* `System`: follow the machine. `:not([data-mode='light'])` is what lets an
  * explicit choice of light win here. */
 @media (prefers-color-scheme: dark) {
