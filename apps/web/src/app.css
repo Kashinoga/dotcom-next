@@ -94,25 +94,44 @@ h6 {
 }
 
 /* ─── The font ───────────────────────────────────────────────────────────────
- * `system-ui` is the font the operating system uses for its OWN interface:
- * Segoe UI on Windows, San Francisco on an Apple system, Roboto on Android,
- * and whatever the desktop chose on Linux. Each one is a sans-serif, and the
- * fallback keeps that true where the keyword cannot resolve. Nothing is
- * downloaded, and the site reads as native on each machine.
+ * INTER, one variable file carrying every weight from 100 to 900. The site
+ * hosts it: see the imports at the top of src/routes/+layout.svelte.
+ *
+ * The site used `system-ui` before, which is the font the operating system uses
+ * for its own interface. That costs nothing to download and looks native, but
+ * it is a DIFFERENT typeface on each machine — Segoe UI, San Francisco, Roboto,
+ * Noto Sans — so nothing measured on one holds on another. A design system
+ * cannot be built on a face that changes under it.
+ *
+ * The fallbacks still matter. They are what a visitor reads for the moment
+ * before the file arrives, and for ever if it never does.
  *
  * It is set on <body> and not on :root, because a token belongs to :root and
  * the use of it belongs where the text is. `font: inherit` in the reset above
  * is what carries it into a button and every other control.
  *
  * ONE token today, named for what it is FOR and not for what it looks like. A
- * site with prose on it will want a second, and the two may well differ.
+ * site with long prose on it may want a second, and the two may well differ.
  */
 :root {
-	--font-ui: system-ui, sans-serif;
+	--font-ui: 'Inter Variable', system-ui, sans-serif;
 }
 
 body {
 	font-family: var(--font-ui);
+
+	/*
+	 * The OPTICAL SIZE axis. Inter carries two drawings of its letters — one for
+	 * text and one for display — and `auto` moves between them by the size the
+	 * text is set at. Large sizes get tighter spacing and finer joins; small
+	 * sizes get open counters and sturdier strokes. It is what a metal foundry
+	 * did by cutting each size separately, in one file.
+	 *
+	 * `auto` is the default for a font with the axis. It is written here because
+	 * a reader should be able to see that the axis is in use, and because this
+	 * is the line to change to pin it.
+	 */
+	font-optical-sizing: auto;
 }
 
 /* ─── The scales ─────────────────────────────────────────────────────────────

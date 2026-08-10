@@ -89,23 +89,24 @@
 		 * Every glyph carries built-in space to its LEFT — its side bearing — and
 		 * that space is part of the letter, so it grows with the font size. The
 		 * box of this title and the box of the tagline start at the same x, and
-		 * the letters do not: measured in the browser, the bold K at 72px carries
-		 * 6px of bearing and the regular S at 32px carries 1px. The eye sees the
-		 * ink, so it sees the title indented by 5px.
+		 * the letters do not: measured in the browser, Inter's bold K at 72px
+		 * carries 3px of bearing and its regular S at 32px carries 1px. The eye
+		 * sees the ink, so it sees the title indented by 2px.
 		 *
-		 * 5px at 72px is 0.07em, and `em` is what makes this hold: --text-display
+		 * 2px at 72px is 0.028em, and `em` is what makes this hold: --text-display
 		 * is fluid, so a pixel value would be right at one window width and wrong
 		 * at every other.
 		 *
 		 * CSS has no property for this. `text-box-trim` answers the same problem
 		 * on the vertical axis and there is no horizontal equal.
 		 *
-		 * KNOW THE LIMIT: the figure was measured against Noto Sans, which is what
-		 * `system-ui` resolves to on this machine. Segoe UI, San Francisco and
-		 * Roboto carry their own bearings, so elsewhere this is close and not
-		 * exact — a fraction of a pixel out instead of five.
+		 * THIS FIGURE BELONGS TO INTER. It was -0.07em while the site used
+		 * `system-ui`, because that resolved to Noto Sans here and Noto's K
+		 * carries twice the bearing. That is the hidden cost of a system font,
+		 * and paying a self-hosted file is what makes one measurement true on
+		 * every machine. Measure again if the typeface ever changes.
 		 */
-		margin-left: -0.07em;
+		margin-left: -0.028em;
 	}
 
 	.tagline {

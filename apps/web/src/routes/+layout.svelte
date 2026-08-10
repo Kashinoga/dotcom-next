@@ -1,4 +1,24 @@
 <script lang="ts">
+	/*
+	 * INTER, hosted by this site and not by anybody else.
+	 *
+	 * The package holds the woff2 files; Vite bundles them into the build with a
+	 * hashed name, so they are served from this origin. No CDN, so no third party
+	 * learns who reads this site, and nothing here waits on a server we do not
+	 * own.
+	 *
+	 * `opsz` is the cut with the OPTICAL SIZE axis as well as weight. See
+	 * `font-optical-sizing` in app.css for what that buys. The italic file is
+	 * declared beside it and is fetched only if the page ever sets italic text —
+	 * without it a browser SLANTS the upright letters, which is not the same
+	 * thing and looks it.
+	 *
+	 * Each @font-face in these files carries a `unicode-range`, so a page in
+	 * English fetches the Latin subset and none of the others.
+	 */
+	import '@fontsource-variable/inter/opsz.css';
+	import '@fontsource-variable/inter/opsz-italic.css';
+
 	// The reset and the display-mode tokens. This is the root layout, so the
 	// import puts them in front of every page.
 	import '../app.css';
