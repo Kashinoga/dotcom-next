@@ -25,7 +25,12 @@
 	</div>
 
 	<div class="prose">
-		<p>Hi, my name is Andrew Nguyen.</p>
+		<!--
+			An em dash, and not the two hyphens a keyboard offers. `--` is what a
+			typewriter did when it had no dash key. A browser has the character, so
+			it should print it.
+		-->
+		<p>Hi, my name is Andrew Nguyen — aka Kashinoga.</p>
 
 		<p>
 			This is my corner of the Internet. Here, you'll find the things that I've created. These
