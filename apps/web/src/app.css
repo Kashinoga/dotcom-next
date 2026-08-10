@@ -203,6 +203,15 @@ body {
 	 * corrections stack.
 	 */
 	--tracking-tight: -0.015em;
+
+	/*
+	 * FULLY ROUND. 9999px and not 50%, and the difference matters the moment a
+	 * thing stops being square: 50% is half of each side, so it draws an ellipse
+	 * on a wide box, while a radius larger than the box can use is clamped to a
+	 * half-circle at each end. One value therefore gives a circle on a square and
+	 * a pill on a bar, which is what "round" means in both cases.
+	 */
+	--radius-round: 9999px;
 }
 
 /* `System`: follow the machine. `:not([data-mode='light'])` is what lets an

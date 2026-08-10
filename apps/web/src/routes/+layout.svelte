@@ -100,6 +100,19 @@
 	// stays while the system moves between light and dark. A component held in a
 	// variable is rendered as <Icon />, which Svelte 5 permits.
 	const Icon = $derived(mode === 'system' ? Monitor : mode === 'dark' ? Moon : Sun);
+
+	/*
+	 * The button shows an icon and no words, so this sentence IS its name. It is
+	 * what a screen reader announces and what the tooltip shows, and without it
+	 * the control is a circle that reads as "button".
+	 *
+	 * It names the state AND the action, because either alone leaves a question:
+	 * "Dark" does not say that pressing does anything, and "Change display mode"
+	 * does not say what it is now.
+	 */
+	const label = $derived(
+		mode === 'system' ? `System (${dark ? 'Dark' : 'Light'})` : mode === 'dark' ? 'Dark' : 'Light'
+	);
 </script>
 
 <!--
@@ -112,13 +125,12 @@
 	one on <html>. `color-scheme` in app.css is what makes the two agree.
 -->
 <header>
-	<button onclick={cycle}>
-		<Icon size={16} />
-		Display Mode: {mode === 'system'
-			? `System (${dark ? 'Dark' : 'Light'})`
-			: mode === 'dark'
-				? 'Dark'
-				: 'Light'}
+	<button
+		onclick={cycle}
+		aria-label="Display mode: {label}. Change it."
+		title="Display mode: {label}"
+	>
+		<Icon size={18} />
 	</button>
 </header>
 
@@ -127,22 +139,33 @@
 </main>
 
 <style>
-	/*
-	 * The rules of this component, which Svelte scopes to it. The button keeps the
-	 * chrome the browser gives it; these three lines only put the icon and the
-	 * text on one line, level with each other.
-	 *
-	 * An <svg> would otherwise sit on the BASELINE of the text and stand 3.5px too
-	 * high — measured. `align-items` levels them, which needs a flex box, and
-	 * `gap` then makes the space that the flex box takes away.
-	 */
-	button {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-xs);
-	}
+	/* The rules of this component, which Svelte scopes to it. */
 
 	header {
+		display: flex;
+		/* The bar holds one control and it sits at the END of the line — `flex-end`
+		 * and not `right`, so the bar follows the writing direction of the document
+		 * rather than assuming the world reads left to right. */
+		justify-content: flex-end;
 		padding: var(--space-m);
+	}
+
+	button {
+		/* A square, so the radius below draws a circle and not an egg. 2.75rem is
+		 * 44px, which is the smallest target a finger can hit reliably. The icon is
+		 * 18px, and the rest is the room around it. */
+		inline-size: 2.75rem;
+		block-size: 2.75rem;
+		border-radius: var(--radius-round);
+
+		/* Centre the icon on both axes. Without this it would sit on the text
+		 * baseline of a line box that has no text in it. */
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+
+		/* The chrome stays the browser's, so the control still looks like a button
+		 * a visitor's own system drew, and `color-scheme` keeps answering for it in
+		 * dark mode. Only the SHAPE is ours. */
 	}
 </style>
