@@ -4,6 +4,33 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
+		<!--
+			THE DISPLAY MODE, SET BEFORE THE FIRST PAINT.
+
+			The page is rendered on the server, which knows neither the stored choice
+			nor the setting of this machine. Without this, a visitor in dark mode sees
+			a white page on every load, until the app starts. That is the flash this
+			removes, and it is the ONLY reason the script is here and not in the app.
+
+			src/routes/+layout.svelte owns the same rule and takes over at hydration.
+			Keep the two in agreement.
+
+			This script is inline because a file would be a second request in front of
+			the first paint. If this site ever gets a Content Security Policy, this is
+			the one script that has to be answered for.
+		-->
+		<script>
+			try {
+				const saved = localStorage.getItem('display-mode');
+				const dark =
+					saved === 'dark' ||
+					(saved !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+				document.documentElement.style.backgroundColor = dark ? '#000' : '#fff';
+				document.documentElement.style.color = dark ? '#fff' : '#000';
+			} catch {
+				// A browser that refuses localStorage still gets a page, in light mode.
+			}
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
