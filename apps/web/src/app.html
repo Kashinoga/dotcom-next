@@ -27,6 +27,7 @@
 					(saved !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
 				document.documentElement.style.backgroundColor = dark ? '#000' : '#fff';
 				document.documentElement.style.color = dark ? '#fff' : '#000';
+				document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
 			} catch {
 				// A browser that refuses localStorage still gets a page, in light mode.
 			}
