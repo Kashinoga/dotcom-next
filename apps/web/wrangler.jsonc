@@ -1,6 +1,8 @@
 {
-	"$schema": "./node_modules/wrangler/config-schema.json",
-	"name": "web",
+	// The workspace uses a flat node_modules at the repository root, so the schema
+	// is two levels up and not in this directory. See pnpm-workspace.yaml.
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "dotcom-web",
 	"compatibility_date": "2026-08-10",
 	"compatibility_flags": [
 		"nodejs_als"

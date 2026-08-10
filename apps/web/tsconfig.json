@@ -3,7 +3,22 @@
 	"compilerOptions": {
 		"rewriteRelativeImportExtensions": true,
 		"allowJs": true,
-		"checkJs": true,
+		/*
+		 * `checkJs` is OFF, and the template has it ON.
+		 *
+		 * When a build exists, `wrangler types` writes this line into
+		 * worker-configuration.d.ts:
+		 *     mainModule: typeof import("./.svelte-kit/cloudflare/_worker");
+		 * That pulls the adapter's BUNDLED output into the program. With `checkJs`
+		 * on, svelte-check then reports several hundred errors in generated code
+		 * that nobody wrote and nobody can correct — but only after a build. So
+		 * `pnpm check` passed or failed by the state of a directory.
+		 *
+		 * No source file here is JavaScript, so this setting costs the project
+		 * nothing today. Make it true again if you add .js source, and keep the
+		 * bundle out of the program.
+		 */
+		"checkJs": false,
 		"esModuleInterop": true,
 		"forceConsistentCasingInFileNames": true,
 		"resolveJsonModule": true,
