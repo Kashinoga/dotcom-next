@@ -80,8 +80,7 @@
 	h1 {
 		font-size: var(--text-display);
 		line-height: var(--leading-tight);
-		/* Letters set this large look loose at the spacing that suits body text. */
-		letter-spacing: -0.02em;
+		letter-spacing: var(--tracking-tight);
 
 		/*
 		 * OPTICAL ALIGNMENT, and the reason this number is not round.

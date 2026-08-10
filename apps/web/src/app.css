@@ -32,8 +32,10 @@ body {
 	/* Fill the window, so a short page still paints its background everywhere.
 	 * `dvh` and not `vh`, because a phone's bars move. */
 	min-height: 100dvh;
-	/* 1.5 for prose. The default of `normal` is near 1.2, which is tight. */
-	line-height: 1.5;
+	/* The default of `normal` is near 1.2, which is tight for reading. A custom
+	 * property may be used before the rule that declares it — they are resolved
+	 * by the cascade and not by the order of the file. */
+	line-height: var(--leading-prose);
 }
 
 /* An <svg> or an <img> is an inline box by default, so it sits on the BASELINE
@@ -174,9 +176,33 @@ body {
 	 * in the current font, so this measure follows the font and the text size. */
 	--measure: 65ch;
 
-	/* Headings need less leading than prose. The words are larger, so the 1.5 of
-	 * the body would leave too much air between the lines of a title. */
+	/*
+	 * LEADING AND TRACKING, and both belong to INTER.
+	 *
+	 * These were 1.5 and -0.02em while the site used the system font, which here
+	 * was Noto Sans. Inter has a LARGER X-HEIGHT: its letters fill more of the
+	 * line, so the same ratio leaves less white between one line and the next,
+	 * and the same tracking closes a gap that was already smaller. Rendered side
+	 * by side at 16px and 72px, both read tight. This is the same lesson as the
+	 * side bearing on the title — a number tuned to one typeface is not a number,
+	 * it is a measurement of that typeface.
+	 *
+	 * 1.6 for prose, at a measure of 65 characters. The longer the line, the more
+	 * white the eye needs to find the start of the next one.
+	 *
+	 * A heading needs less: the words are larger, so the leading of body text
+	 * would leave a title floating apart.
+	 */
+	--leading-prose: 1.6;
 	--leading-tight: 1.1;
+
+	/*
+	 * Large type looks loose at the spacing that suits body text, so it is pulled
+	 * together. Inter needs LESS of this than most: it is closely fitted already,
+	 * and `font-optical-sizing` tightens the display cut further, so the two
+	 * corrections stack.
+	 */
+	--tracking-tight: -0.015em;
 }
 
 /* `System`: follow the machine. `:not([data-mode='light'])` is what lets an
