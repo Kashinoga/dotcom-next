@@ -2,20 +2,17 @@ packages:
   - apps/*
   - packages/*
 
-# A FLAT node_modules, not pnpm's default symlink tree.
+# DO NOT INSTALL THIS PROJECT ON THE NETWORK SHARE. Develop from a local clone.
 #
-# This repository lives on the network share (see the root CLAUDE.md), which is
-# mounted with sshfs. That server refuses `readlink` on any symlink whose target
-# contains a '/', and every link pnpm makes has one. The default layout
-# therefore installs and then cannot be read: `EPERM ... open
-# 'apps/web/node_modules/svelte/package.json'`.
+# The share is mounted with sshfs, and that server refuses `readlink` on any
+# symlink whose target starts with '..' or '/'. pnpm's `node_modules` is built
+# from such links, and so is `node_modules/.bin` in EVERY layout — so no tool can
+# even be found there: `sh: svelte-kit: command not found`.
 #
-# `hoisted` gives the npm-style flat tree, with no links to read. The cost is
-# that a package can import something it did not declare, and pnpm will not stop
-# it. Declare each dependency you use.
-#
-# pnpm 11 reads this setting HERE and not from .npmrc.
-nodeLinker: hoisted
+# `nodeLinker: hoisted` was set here for a while, because a flat tree answers the
+# first half of that. It does not answer the second half, so it bought nothing
+# and cost the strict check that stops a package importing what it never
+# declared. The default is back.
 
 # pnpm 10+ blocks install scripts by default. Both of these must run their own,
 # or the build fails: workerd is Cloudflare's runtime, and esbuild fetches its
