@@ -8,7 +8,8 @@
 		"build": "pnpm -r build",
 		"check": "pnpm -r check",
 		"format": "prettier --write .",
-		"format:check": "prettier --check ."
+		"format:check": "prettier --check .",
+		"test:e2e": "pnpm --filter web test:e2e"
 	},
 	"devDependencies": {
 		"prettier": "^3.9.6",

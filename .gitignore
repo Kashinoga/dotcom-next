@@ -18,6 +18,12 @@ build/
 dist/
 .claude/
 .vscode/
+# Playwright's output. These MUST be hard-ignored here rather than left to the
+# `*` above: a report is .html and a trace index is .js, and the opt-ins below
+# would otherwise make every one of them trackable.
+test-results/
+playwright-report/
+blob-report/
 
 # ─── Opt back in: source and config ───
 # A name with no extension is caught by `*` above and matches none of the
