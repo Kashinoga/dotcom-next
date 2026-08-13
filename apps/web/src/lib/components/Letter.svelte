@@ -163,50 +163,13 @@
 		flex-direction: column;
 		gap: var(--space-m);
 
-		/* Only so that the rule below has this box to measure itself against. */
+		/*
+		 * NOT DECORATION, and not spare. A page can hang something in the margin
+		 * beside the letter by positioning it against this box — the Emoji Viewer's
+		 * group list does exactly that, with `inset-inline-start: 100%`. Take this
+		 * line out and that rail goes and stands against the viewport instead,
+		 * which is a long way from where it belongs.
+		 */
 		position: relative;
-	}
-
-	/*
-	 * THE RULE, and its whole job is to say WHERE THE PROSE BEGINS. It marks the
-	 * reading edge of this column and nothing else. It answers to no other mark
-	 * on the page — where it happens to line up with the title above is a
-	 * coincidence of one window width, because that one is measured in `em` and
-	 * moves with the type while this one does not.
-	 *
-	 * It is drawn on the START side, so it is the LEFT edge where the writing
-	 * runs left to right and the RIGHT edge where it does not. That is why every
-	 * property here is logical — `inset-inline-start` and `inline-size`, never
-	 * `left` and `width`. A reader in Cairo gets the mark on the side their eye
-	 * returns to.
-	 *
-	 * A pseudo-element and not `border-inline-start`. A border is part of the
-	 * box: it would take its 4px out of the measure and push every line across to
-	 * make room. This one is part of nothing, so it can name the edge without
-	 * moving it.
-	 *
-	 * `position: absolute` also keeps it out of the flex flow. A ::before on a
-	 * flex container is otherwise a flex item, and this would become the first
-	 * paragraph of the letter.
-	 *
-	 * --space-s puts it inside the page's own padding, which is --space-m. It
-	 * therefore stands clear of the words without ever leaving the page: 8px of
-	 * air to the text, and 4px left over to the edge of the column. Further out
-	 * than --space-m and a phone would cut it off, because overflow past the
-	 * start edge does not scroll.
-	 *
-	 * One rule per `.prose`. A page that grows a second prose area gets a second
-	 * mark, without being asked.
-	 */
-	.prose::before {
-		content: '';
-		position: absolute;
-		inset-block: 0;
-		inset-inline-start: calc(-1 * var(--space-s));
-
-		/* 4px, and not an `em`. The rule is a fixed mark on the page and not a
-		 * thing the letters own, so it does not grow with them. */
-		inline-size: 4px;
-		background-color: var(--accent);
 	}
 </style>

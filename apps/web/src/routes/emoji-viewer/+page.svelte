@@ -62,7 +62,8 @@
 			frame = 0;
 
 			/*
-			 * THE LINE IS THE ONE THE BROWSER ALREADY USES.
+			 * THE LINE IS THE ONE THE BROWSER ALREADY USES, and it is asked for each
+			 * heading rather than worked out once.
 			 *
 			 * It was the bar's lower edge, and that was a second number: following a
 			 * link put the heading at `scroll-padding-block-start`, 92px, while this
@@ -71,29 +72,35 @@
 			 * the group above it — the list pointing at the wrong place at the exact
 			 * moment it had been asked to point somewhere.
 			 *
-			 * Reading the scroll padding means the jump and the mark cannot disagree,
-			 * because there is no longer a second value for them to disagree about.
+			 * A heading now has a `scroll-margin` of its own as well, to clear the
+			 * search field that stays under the bar. Reading BOTH off the page is
+			 * what keeps the jump and the mark in step; a copy of either number here
+			 * would be the same bug again, waiting.
 			 */
 			const root = getComputedStyle(document.documentElement);
 			const padding = Number.parseFloat(root.scrollPaddingTop);
 			const bar =
 				document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
-			/*
-			 * `auto` parses to NaN, which is what a page with no padding set reports.
-			 *
-			 * Two pixels of slack, and they are needed: a jump lands the heading on
-			 * 92.39 against a padding of 92, because the wall's rows do not fall on
-			 * whole pixels. One pixel left six tenths of a pixel between working and
-			 * not, which is not a margin, it is a coincidence. The next heading is
-			 * five hundred pixels away, so there is nothing for the slack to catch.
-			 */
-			const line = (Number.isFinite(padding) ? padding : bar) + 2;
+			// `auto` parses to NaN, which is what a page with no padding reports.
+			const scrollport = Number.isFinite(padding) ? padding : bar;
 
 			let found = '';
 			for (const group of current) {
 				const el = document.getElementById(slug(group.name));
-				if (el && el.getBoundingClientRect().top <= line)
-					found = slug(group.name);
+				if (!el) continue;
+
+				const margin = Number.parseFloat(getComputedStyle(el).scrollMarginTop);
+				/*
+				 * Two pixels of slack, and they are needed: a jump lands the heading
+				 * on 92.39 against a padding of 92, because the wall's rows do not
+				 * fall on whole pixels. One pixel left six tenths of a pixel between
+				 * working and not, which is a coincidence and not a margin. The next
+				 * heading is five hundred pixels away, so there is nothing for the
+				 * slack to catch.
+				 */
+				const line = scrollport + (Number.isFinite(margin) ? margin : 0) + 2;
+
+				if (el.getBoundingClientRect().top <= line) found = slug(group.name);
 			}
 
 			// Before the first heading has reached the line there is no group above
@@ -172,11 +179,19 @@
 		you see is what will arrive when you paste it somewhere else.
 	</p>
 
-	<SearchField
-		bind:value={query}
-		label="Search the emojis by name"
-		placeholder="Search by name"
-	/>
+	<!--
+		The field STAYS, directly under the bar, because the wall below it is some
+		three thousand pixels tall and the search was otherwise a scroll back to
+		the top. The wrapper does the sticking rather than the field: SearchField
+		draws a control and should not also decide where a page keeps it.
+	-->
+	<div class="search">
+		<SearchField
+			bind:value={query}
+			label="Search the emojis by name"
+			placeholder="Search by name"
+		/>
+	</div>
 
 	<!--
 		The line is announced when it changes, and it is ALWAYS here, holding its
@@ -274,8 +289,12 @@
 	 * The rail is absolute and runs the FULL HEIGHT of the prose; the list inside
 	 * it is what sticks. That is the division that makes this work — sticky needs
 	 * a box to travel inside, and an absolutely positioned element cannot be
-	 * sticky itself. `.prose` is already `position: relative`, for the yellow rule
-	 * on the other side.
+	 * sticky itself.
+	 *
+	 * It measures itself against `.prose`, which Letter.svelte keeps
+	 * `position: relative` FOR THIS, and now for nothing else — a yellow rule
+	 * used to stand on the other side and is gone. The note is there too, so
+	 * neither file can drop it believing the other has no use for it.
 	 */
 	.rail {
 		position: absolute;
@@ -303,8 +322,11 @@
 	}
 
 	/*
-	 * The list stops short of the bar rather than sliding under it, by the bar's
-	 * own published height plus a step of air.
+	 * The list stops short of the bar rather than sliding under it, and it stops
+	 * at THE SAME PLACE THE SEARCH FIELD DOES. The expression is written the same
+	 * way in both rules on purpose: the step of air is what parts them from the
+	 * bar, and their top edges lining up across the page is what says they are
+	 * one row of furniture rather than two things that happened to stop nearby.
 	 */
 	.toc {
 		position: sticky;
@@ -350,10 +372,46 @@
 		border-inline-start-color: var(--accent);
 	}
 
+	/*
+	 * THE FIELD STANDS STILL, a step below the bar.
+	 *
+	 * `--bar-block-size` and not a number: the bar publishes its height and this
+	 * reads it, so the two cannot drift apart. The `--space-m` on top of it is
+	 * air between the bar and the field, and THE LIST IN THE MARGIN ADDS THE SAME
+	 * — the two must be written identically, because their top edges lining up
+	 * across the page is the whole point of the step.
+	 *
+	 * The background is not decoration. Once the field stops, the wall keeps
+	 * moving behind it, and without something opaque the emojis would scroll
+	 * straight through the words being typed. At rest it is --bg over --bg and
+	 * therefore invisible, exactly as the bar's own is.
+	 *
+	 * No z-index. Sticky makes this a positioned box, and a positioned box paints
+	 * over the in-flow wall by itself. The rail beside the prose is positioned
+	 * too and comes later, but the two never share any ground.
+	 */
+	.search {
+		position: sticky;
+		inset-block-start: calc(var(--bar-block-size) + var(--space-m));
+		background-color: var(--bg);
+	}
+
 	.group {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-xs);
+
+		/*
+		 * A HEADING HAS TWO THINGS TO CLEAR NOW, not one. The document's
+		 * `scroll-padding-block-start` already stands a jump clear of the bar; this
+		 * adds the field that now sits under it, so a heading lands below both
+		 * rather than behind the search.
+		 *
+		 * It is `scroll-margin` on the target and not more `scroll-padding` on the
+		 * document, because only THIS page has a field that stays. The two add up,
+		 * which is what makes them separable.
+		 */
+		scroll-margin-block-start: calc(var(--control-block-size) + var(--space-m));
 	}
 
 	h2 {

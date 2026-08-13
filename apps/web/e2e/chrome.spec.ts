@@ -7,20 +7,63 @@ import { expect, test } from '@playwright/test';
  * quietly going.
  */
 
-test('the bar states the height the rest of the site measures against', async ({
+/*
+ * The bar's height is a CONSEQUENCE of the control in it, not a number of its
+ * own: a control between two --space-m paddings. Asserting the relationship
+ * rather than the figure is what lets the control be resized — as it was, from
+ * 44px to 32px for a pointer — without a test having to be told.
+ */
+test('the bar is exactly its control between two paddings', async ({
 	page,
 }) => {
 	await page.goto('/');
 
-	// --bar-block-size is 2.75rem between two --space-m paddings. Three rules read
-	// it, so the bar asserting it is what keeps them from disagreeing.
-	const header = page.locator('header');
-	await expect(header).toHaveCSS('height', '76px');
+	const header = (await page.locator('header').boundingBox())!;
+	const control = (await page.locator('header nav a').boundingBox())!;
 
-	const scrollPadding = await page.evaluate(
-		() => getComputedStyle(document.documentElement).scrollPaddingTop,
-	);
-	expect(scrollPadding).toBe('92px');
+	// The control is centred in the bar, so its top edge IS the padding.
+	const padding = control.y;
+	expect(header.height).toBe(control.height + padding * 2);
+	expect(padding).toBe(16);
+});
+
+/*
+ * THE FLOOR, and this is the assertion that makes shrinking the controls safe
+ * to keep doing. WCAG 2.2 puts the minimum target at 24x24 (2.5.8, AA); 44x44
+ * is the enhanced size (2.5.5, AAA) and what a finger gets. This says the
+ * pointer size may be tuned but may not fall through the floor.
+ */
+test('every control in the bar clears the minimum target size', async ({
+	page,
+}) => {
+	await page.goto('/apps');
+
+	for (const selector of ['header nav a', 'header button.control']) {
+		const box = (await page.locator(selector).boundingBox())!;
+		expect(box.width, selector).toBeGreaterThanOrEqual(24);
+		expect(box.height, selector).toBeGreaterThanOrEqual(24);
+	}
+
+	// The brand is a press target too, whatever its width.
+	const brand = (await page.locator('.brand').boundingBox())!;
+	expect(brand.height).toBeGreaterThanOrEqual(24);
+});
+
+test('a touchscreen gets the larger target back', async ({ browser }) => {
+	// `any-pointer: coarse` is what the stylesheet asks, and a context with touch
+	// is what answers it. Chromium is the engine that emulates this faithfully.
+	const context = await browser.newContext({ hasTouch: true, isMobile: true });
+	const page = await context.newPage();
+	await page.goto('/apps');
+
+	const control = (await page.locator('header nav a').boundingBox())!;
+	expect(control.height).toBeGreaterThanOrEqual(44);
+
+	// And the bar grew with it, without a rule of its own being changed.
+	const header = (await page.locator('header').boundingBox())!;
+	expect(header.height).toBe(control.height + control.y * 2);
+
+	await context.close();
 });
 
 test('the bar stays at the top once the page moves under it', async ({
@@ -120,6 +163,65 @@ test('the column does not move between pages', async ({ page }) => {
 	expect(emoji?.x).toBe(home?.x);
 	expect(apps?.width).toBe(home?.width);
 	expect(emoji?.width).toBe(home?.width);
+});
+
+test('the mark and the name are one link home, at the start of the bar', async ({
+	page,
+}) => {
+	await page.goto('/apps');
+
+	// ONE link, not two beside each other: two would be two tab stops and two
+	// announcements to the same place. The word is the accessible name; the mark
+	// is hidden, because "heart handshake Kashinoga" reads as nonsense.
+	const brand = page.getByRole('link', { name: 'Kashinoga', exact: true });
+	await expect(brand).toHaveAttribute('href', '/');
+	await expect(brand.locator('span[aria-hidden="true"] svg')).toBeAttached();
+
+	// At the START edge, and before the controls that sit at the end.
+	const box = (await brand.boundingBox())!;
+	const controls = (await page.locator('header nav a').boundingBox())!;
+	expect(box.x).toBeLessThan(controls.x);
+
+	/*
+	 * The MARK is on the bar's 16px line, not the link's box. The link is padded
+	 * out and pulled back by the same amount so its hover wash has room without
+	 * the drawing moving off that line — so the box begins earlier, on purpose.
+	 */
+	const mark = (await page.locator('.brand .mark').boundingBox())!;
+	expect(Math.round(mark.x)).toBe(16);
+	expect(box.x).toBeLessThan(mark.x);
+
+	await brand.click();
+	await expect(page).toHaveURL(/\/$/);
+});
+
+test('the mark and the name share a centre line', async ({ page }) => {
+	await page.goto('/');
+
+	const centres = await page.evaluate(() => {
+		const mark = document
+			.querySelector('.brand .mark')!
+			.getBoundingClientRect();
+		const brand = document.querySelector('.brand')!.getBoundingClientRect();
+		// The word is an anonymous text node beside the mark, so it is measured
+		// with a Range rather than by selecting an element that does not exist.
+		const word = document.createRange();
+		word.setStartAfter(document.querySelector('.brand .mark')!);
+		word.setEnd(
+			document.querySelector('.brand')!,
+			document.querySelector('.brand')!.childNodes.length,
+		);
+		const text = word.getBoundingClientRect();
+		return {
+			mark: mark.top + mark.height / 2,
+			word: text.top + text.height / 2,
+			bar: brand.top + brand.height / 2,
+		};
+	});
+
+	// Within a pixel of each other, and of the line the pair sits on.
+	expect(Math.abs(centres.mark - centres.word)).toBeLessThanOrEqual(1);
+	expect(Math.abs(centres.mark - centres.bar)).toBeLessThanOrEqual(1);
 });
 
 test('the Apps control leads to Apps, and comes back from it', async ({

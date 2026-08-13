@@ -223,16 +223,30 @@ body {
 	--tracking-tight: -0.015em;
 
 	/*
-	 * THE BAR'S HEIGHT, PUBLISHED. It is a control (2.75rem) between two paddings
-	 * (--space-m), which is what the header would come to anyway — but three
-	 * things need the number, not one, and a number three rules work out
-	 * separately is a number they can disagree about.
+	 * THE SIZE OF A THING YOU PRESS, and it answers WHAT IS DOING THE PRESSING
+	 * rather than how wide the window is. A phone in landscape is a wide screen
+	 * and still a finger; a small desktop window is narrow and still a mouse.
 	 *
-	 * The header asserts it rather than emerging at it. The page uses it to know
-	 * how far under the bar an anchor would land. And a sticky thing beside the
-	 * content uses it to stop short of the bar instead of sliding beneath it.
+	 * 2rem is 32px, for a pointer. WCAG 2.2 puts the floor at 24x24 (2.5.8, AA)
+	 * and 32 sits clear of it with room to spare — 24 is a minimum to pass, not a
+	 * size to aim at, and at 24 the 18px icon inside would have three pixels of
+	 * air on each side and look wedged in.
+	 *
+	 * Everything that takes a press is this tall: the two header controls, the
+	 * brand beside them, the Emoji Viewer's search field, and the bar they all
+	 * sit in. Written once because six rules read it, and a number six rules work
+	 * out separately is a number they can disagree about.
 	 */
-	--bar-block-size: calc(2.75rem + var(--space-m) * 2);
+	--control-block-size: 2rem;
+
+	/*
+	 * THE BAR'S HEIGHT, PUBLISHED. A control between two paddings, which is what
+	 * the header would come to anyway — but the header asserts it rather than
+	 * emerging at it, the page uses it to know how far under the bar an anchor
+	 * would land, and the things that stick use it to stop short of the bar
+	 * instead of sliding beneath it.
+	 */
+	--bar-block-size: calc(var(--control-block-size) + var(--space-m) * 2);
 
 	/*
 	 * How far a jump to a `#name` should stop short. Without this the browser puts
@@ -241,7 +255,30 @@ body {
 	 * could not see.
 	 */
 	scroll-padding-block-start: calc(var(--bar-block-size) + var(--space-m));
+}
 
+/*
+ * A FINGER NEEDS MORE, so anything with a touchscreen gets the larger target
+ * back: 2.75rem is 44px, which is WCAG's enhanced size (2.5.5, AAA) and the
+ * figure every platform's own guidance settles near.
+ *
+ * `any-pointer` and not `pointer`. `pointer` describes the PRIMARY input, so a
+ * laptop with both a trackpad and a touchscreen answers "fine" and the person
+ * poking the screen gets the small target. `any-pointer: coarse` asks whether a
+ * finger is available at all, which is the question that matters here.
+ *
+ * Only the one token changes. The bar's height, the scroll padding, the sticky
+ * offsets and the space a heading has to clear are all written against it, so
+ * the whole bar grows and everything measured from it follows without a second
+ * rule knowing this one exists.
+ */
+@media (any-pointer: coarse) {
+	:root {
+		--control-block-size: 2.75rem;
+	}
+}
+
+:root {
 	/*
 	 * FULLY ROUND. 9999px and not 50%, and the difference matters the moment a
 	 * thing stops being square: 50% is half of each side, so it draws an ellipse
@@ -346,8 +383,9 @@ body {
 	text-decoration: none;
 	cursor: pointer;
 
-	inline-size: 2.75rem;
-	block-size: 2.75rem;
+	/* Square, so the radius draws a circle and not an egg. */
+	inline-size: var(--control-block-size);
+	block-size: var(--control-block-size);
 	border-radius: var(--radius-round);
 
 	/* Centre the icon. Without this it sits on the baseline of a line box with no

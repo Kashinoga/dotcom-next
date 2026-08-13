@@ -84,8 +84,8 @@
 		gap: var(--space-xs);
 
 		padding-inline: var(--space-s);
-		/* 2.75rem is 44px, the same target the header controls take. */
-		block-size: 2.75rem;
+		/* The same height as everything else that takes a press. */
+		block-size: var(--control-block-size);
 		border: 1px solid color-mix(in oklab, var(--fg) 16%, transparent);
 	}
 

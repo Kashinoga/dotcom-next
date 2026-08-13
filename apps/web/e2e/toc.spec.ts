@@ -64,10 +64,26 @@ test('the list stops short of the bar instead of sliding under it', async ({
 
 	const toc = (await page.locator('.toc').boundingBox())!;
 	const header = (await page.locator('header').boundingBox())!;
+	const search = (await page.locator('.search').boundingBox())!;
 
-	// 92px: the bar's own published height, plus a step of air.
-	expect(Math.round(toc.y)).toBe(92);
-	expect(toc.y).toBeGreaterThanOrEqual(header.height);
+	// It comes to rest CLEAR of the bar, a step below it rather than against it.
+	expect(toc.y).toBeGreaterThan(header.height);
+
+	/*
+	 * And on the same line as the search field. Both offsets are written as the
+	 * same expression, and this is the assertion that says so — the step of air
+	 * was once on one and not the other, which put them on different lines and
+	 * looked like a mistake because it was one.
+	 */
+	expect(Math.round(toc.y)).toBe(Math.round(search.y));
+
+	// Stated as CSS too, so a change to one that is not made to the other fails
+	// here rather than merely looking wrong to somebody.
+	const offsets = await page.evaluate(() => [
+		getComputedStyle(document.querySelector('.toc')!).insetBlockStart,
+		getComputedStyle(document.querySelector('.search')!).insetBlockStart,
+	]);
+	expect(offsets[0]).toBe(offsets[1]);
 });
 
 /*
@@ -162,10 +178,66 @@ test('following a link lands the heading clear of the bar', async ({
 				window.scrollY >=
 				document.documentElement.scrollHeight - window.innerHeight - 1,
 		);
-		// Within a pixel. Firefox lands this on 93 where Chromium lands 92 — the
-		// engines round a fractional layout differently, and a test that insists on
-		// one of the two answers is testing the rounding and not the padding.
-		if (!atEnd) expect(Math.abs(heading.y - 92)).toBeLessThanOrEqual(1);
+		/*
+		 * The landing is ASKED FOR, not written down: the document's scroll padding
+		 * plus this heading's own scroll margin. Hardcoding 92 was right until the
+		 * search field began to stay under the bar and the headings had to clear
+		 * that too — at which point the number moved and the test was measuring a
+		 * layout that no longer existed.
+		 *
+		 * Within a pixel. Firefox rounds a fractional landing differently from
+		 * Chromium, and a test that insists on one of the two answers is testing
+		 * the rounding rather than the padding.
+		 */
+		const expected = await page.evaluate((name) => {
+			const root = getComputedStyle(document.documentElement);
+			const el = document.getElementById(name)!;
+			return (
+				Number.parseFloat(root.scrollPaddingTop) +
+				Number.parseFloat(getComputedStyle(el).scrollMarginTop)
+			);
+		}, id);
+
+		if (!atEnd) expect(Math.abs(heading.y - expected)).toBeLessThanOrEqual(1);
+	}
+});
+
+test('the search field stays put, a step below the bar', async ({ page }) => {
+	await open(page);
+
+	const field = page.locator('.search');
+	await page.evaluate(() => window.scrollTo(0, 2500));
+
+	const box = (await field.boundingBox())!;
+	const header = (await page.locator('header').boundingBox())!;
+
+	// A step clear of the bar rather than seated against it.
+	expect(box.y).toBeGreaterThan(header.height);
+
+	// And opaque, or the emojis would scroll through whatever is being typed.
+	// Compared against the PAGE's own background rather than a colour: these run
+	// in light mode by default and the site has two.
+	const [fieldBg, pageBg] = await page.evaluate(() => [
+		getComputedStyle(document.querySelector('.search')!).backgroundColor,
+		getComputedStyle(document.documentElement).backgroundColor,
+	]);
+	expect(fieldBg).toBe(pageBg);
+});
+
+test('a heading clears the bar AND the field that stays under it', async ({
+	page,
+}) => {
+	await open(page);
+
+	for (const id of ['animals-nature', 'activities']) {
+		await page.locator(`.toc a[href="#${id}"]`).click();
+
+		const heading = (await page.locator(`#${id}`).boundingBox())!;
+		const field = (await page.locator('.search').boundingBox())!;
+
+		// The heading has two things to get past now, not one. Landing it behind
+		// the search would hide the very thing the reader asked to see.
+		expect(heading.y).toBeGreaterThanOrEqual(field.y + field.height);
 	}
 });
 
