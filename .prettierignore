@@ -1,0 +1,10 @@
+# Prettier reads .gitignore as well as this file, and .gitignore here denies
+# everything and opts back in. So node_modules, .svelte-kit, .wrangler, build
+# output and worker-configuration.d.ts are already excluded, and listing them
+# again would only be a second copy of a rule that can drift.
+#
+# What is left is the file the allowlist lets through and Prettier should still
+# not touch: the lockfile is written by pnpm, and reformatting it would put this
+# repository's whitespace into a file every install rewrites.
+
+pnpm-lock.yaml

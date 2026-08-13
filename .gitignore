@@ -20,7 +20,10 @@ dist/
 .vscode/
 
 # ─── Opt back in: source and config ───
+# A name with no extension is caught by `*` above and matches none of the
+# extension rules below, so each one has to be listed here by name.
 !.gitignore
+!.prettierignore
 !.npmrc
 !.node-version
 !.tool-versions

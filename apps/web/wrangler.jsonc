@@ -4,14 +4,12 @@
 	"$schema": "../../node_modules/wrangler/config-schema.json",
 	"name": "dotcom-web",
 	"compatibility_date": "2026-08-10",
-	"compatibility_flags": [
-		"nodejs_als"
-	],
+	"compatibility_flags": ["nodejs_als"],
 	"main": ".svelte-kit/cloudflare/_worker.js",
 	"assets": {
 		"binding": "ASSETS",
-		"directory": ".svelte-kit/cloudflare"
+		"directory": ".svelte-kit/cloudflare",
 	},
 	"workers_dev": true,
-	"preview_urls": true
+	"preview_urls": true,
 }
