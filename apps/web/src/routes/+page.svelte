@@ -1,10 +1,9 @@
-<svelte:head>
-  <title>Kashinoga — So Alive, No Disguise</title>
-  <meta
-    name="description"
-    content="The corner of the Internet of Andrew Nguyen. Things made to be shared, for a better digital well-being."
-  />
-</svelte:head>
+<script lang="ts">
+	import Seo from '$lib/components/Seo.svelte';
+</script>
+
+<!-- No title given, so this page takes the site's own. -->
+<Seo />
 
 <!--
 	THE HERO, and at the moment the whole page.
@@ -19,8 +18,8 @@
 	name are one closing and not two thoughts.
 -->
 <section class="hero">
-  <div class="masthead">
-    <!--
+	<div class="masthead">
+		<!--
 			A <span> and NOT a <mark>, which is what this started as. <mark> means
 			"relevant to what the reader is doing right now" — a search hit, the
 			passage under discussion — and a name is not that. Some screen readers
@@ -28,75 +27,75 @@
 			into the reading of the title. The highlight here is decoration, and
 			decoration belongs in an element that claims nothing.
 		-->
-    <h1><span class="highlight">Kashinoga</span></h1>
-    <p class="tagline">So Alive, No Disguise</p>
-  </div>
+		<h1><span class="highlight">Kashinoga</span></h1>
+		<p class="tagline">So Alive, No Disguise</p>
+	</div>
 
-  <div class="prose">
-    <!--
+	<div class="prose">
+		<!--
 			An em dash, and not the two hyphens a keyboard offers. `--` is what a
 			typewriter did when it had no dash key. A browser has the character, so
 			it should print it.
 		-->
-    <p>Hi, my name is Andrew Nguyen — aka Kashinoga.</p>
+		<p>Hi, my name is Andrew Nguyen — aka Kashinoga.</p>
 
-    <p>
-      This is my corner of the Internet. Here, you'll find the things that I've
-      created. These things are meant to be shared with you and your community
-      for a better digital well-being.
-    </p>
+		<p>
+			This is my corner of the Internet. Here, you'll find the things that I've
+			created. These things are meant to be shared with you and your community
+			for a better digital well-being.
+		</p>
 
-    <p>
-      I hope that you find that these things are indeed helpful, and if so,
-      please do share them with your friends!
-    </p>
+		<p>
+			I hope that you find that these things are indeed helpful, and if so,
+			please do share them with your friends!
+		</p>
 
-    <p>
-      If you have any questions, comments, or concerns, please contact me at
-      <a href="mailto:contact@kashinoga.com">contact@kashinoga.com</a>.
-    </p>
+		<p>
+			If you have any questions, comments, or concerns, please contact me at
+			<a href="mailto:contact@kashinoga.com">contact@kashinoga.com</a>.
+		</p>
 
-    <p>
-      Take care,<br />
-      Andrew Nguyen
-    </p>
-  </div>
+		<p>
+			Take care,<br />
+			Andrew Nguyen
+		</p>
+	</div>
 </section>
 
 <style>
-  /*
+	/*
 	 * Every value here comes from a token in app.css. That is the point of the
 	 * scales: the next component reaches for the same seven spaces and the same
 	 * five sizes, and the two look related without either knowing about the
 	 * other.
 	 */
-  .hero {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xl);
+	.hero {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-xl);
 
-    /* `--measure` caps the LINE, and the padding keeps the text off the edge of
+		/* `--measure` caps the LINE, and the padding keeps the text off the edge of
 		 * a phone. `margin-inline: auto` then centres the column in a wide window. */
-    max-width: var(--measure);
-    margin-inline: auto;
-    padding: var(--space-2xl) var(--space-m);
-  }
+		max-width: var(--measure);
+		margin-inline: auto;
+		padding: var(--space-2xl) var(--space-m);
+	}
 
-  /* The name and the tagline are one unit, so they sit closer to each other than
+	/* The name and the tagline are one unit, so they sit closer to each other than
 	 * to anything else. Proximity is what says "these two belong together" — it
 	 * needs no line, no box and no colour. */
-  .masthead {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2xs);
-  }
+	.masthead {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2xs);
+	}
 
-  h1 {
-    font-size: var(--text-display);
-    line-height: var(--leading-tight);
-    letter-spacing: var(--tracking-tight);
+	h1 {
+		font-size: var(--text-display);
+		line-height: var(--leading-tight);
+		letter-spacing: var(--tracking-tight);
 
-    /*
+		/*
 		 * OPTICAL ALIGNMENT. THE TEXT IS THE EDGE, and the highlight hangs off it.
 		 *
 		 * A highlighter does not respect a margin. Someone drawing one over a word
@@ -117,14 +116,14 @@
 		 * CSS has no property for any of this. `text-box-trim` answers the same
 		 * problem on the vertical axis and there is no horizontal equal.
 		 */
-    --highlight-border: 0.03em;
-    --highlight-pad: 0.08em;
-    margin-left: calc(
-      -0.028em - var(--highlight-border) - var(--highlight-pad)
-    );
-  }
+		--highlight-border: 0.03em;
+		--highlight-pad: 0.08em;
+		margin-left: calc(
+			-0.028em - var(--highlight-border) - var(--highlight-pad)
+		);
+	}
 
-  /*
+	/*
 	 * THE HIGHLIGHT. A solid rule of the accent, and a wash of the same yellow at
 	 * 12% inside it.
 	 *
@@ -136,22 +135,22 @@
 	 * of the title has to subtract them and a value that two rules depend on
 	 * should be written once.
 	 */
-  .highlight {
-    background-color: var(--accent-faint);
-    border: var(--highlight-border) solid var(--accent);
-    border-radius: 8px;
-    padding-inline: var(--highlight-pad);
-  }
+	.highlight {
+		background-color: var(--accent-faint);
+		border: var(--highlight-border) solid var(--accent);
+		border-radius: 8px;
+		padding-inline: var(--highlight-pad);
+	}
 
-  .tagline {
-    font-size: var(--text-tagline);
-    font-style: italic;
-    line-height: var(--leading-tight);
-  }
+	.tagline {
+		font-size: var(--text-tagline);
+		font-style: italic;
+		line-height: var(--leading-tight);
+	}
 
-  .prose {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-m);
-  }
+	.prose {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-m);
+	}
 </style>
