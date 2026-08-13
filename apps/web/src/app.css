@@ -1,10 +1,12 @@
 /*
  * THE GLOBAL STYLESHEET. src/routes/+layout.svelte loads it, so it reaches every
- * page. It holds three things and nothing else:
+ * page. It holds four things and nothing else:
  *
  *   1. A reset, which levels the stylesheet the browser ships.
  *   2. The tokens of the display mode.
  *   3. The selection, which the browser also colours, and which is taken off it.
+ *   4. The header controls, which are here because more than one wears them and
+ *      Svelte scopes a component's own rules to that component.
  *
  * A component keeps its own rules in its own <style> block, where Svelte scopes
  * them to it. Put a rule here only when it is true of the whole site.
@@ -96,6 +98,19 @@ h6 {
 	color-scheme: light;
 	background-color: var(--bg);
 	color: var(--fg);
+
+	/*
+	 * THE GUTTER IS ALWAYS THERE, whether or not the page is long enough to need
+	 * a scrollbar. Without this the home page (which fits) and Apps (which does
+	 * not) reserve different widths, and the centred column jumps sideways by
+	 * half a scrollbar every time a visitor crosses between them. The bar above
+	 * moves with it, which is what makes it obvious.
+	 *
+	 * `stable` and not `stable both-edges`. One gutter on the end side costs the
+	 * column a few pixels of true centring; `both-edges` buys that back and
+	 * spends a whole scrollbar's width on a margin nothing is ever drawn in.
+	 */
+	scrollbar-gutter: stable;
 }
 
 /* ─── The font ───────────────────────────────────────────────────────────────
@@ -208,6 +223,26 @@ body {
 	--tracking-tight: -0.015em;
 
 	/*
+	 * THE BAR'S HEIGHT, PUBLISHED. It is a control (2.75rem) between two paddings
+	 * (--space-m), which is what the header would come to anyway — but three
+	 * things need the number, not one, and a number three rules work out
+	 * separately is a number they can disagree about.
+	 *
+	 * The header asserts it rather than emerging at it. The page uses it to know
+	 * how far under the bar an anchor would land. And a sticky thing beside the
+	 * content uses it to stop short of the bar instead of sliding beneath it.
+	 */
+	--bar-block-size: calc(2.75rem + var(--space-m) * 2);
+
+	/*
+	 * How far a jump to a `#name` should stop short. Without this the browser puts
+	 * the target's top at the top of the window, which on this site is behind a
+	 * sticky bar — the heading a reader asked for would be the one thing they
+	 * could not see.
+	 */
+	scroll-padding-block-start: calc(var(--bar-block-size) + var(--space-m));
+
+	/*
 	 * FULLY ROUND. 9999px and not 50%, and the difference matters the moment a
 	 * thing stops being square: 50% is half of each side, so it draws an ellipse
 	 * on a wide box, while a radius larger than the box can use is clamped to a
@@ -281,9 +316,71 @@ body {
  * the tree.
  *
  * The title wears this same yellow, so a selection would vanish on it. The
- * answer is in +page.svelte, next to the rule that causes it.
+ * answer is in Letter.svelte, next to the rule that causes it.
  */
 ::selection {
 	background-color: var(--accent);
 	color: var(--accent-fg);
+}
+
+/* ─── The header controls ────────────────────────────────────────────────────
+ * The chrome worn by everything in the bar at the top. It sits in the global
+ * sheet because two things wear it now — the display mode button and the link
+ * to Apps — and a rule in either component's <style> would be scoped to that
+ * component and reach neither the other.
+ *
+ * ALL OF THE CHROME IS OURS. `ButtonFace` and `ButtonBorder` resolve to
+ * different colours in each engine, so a browser-drawn circle would not match
+ * itself between Chrome, Safari and Firefox. A link brings no chrome but does
+ * arrive underlined and in the visited colour, so those go the same way.
+ *
+ * Square, so the radius draws a circle and not an egg. 2.75rem is 44px, the
+ * smallest target a finger hits reliably.
+ */
+.control {
+	appearance: none;
+	background: none;
+	border: none;
+	padding: 0;
+	color: inherit;
+	text-decoration: none;
+	cursor: pointer;
+
+	inline-size: 2.75rem;
+	block-size: 2.75rem;
+	border-radius: var(--radius-round);
+
+	/* Centre the icon. Without this it sits on the baseline of a line box with no
+	 * text in it. */
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.control:hover {
+	background-color: var(--surface-hover);
+}
+
+/* The browser's focus ring left with `appearance`, so draw one. The offset keeps
+ * it clear of the circle instead of tracing its edge. */
+.control:focus-visible {
+	outline: 2px solid var(--fg);
+	outline-offset: 2px;
+}
+
+/* OPEN, meaning the thing this control leads to is what you are looking at.
+ * Filled with the site's one colour. The icon alone in the accent would not do:
+ * yellow on white is 1.4:1, so the mark has to be the fill and the icon has to
+ * be `--accent-fg`, exactly as the title is. This follows `:hover` so that
+ * pointing at an open control does not take the mark away. */
+.control[data-open] {
+	background-color: var(--accent);
+	color: var(--accent-fg);
+}
+
+/* In rem, so the icon grows with the control when a visitor sets a larger text
+ * size. Lucide's `size` prop would fix it in pixels while the control moved. */
+.control svg {
+	inline-size: 1.125rem;
+	block-size: 1.125rem;
 }

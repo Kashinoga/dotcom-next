@@ -40,6 +40,7 @@
 	and this costs nothing to be right about before there is one.
 -->
 <button
+	class="control"
 	type="button"
 	onclick={() => displayMode.cycle()}
 	aria-label="Display mode: {label}. Change it."
@@ -47,47 +48,3 @@
 >
 	<Icon />
 </button>
-
-<style>
-	button {
-		/* The chrome is ours, all of it. `ButtonFace` and `ButtonBorder` resolve to
-		 * different colours in each engine, so a browser-drawn circle would not
-		 * match itself between Chrome, Safari and Firefox. */
-		appearance: none;
-		background: none;
-		border: none;
-		padding: 0;
-		color: inherit;
-		cursor: pointer;
-
-		/* Square, so the radius draws a circle and not an egg. 2.75rem is 44px,
-		 * the smallest target a finger hits reliably. */
-		inline-size: 2.75rem;
-		block-size: 2.75rem;
-		border-radius: var(--radius-round);
-
-		/* Centre the icon. Without this it sits on the baseline of a line box with
-		 * no text in it. */
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	button:hover {
-		background-color: var(--surface-hover);
-	}
-
-	/* The browser's focus ring left with `appearance`, so draw one. The offset
-	 * keeps it clear of the circle instead of tracing its edge. */
-	button:focus-visible {
-		outline: 2px solid var(--fg);
-		outline-offset: 2px;
-	}
-
-	/* In rem, so the icon grows with the button when a visitor sets a larger text
-	 * size. Lucide's `size` prop would fix it in pixels while the button moved. */
-	button :global(svg) {
-		inline-size: 1.125rem;
-		block-size: 1.125rem;
-	}
-</style>
