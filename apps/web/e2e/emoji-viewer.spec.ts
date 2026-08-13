@@ -77,13 +77,11 @@ test('a search narrows the wall to the groups that still have something in them'
 	await expect(page.locator('.toc a')).toHaveCount(2);
 });
 
-test('a search that finds nothing says so, and offers a way out', async ({
-	page,
-}) => {
+test('a search that finds nothing says so', async ({ page }) => {
 	await page.getByRole('searchbox').fill('zzzzz');
 
 	await expect(page.locator('.group')).toHaveCount(0);
-	await expect(page.getByText('Nothing here is named')).toBeVisible();
+	await expect(page.getByText('I found nothing for')).toBeVisible();
 });
 
 test('escape clears the search without taking the focus away', async ({

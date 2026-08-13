@@ -1,10 +1,22 @@
 <script lang="ts">
+	import { prefersReducedMotion } from 'svelte/motion';
+	import { blur } from 'svelte/transition';
 	import Letter from '$lib/components/Letter.svelte';
 	import SearchField from '$lib/components/SearchField.svelte';
 	import Seo from '$lib/components/Seo.svelte';
 	import { EMOJI_GROUPS } from '$lib/emoji';
 
 	let query = $state('');
+
+	/*
+	 * HOW LONG THE LINE TAKES TO CHANGE ITS MIND, and zero for a visitor who has
+	 * asked their system for less motion — the same code path with the movement
+	 * taken out of it, rather than a second branch that could rot.
+	 *
+	 * 180ms is short enough that the words are readable again before the eye has
+	 * come back up from the cell that was pressed.
+	 */
+	const morph = $derived(prefersReducedMotion.current ? 0 : 180);
 
 	// The emoji just copied, echoed back for a moment. '' means nothing to say.
 	let copied = $state('');
@@ -173,12 +185,6 @@
 />
 
 <Letter title="Emoji Viewer" tagline="Drawn by your own device.">
-	<p>
-		These are your emojis, and not pictures of them. Nothing here is an image
-		this site sent you — each one is a character your own machine draws, so what
-		you see is what will arrive when you paste it somewhere else.
-	</p>
-
 	<!--
 		The field STAYS, directly under the bar, because the wall below it is some
 		three thousand pixels tall and the search was otherwise a scroll back to
@@ -200,20 +206,33 @@
 		looking at what they just pressed.
 
 		`role="status"` is polite: it waits for a screen reader to finish its
-		sentence rather than cutting in.
+		sentence rather than cutting in. The two lines overlapping for a moment
+		does not reach it: a live region announces what was ADDED, and the line on
+		its way out is a removal, which `aria-relevant` ignores by default.
+
+		`{#key}` and not a bare `{#if}`, because a swap of words in place leaves
+		nothing on the page to animate. Keying on the character makes each copy a
+		new block, so one emoji following another morphs too.
 	-->
 	<p class="note" role="status">
-		{#if copied}
-			<span class="note-char">{copied}</span> copied.
-		{:else}
-			<span class="note-dim">Choose one to copy it.</span>
-		{/if}
+		{#key copied}
+			<span
+				class="note-line"
+				in:blur={{ duration: morph, delay: morph / 2, amount: '0.25rem' }}
+				out:blur={{ duration: morph, amount: '0.25rem' }}
+			>
+				{#if copied}
+					<span class="note-char">{copied}</span> copied.
+				{:else}
+					<span class="note-dim">Select an emoji to copy it.</span>
+				{/if}
+			</span>
+		{/key}
 	</p>
 
 	{#if total === 0}
 		<p>
-			Nothing here is named “{query}”. A plainer word may find it — the names
-			are the ordinary ones, so “cat” and not “feline”.
+			I found nothing for “{query}”.
 		</p>
 	{:else}
 		<!--
@@ -477,6 +496,22 @@
 		font-size: var(--text-s);
 		/* Held at one line, so the wall does not move when the words change. */
 		block-size: 1lh;
+
+		/*
+		 * BOTH LINES STAND IN THE SAME CELL, which is what lets the one leaving
+		 * still be on the page while the one arriving is already there. A grid of
+		 * one row and one column, with both children put on it.
+		 *
+		 * Not `position: absolute` on the outgoing line. That would take it out of
+		 * the flow and hand the paragraph a height of nothing at the exact moment
+		 * two things are drawn in it; the grid keeps every line measured.
+		 */
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.note-line {
+		grid-area: 1 / 1;
 	}
 
 	.note-char {
