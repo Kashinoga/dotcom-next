@@ -15,11 +15,27 @@
  * where a person can be sent to it without a tour first.
  */
 
+import type { Component } from 'svelte';
+// One deep import per icon, as everywhere else — the root `@lucide/svelte`
+// makes the dev server pre-bundle all 1600.
+import FaceSlightlySmiling from '@lucide/svelte/icons/face-slightly-smiling';
+
 export interface App {
 	slug: string;
 	name: string;
 	description: string;
 	href?: string;
+	/*
+	 * THE APP'S OWN MARK, which the bar wears in place of the site's once the
+	 * page's title has scrolled under it. It lives here beside the name because
+	 * the bar needs both and they are one idea — an app's face — and a second
+	 * file holding a slug-to-icon map would be one that could disagree with this
+	 * list about which apps exist.
+	 *
+	 * Only a BUILT app can be looked at, so only a built app needs one, and it
+	 * is optional for the same reason `href` is.
+	 */
+	icon?: Component;
 }
 
 export const apps: App[] = [
@@ -46,6 +62,7 @@ export const apps: App[] = [
 		name: 'Emoji Viewer',
 		description: 'Browse and copy the system emojis, drawn by your own device.',
 		href: '/emoji-viewer',
+		icon: FaceSlightlySmiling,
 	},
 	{
 		slug: 'intergalactic-park-ranger',

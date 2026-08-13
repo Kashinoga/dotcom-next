@@ -1,22 +1,12 @@
 <script lang="ts">
-	import { prefersReducedMotion } from 'svelte/motion';
 	import { blur } from 'svelte/transition';
 	import Letter from '$lib/components/Letter.svelte';
 	import SearchField from '$lib/components/SearchField.svelte';
 	import Seo from '$lib/components/Seo.svelte';
 	import { EMOJI_GROUPS } from '$lib/emoji';
+	import { morphDuration } from '$lib/motion';
 
 	let query = $state('');
-
-	/*
-	 * HOW LONG THE LINE TAKES TO CHANGE ITS MIND, and zero for a visitor who has
-	 * asked their system for less motion — the same code path with the movement
-	 * taken out of it, rather than a second branch that could rot.
-	 *
-	 * 180ms is short enough that the words are readable again before the eye has
-	 * come back up from the cell that was pressed.
-	 */
-	const morph = $derived(prefersReducedMotion.current ? 0 : 180);
 
 	// The emoji just copied, echoed back for a moment. '' means nothing to say.
 	let copied = $state('');
@@ -182,6 +172,7 @@
 	title="Emoji Viewer"
 	description="Browse and copy the system emojis, drawn by your own device."
 	path="/emoji-viewer"
+	icon="/favicon-emoji-viewer.svg"
 />
 
 <Letter title="Emoji Viewer" tagline="Drawn by your own device.">
@@ -191,7 +182,7 @@
 		the top. The wrapper does the sticking rather than the field: SearchField
 		draws a control and should not also decide where a page keeps it.
 	-->
-	<div class="search">
+	<div class="search frost">
 		<SearchField
 			bind:value={query}
 			label="Search the emojis by name"
@@ -218,8 +209,12 @@
 		{#key copied}
 			<span
 				class="note-line"
-				in:blur={{ duration: morph, delay: morph / 2, amount: '0.25rem' }}
-				out:blur={{ duration: morph, amount: '0.25rem' }}
+				in:blur={{
+					duration: morphDuration(),
+					delay: morphDuration() / 2,
+					amount: '0.25rem',
+				}}
+				out:blur={{ duration: morphDuration(), amount: '0.25rem' }}
 			>
 				{#if copied}
 					<span class="note-char">{copied}</span> copied.
@@ -346,6 +341,17 @@
 	 * way in both rules on purpose: the step of air is what parts them from the
 	 * bar, and their top edges lining up across the page is what says they are
 	 * one row of furniture rather than two things that happened to stop nearby.
+	 *
+	 * NO FROST HERE, and that is measured rather than assumed: the rail starts at
+	 * the prose's end edge, so nothing passes behind it. Its left edge sits at
+	 * 966 against a prose ending at 942, and asking the document what is under
+	 * the rail's middle returns the rail and the page and nothing else. Blurring
+	 * one flat colour returns that colour, so the frost would cost a backdrop
+	 * region and buy no glass — and drew a faint seam where that region began.
+	 *
+	 * WORTH REVISITING the day this site has a background that is not one flat
+	 * colour, or the day the rail moves inside the prose. Then there is something
+	 * behind it, and `.frost` in src/app.css is the recipe waiting.
 	 */
 	.toc {
 		position: sticky;
@@ -400,10 +406,15 @@
 	 * — the two must be written identically, because their top edges lining up
 	 * across the page is the whole point of the step.
 	 *
-	 * The background is not decoration. Once the field stops, the wall keeps
-	 * moving behind it, and without something opaque the emojis would scroll
-	 * straight through the words being typed. At rest it is --bg over --bg and
-	 * therefore invisible, exactly as the bar's own is.
+	 * WHAT IT IS MADE OF is `.frost`, in src/app.css, and the ground under it is
+	 * not decoration: once the field stops, the wall keeps moving behind it, and
+	 * without something there the emojis would scroll straight through the words
+	 * being typed. The frost keeps them visible and soft instead of hidden — the
+	 * same glass the bar above is made of, so the two read as one piece of
+	 * furniture rather than a pane and a lid.
+	 *
+	 * Where a browser cannot draw glass the recipe's opaque floor stands, and the
+	 * wall is simply hidden. That is the older behaviour and still the safe one.
 	 *
 	 * No z-index. Sticky makes this a positioned box, and a positioned box paints
 	 * over the in-flow wall by itself. The rail beside the prose is positioned
@@ -412,7 +423,19 @@
 	.search {
 		position: sticky;
 		inset-block-start: calc(var(--bar-block-size) + var(--space-m));
-		background-color: var(--bg);
+
+		/*
+		 * THE GLASS IS CUT TO THE SHAPE OF THE CONTROL. `backdrop-filter` clips to
+		 * the border box, radius included, so without this the frost is a
+		 * rectangle behind a pill and its four corners stand outside the field
+		 * they belong to — visible the moment anything passes under them.
+		 *
+		 * The same token the field's own edge takes, and it has to be: two radii
+		 * that must agree and cannot check each other would drift the first time
+		 * either moved. `.frost` does not carry this, because the bar wears the
+		 * same glass and is square.
+		 */
+		border-radius: var(--radius-round);
 	}
 
 	.group {
@@ -460,6 +483,7 @@
 		background: none;
 		padding: 0;
 		cursor: pointer;
+		border-radius: var(--radius-round);
 
 		/* The glyph is the content, so it is sized here rather than inherited from
 		 * the prose around it. */
@@ -470,8 +494,20 @@
 		line-height: 1;
 	}
 
+	/*
+	 * ROUND, and the same token the bar's controls take — which on a square box
+	 * draws a circle, exactly as it does on them. The wash used to be a hard grey
+	 * square, which read as a block dropped on the wall rather than as something
+	 * answering the pointer.
+	 *
+	 * The hairline inside it is what the search field wears, and it is the part
+	 * that reads as glass. It cannot be actual frost: a cell's emoji is its
+	 * content and not its backdrop, and a `backdrop-filter` here was measured
+	 * byte-for-byte inert.
+	 */
 	.wall button:hover {
 		background-color: var(--surface-hover);
+		box-shadow: inset 0 0 0 1px var(--edge);
 	}
 
 	.wall button:focus-visible {
@@ -490,6 +526,10 @@
 	.wall button.copied,
 	.wall button.copied:hover {
 		background-color: var(--accent);
+		/* The hairline goes with it. The accent is a solid fill and says what it
+		 * has to say; an edge drawn over it would be the hover still showing
+		 * through the confirmation. */
+		box-shadow: none;
 	}
 
 	.note {

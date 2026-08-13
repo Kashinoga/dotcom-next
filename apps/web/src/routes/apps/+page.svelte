@@ -62,12 +62,12 @@
 
 	/*
 	 * A hairline and no radius. The corner is square because everything else on
-	 * this site that draws a shape is square, and the border is mixed from --fg
-	 * so it flips with the display mode by itself.
+	 * this site that draws a shape is square.
 	 *
-	 * The mix is written here rather than made a token: --surface-hover already
-	 * holds --fg at 16% and means something else, and one reader does not earn a
-	 * second name. Promote it if a rule or a divider ever wants the same value.
+	 * The mix used to be written out here, with a note saying to promote it the
+	 * moment a second rule wanted the same value. Two did — the search field's
+	 * border and the ring around a hovered thing — so it is `--edge` now, and
+	 * this reads it like the others.
 	 */
 	.app {
 		display: flex;
@@ -75,7 +75,7 @@
 		gap: var(--space-2xs);
 
 		padding: var(--space-m);
-		border: 1px solid color-mix(in oklab, var(--fg) 16%, transparent);
+		border: 1px solid var(--edge);
 	}
 
 	.app h2 {

@@ -1,12 +1,14 @@
 /*
  * THE GLOBAL STYLESHEET. src/routes/+layout.svelte loads it, so it reaches every
- * page. It holds four things and nothing else:
+ * page. It holds five things and nothing else:
  *
  *   1. A reset, which levels the stylesheet the browser ships.
  *   2. The tokens of the display mode.
  *   3. The selection, which the browser also colours, and which is taken off it.
  *   4. The header controls, which are here because more than one wears them and
  *      Svelte scopes a component's own rules to that component.
+ *   5. The frost, which is here for the same reason: the bar wears it and so
+ *      does the search field that stays under it on Emoji Viewer.
  *
  * A component keeps its own rules in its own <style> block, where Svelte scopes
  * them to it. Put a rule here only when it is true of the whole site.
@@ -289,6 +291,24 @@ body {
 	--radius-round: 9999px;
 
 	/*
+	 * HOW LONG A THING TAKES TO CHANGE ITS MIND, and it is one number because two
+	 * places now need it: the confirmation line on Emoji Viewer, and the bar
+	 * picking up a page's name as its title scrolls away. Both are the same
+	 * gesture — one label becoming another — so both are the same length.
+	 *
+	 * DECLARED HERE AND READ FROM HERE, in CSS by a transition and in JavaScript
+	 * by `getComputedStyle`. A Svelte transition wants a number rather than a
+	 * string, and the temptation is to write 180 beside it; that second copy is a
+	 * number nothing can check against this one, and the Emoji Viewer already
+	 * fixed exactly that bug where its group list reads `scrollPaddingTop` off
+	 * the document rather than holding its own idea of it.
+	 *
+	 * 180ms is short enough that the words are readable again before the eye has
+	 * come back from whatever it was looking at.
+	 */
+	--motion-morph: 180ms;
+
+	/*
 	 * THE ACCENT, and the one colour on this site that is not black or white.
 	 *
 	 * `--accent-fg` is what goes ON it, and it does NOT follow the display mode —
@@ -304,15 +324,55 @@ body {
 	--accent-fg: #000;
 
 	/*
-	 * The wash under a control the pointer is over. Mixed from `--fg`, so it
-	 * flips with the display mode by itself and there is no second value to keep
-	 * in agreement with the first.
+	 * A HAIRLINE. One value for every thin line this site draws that is not text:
+	 * the search field's border, an app card's border, and the edge around a
+	 * hovered thing. Mixed from `--fg`, so it flips with the display mode by
+	 * itself and there is no second value to keep in agreement with the first.
 	 *
-	 * 16% and not 8%. Dark mode is the hard case: white at 8% over black lands on
-	 * #141414, which a bright room does not show at all. 16% reaches #292929 and
-	 * is visible without becoming a second surface.
+	 * It was three copies of this expression before, and the app card's own note
+	 * said to promote it the moment a second rule wanted the same value. Two
+	 * more did.
 	 */
-	--surface-hover: color-mix(in oklab, var(--fg) 16%, transparent);
+	--edge: color-mix(in oklab, var(--fg) 16%, transparent);
+
+	/*
+	 * The wash under a control the pointer is over.
+	 *
+	 * 4%, AND THE HAIRLINE IS WHY. This read 16% and carried an argument against
+	 * 8% — that white at 8% over black lands on #141414, which a bright room does
+	 * not show. That was true while the FILL WAS THE ONLY SIGNAL. It is not now:
+	 * everything wearing this wash also draws `--edge` around it, and the ring is
+	 * what makes a hovered thing findable. The fill is free to stop being a grey
+	 * block and become a breath of tint, which is what it looks like.
+	 *
+	 * A thing that ever takes this wash WITHOUT the hairline is back to the old
+	 * problem, and 4% will not be enough on its own. Give it the edge too.
+	 *
+	 * It is NOT `backdrop-filter`, and that was measured rather than assumed: a
+	 * wall cell's own emoji is its CONTENT, not its backdrop, and the wall sits
+	 * on one flat colour — a blur there is byte-for-byte inert. On a bar control
+	 * the blur does change pixels, but invisibly, because the bar has already
+	 * blurred that same content and a blur of a blur adds nothing. Real glass
+	 * needs something moving behind it; these have nothing, so the shape and the
+	 * edge are what carry the impression.
+	 */
+	--surface-hover: color-mix(in oklab, var(--fg) 4%, transparent);
+}
+
+/*
+ * LESS MOTION, ASKED FOR ONCE AND ANSWERED ONCE. The duration falls to zero and
+ * every reader of it follows — the CSS transitions because they read the token,
+ * and the Svelte transitions because they read the token too. Nothing is
+ * disabled and no second path opens up: the same code runs, over no time.
+ *
+ * This is why the number is a token rather than a value in each component. A
+ * page holding its own 180 would need its own answer to this question, and one
+ * of them would eventually be missed.
+ */
+@media (prefers-reduced-motion: reduce) {
+	:root {
+		--motion-morph: 0ms;
+	}
 }
 
 /* `System`: follow the machine. `:not([data-mode='light'])` is what lets an
@@ -395,8 +455,12 @@ body {
 	justify-content: center;
 }
 
+/* `inset` and a box-shadow rather than a border: a border would take a pixel of
+ * the box and move the icon inside it on hover. This is drawn within the box the
+ * control already had. */
 .control:hover {
 	background-color: var(--surface-hover);
+	box-shadow: inset 0 0 0 1px var(--edge);
 }
 
 /* The browser's focus ring left with `appearance`, so draw one. The offset keeps
@@ -421,4 +485,41 @@ body {
 .control svg {
 	inline-size: 1.125rem;
 	block-size: 1.125rem;
+}
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * THE FROST, which two things wear now: the bar, and the search field that
+ * stays under it on Emoji Viewer. It is here for the reason the controls above
+ * are — Svelte scopes a component's rules to that component, and a recipe two
+ * components follow cannot live in one of them.
+ *
+ * TWO DECLARATIONS, AND THE ORDER IS THE POINT. The first is an OPAQUE FLOOR.
+ * The second replaces it with glass, and only where a browser can actually draw
+ * glass. A browser without `backdrop-filter` would otherwise take the 50% and
+ * skip the blur, and whatever passes beneath would read straight through the
+ * words on top — worse than no frost at all.
+ *
+ * NO JAVASCRIPT, and no `.scrolled` class to switch it on. The frost is always
+ * on and does not need to be told: with nothing behind it the blur returns the
+ * one flat colour it was given, so a frosted thing is already invisible at rest
+ * and reveals itself by having something to hide.
+ *
+ * 50% and not the 78% the first site uses. More of what passes underneath
+ * survives the crossing, so it reads as glass rather than as a lid — which is
+ * the point of having it, and matters more the longer the page gets.
+ *
+ * The wearer still owns its own POSITION and z-index. This says what a thing is
+ * made of, not where it stands.
+ */
+.frost {
+	background-color: var(--bg);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+	.frost {
+		background-color: color-mix(in oklab, var(--bg) 50%, transparent);
+		-webkit-backdrop-filter: blur(8px);
+		backdrop-filter: blur(8px);
+	}
 }

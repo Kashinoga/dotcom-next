@@ -31,7 +31,9 @@
 	import LayoutGrid from '@lucide/svelte/icons/layout-grid';
 
 	import { page } from '$app/state';
+	import { MediaQuery } from 'svelte/reactivity';
 
+	import { apps } from '$lib/apps';
 	import DisplayModeButton from '$lib/components/DisplayModeButton.svelte';
 	import { site } from '$lib/site';
 
@@ -40,6 +42,108 @@
 	// `startsWith` and not `===`, so /apps/star-map still counts as being in Apps
 	// once those pages exist.
 	const onApps = $derived(page.url.pathname.startsWith('/apps'));
+
+	/*
+	 * WHAT THIS PAGE CALLS ITSELF, for the bar to wear once the page has stopped
+	 * saying it. Null means the bar keeps the site's own name and nothing moves.
+	 *
+	 * The home page is null on purpose and not by omission: its title IS the site
+	 * name, so a swap there would blur `Kashinoga` into `Kashinoga` and be a
+	 * flicker with nothing on the other side of it.
+	 *
+	 * The apps read their name and their mark from $lib/apps, which is already
+	 * the one list of what exists. Apps itself is named here because it is a page
+	 * of this site rather than an app in that list.
+	 */
+	const here = $derived.by(() => {
+		const path = page.url.pathname;
+		if (onApps) return { name: 'Apps', Icon: LayoutGrid };
+
+		const app = apps.find((a) => a.href === path);
+		return app?.icon ? { name: app.name, Icon: app.icon } : null;
+	});
+
+	/*
+	 * THE TITLE HAS GONE UNDER THE BAR, which is the moment the bar has something
+	 * to say. Keyed to the <h1> itself rather than to a scroll distance: the bar
+	 * says the page's name exactly when the page has stopped saying it, whatever
+	 * the title's size or the window's.
+	 *
+	 * Both edges are ASKED FOR rather than worked out. The bar publishes its
+	 * height as a token, but its lower edge is where it actually is on the
+	 * screen, and those differ the moment anything above it changes.
+	 */
+	let scrolledPast = $state(false);
+
+	$effect(() => {
+		// Named so the effect re-runs when a navigation changes the heading.
+		const current = here;
+		if (!current) {
+			scrolledPast = false;
+			return;
+		}
+
+		let frame = 0;
+
+		const update = () => {
+			frame = 0;
+			const h1 = document.querySelector('h1');
+			const header = document.querySelector('header');
+			if (!h1 || !header) return;
+
+			scrolledPast =
+				h1.getBoundingClientRect().bottom <=
+				header.getBoundingClientRect().bottom;
+		};
+
+		// The handler runs on every scroll event; the work waits for a frame, so a
+		// fast scroll measures once per paint instead of once per event.
+		const onScroll = () => {
+			if (!frame) frame = requestAnimationFrame(update);
+		};
+
+		update();
+		addEventListener('scroll', onScroll, { passive: true });
+		addEventListener('resize', onScroll, { passive: true });
+
+		return () => {
+			cancelAnimationFrame(frame);
+			removeEventListener('scroll', onScroll);
+			removeEventListener('resize', onScroll);
+		};
+	});
+
+	/*
+	 * CAN THIS VISITOR ASK BEFORE THEY PRESS?
+	 *
+	 * With a pointer, hovering the brand turns it back into the site's name, so
+	 * the link says where it goes before anybody commits to it. A touchscreen has
+	 * no such rehearsal — the press IS the question — so there the brand does the
+	 * harmless thing instead and returns to the top of the page.
+	 *
+	 * `hover` and not `any-pointer`, which is the opposite of the choice the
+	 * stylesheet makes for target sizes and is right for the opposite reason:
+	 * sizing asks "could a finger be used", and this asks "is a rehearsal
+	 * available at all". A laptop with a touchscreen has a pointer, so it keeps
+	 * the hover.
+	 *
+	 * The fallback is `true`, which is what the server renders and what the first
+	 * paint therefore shows: the link behaves as a link until a browser says
+	 * otherwise.
+	 */
+	const canHover = new MediaQuery('(hover: hover)', true);
+
+	// The page's name is showing AND there is no way to have checked first.
+	const scrollsToTop = $derived(!!here && scrolledPast && !canHover.current);
+
+	function onBrandClick(event: MouseEvent) {
+		if (!scrollsToTop) return;
+
+		event.preventDefault();
+		// `scrollTo` and not a hash: a hash would put `#` in the address bar and
+		// give the back button a step that goes nowhere.
+		scrollTo({ top: 0, behavior: 'smooth' });
+	}
 </script>
 
 <!--
@@ -61,7 +165,7 @@
 	Two controls stand in front of the content, which is two presses of Tab. A
 	skip link earns its place when that number grows, and not yet.
 -->
-<header>
+<header class="frost">
 	<!--
 		THE MARK AND THE NAME, and they are ONE link rather than two beside each
 		other. Two would be two tab stops and two announcements to the same place.
@@ -71,13 +175,42 @@
 		The name is therefore the accessible name, and it comes from $lib/site so
 		the bar and the title cannot end up spelling it differently.
 	-->
+	<!--
+		THE FACE CHANGES; THE NAME DOES NOT. `aria-label` pins the accessible name
+		to the site's, so the link is announced as what it does whatever it is
+		currently drawn as — and the two drawings inside are hidden from the
+		reading, which they can be, because neither adds anything the label has
+		not already said.
+
+		Without this the bar would offer a link reading "Emoji Viewer" that goes
+		to the home page. That is the same untruth the Apps control refuses a few
+		lines down when it declines `aria-current` for pointing away from the page
+		you are on.
+
+		Where the press cannot be rehearsed the label says the other thing, because
+		there the link does the other thing.
+	-->
 	<a
 		class="brand"
+		class:showing-page={scrolledPast}
 		href="/"
+		aria-label={scrollsToTop ? 'Back to the top' : site.name}
 		aria-current={page.url.pathname === '/' ? 'page' : undefined}
+		onclick={onBrandClick}
 	>
-		<span class="mark" aria-hidden="true"><HeartHandshake /></span>
-		{site.name}
+		<span class="brand-face" aria-hidden="true">
+			<span class="brand-state site">
+				<span class="mark"><HeartHandshake /></span>
+				{site.name}
+			</span>
+
+			{#if here}
+				<span class="brand-state page">
+					<span class="page-mark"><here.Icon /></span>
+					{here.name}
+				</span>
+			{/if}
+		</span>
 	</a>
 
 	<nav aria-label="Site">
@@ -123,10 +256,11 @@
 		 * `inset-block-start` and not `top`, for the same reason `flex-end` is not
 		 * `right`.
 		 *
-		 * The background is NOT decoration. Without it the letter would scroll
-		 * through the icons and the two would be read together. This opaque one is
-		 * the floor: the frost below replaces it where a browser can draw frost,
-		 * and where it cannot the bar stays solid and the words stay readable.
+		 * WHAT IT IS MADE OF is `.frost`, in src/app.css. The letter goes soft as it
+		 * passes under the bar rather than being cut off by it. That recipe moved
+		 * out when the Emoji Viewer's search field started wearing it too — a
+		 * component's <style> is scoped to that component, so a thing two of them
+		 * are made of cannot live in either.
 		 *
 		 * `z-index` because the rule beside the prose is positioned too, and comes
 		 * later in the document. Positioned things with no z-index paint in
@@ -136,39 +270,6 @@
 		position: sticky;
 		inset-block-start: 0;
 		z-index: 1;
-		background-color: var(--bg);
-	}
-
-	/*
-	 * THE FROST. The letter goes soft as it passes under the bar rather than
-	 * being cut off by it, which will matter more once a page of apps is long
-	 * enough to scroll a long way.
-	 *
-	 * NO JAVASCRIPT, and no `.scrolled` class to turn this on. The frost is
-	 * always on and it does not need to be switched, because at the top of the
-	 * page the only thing behind the bar IS the page: blurring one flat colour
-	 * returns that colour, and half of --bg over --bg is --bg. The bar is
-	 * therefore already invisible at rest, and reveals itself by having
-	 * something to hide. A bar that has to be told when it has been scrolled
-	 * under needs a listener, a measured height and a piece of state; this one
-	 * needs a declaration.
-	 *
-	 * 50% and not the 78% the first site uses. More of what passes underneath
-	 * survives the crossing, so the frost reads as glass rather than as a lid —
-	 * which is the point of having it at all, and matters more the longer the
-	 * page gets.
-	 *
-	 * Behind `@supports`, and this is the whole reason the rule is split out. A
-	 * browser without `backdrop-filter` would take the 50% and skip the blur,
-	 * and the letter would then read straight through the icons — worse than no
-	 * frost at all. Without support the opaque floor above stands.
-	 */
-	@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-		header {
-			background-color: color-mix(in oklab, var(--bg) 50%, transparent);
-			-webkit-backdrop-filter: blur(8px);
-			backdrop-filter: blur(8px);
-		}
 	}
 
 	/*
@@ -210,25 +311,121 @@
 		border-radius: var(--radius-round);
 	}
 
+	/*
+	 * THE TWO NAMES STAND IN ONE CELL, so the one leaving is still drawn while
+	 * the one arriving is already there — the same arrangement the Emoji Viewer's
+	 * confirmation line uses, and for the same reason.
+	 *
+	 * `justify-items: start` matters more than it looks. The cell is as wide as
+	 * the LONGER of the two names, and without this each name would be stretched
+	 * to fill it — so the wash below would be drawn at "Emoji Viewer" width while
+	 * the word under it still said "Kashinoga". At `start` each name is its own
+	 * width and the wash hugs whichever one is showing.
+	 */
+	.brand-face {
+		display: grid;
+		justify-items: start;
+	}
+
+	.brand-state {
+		grid-area: 1 / 1;
+
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-xs);
+
+		/*
+		 * AS TALL AS THE LINK IT FILLS, and therefore as tall as every other
+		 * control in the bar. The wash is drawn on this rather than on the link,
+		 * and a wash is what a pointer reads as the target — so without this the
+		 * brand ANSWERS at 32px and LOOKS 20px, which is the height of the word
+		 * and its mark and nothing to do with what can be pressed.
+		 */
+		block-size: var(--control-block-size);
+
+		/*
+		 * THE WASH MOVED IN HERE from the link, because the link's box is now as
+		 * wide as the longer name and a pill that trails 100px past a short one
+		 * reads as a mistake. The padding and the matching negative margin let the
+		 * background reach the same 8px either side it always did without moving
+		 * the drawing off the bar's 16px line.
+		 */
+		padding-inline: var(--space-xs);
+		margin-inline: calc(-1 * var(--space-xs));
+		border-radius: var(--radius-round);
+
+		transition:
+			opacity var(--motion-morph),
+			filter var(--motion-morph);
+	}
+
+	/* The name that is not being shown is still THERE, holding the cell and
+	 * waiting to be faded back in. */
+	.brand-state.page {
+		opacity: 0;
+		filter: blur(4px);
+	}
+
+	.brand.showing-page .brand-state.site {
+		opacity: 0;
+		filter: blur(4px);
+	}
+
+	.brand.showing-page .brand-state.page {
+		opacity: 1;
+		filter: blur(0);
+	}
+
+	/*
+	 * ASKING BEFORE PRESSING. Hovering or tabbing to the brand turns it back into
+	 * the site's name, which is where the link actually goes — so nobody has to
+	 * press to find out.
+	 *
+	 * Behind `(hover: hover)` because a touchscreen fires `:hover` on a tap and
+	 * keeps it there afterwards: the name would flip as the press landed, which
+	 * is the one moment it must not. Those devices get the scroll to the top
+	 * instead, which needs no rehearsal because it takes nothing away.
+	 */
+	@media (hover: hover) {
+		.brand.showing-page:hover .brand-state.site,
+		.brand.showing-page:focus-visible .brand-state.site {
+			opacity: 1;
+			filter: blur(0);
+		}
+
+		.brand.showing-page:hover .brand-state.page,
+		.brand.showing-page:focus-visible .brand-state.page {
+			opacity: 0;
+			filter: blur(4px);
+		}
+	}
+
 	/* The same wash the circular controls take, so everything in the bar answers
 	 * a pointer the same way. */
-	.brand:hover {
+	.brand:hover .brand-state {
 		background-color: var(--surface-hover);
+		box-shadow: inset 0 0 0 1px var(--edge);
 	}
 
 	.brand:focus-visible {
+		outline: none;
+	}
+
+	.brand:focus-visible .brand-state {
 		outline: 2px solid var(--fg);
 		outline-offset: 2px;
 	}
 
-	.mark {
+	.mark,
+	.page-mark {
 		display: inline-flex;
 	}
 
 	/* `:global`, because the drawing comes from a component of its own and
 	 * Svelte's scoping does not reach into one. In rem, so the mark grows with
 	 * the word when a visitor sets a larger text size. */
-	.mark :global(svg) {
+	.mark :global(svg),
+	.page-mark :global(svg) {
 		inline-size: 1.25rem;
 		block-size: 1.25rem;
 	}

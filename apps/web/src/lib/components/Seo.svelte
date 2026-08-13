@@ -9,7 +9,18 @@
 		title = '',
 		description = site.description,
 		path = '/',
-	}: { title?: string; description?: string; path?: string } = $props();
+		icon = '',
+	}: {
+		title?: string;
+		description?: string;
+		path?: string;
+		/*
+		 * A MARK OF THIS PAGE'S OWN, as a path under `static`. Empty means the
+		 * site's, which is the one already declared in app.html — so a page says
+		 * nothing here unless it has something else to be.
+		 */
+		icon?: string;
+	} = $props();
 
 	const full = $derived(title ? `${title} — ${site.name}` : site.title);
 	const url = $derived(new URL(path, site.url).href);
@@ -29,4 +40,15 @@
 	<meta property="og:description" content={description} />
 	<meta property="og:url" content={url} />
 	<meta name="twitter:card" content="summary" />
+
+	{#if icon}
+		<!--
+			THIS PAGE'S OWN MARK, and it does not remove the site's — it comes after
+			it. Where two icons are declared with the same type, a browser takes the
+			LAST, and `%sveltekit.head%` is rendered below the link in app.html. So
+			the site's mark stays the floor for every page that asks for nothing,
+			and no page can lose its icon by forgetting to name one.
+		-->
+		<link rel="icon" href={icon} type="image/svg+xml" />
+	{/if}
 </svelte:head>

@@ -214,14 +214,37 @@ test('the search field stays put, a step below the bar', async ({ page }) => {
 	// A step clear of the bar rather than seated against it.
 	expect(box.y).toBeGreaterThan(header.height);
 
-	// And opaque, or the emojis would scroll through whatever is being typed.
-	// Compared against the PAGE's own background rather than a colour: these run
-	// in light mode by default and the site has two.
-	const [fieldBg, pageBg] = await page.evaluate(() => [
-		getComputedStyle(document.querySelector('.search')!).backgroundColor,
-		getComputedStyle(document.documentElement).backgroundColor,
-	]);
-	expect(fieldBg).toBe(pageBg);
+	/*
+	 * AND NEVER SEE-THROUGH WITHOUT A BLUR BEHIND IT — the same contract the bar
+	 * keeps, and asked the same way. The field wears the frost now, so it is no
+	 * longer simply opaque; what must hold is that the emojis are never merely
+	 * faint behind the words being typed. Either there is glass, or there is the
+	 * opaque floor.
+	 *
+	 * Compared against the PAGE's own background rather than a colour: these run
+	 * in light mode by default and the site has two.
+	 */
+	const frost = await page.evaluate(() => {
+		const style = getComputedStyle(document.querySelector('.search')!);
+		const blur =
+			style.backdropFilter ||
+			(style as unknown as Record<string, string>).webkitBackdropFilter ||
+			'none';
+		return {
+			supported:
+				CSS.supports('backdrop-filter', 'blur(1px)') ||
+				CSS.supports('-webkit-backdrop-filter', 'blur(1px)'),
+			hasBlur: blur !== 'none' && blur !== '',
+			fieldBg: style.backgroundColor,
+			pageBg: getComputedStyle(document.documentElement).backgroundColor,
+		};
+	});
+
+	if (frost.supported) {
+		expect(frost.hasBlur).toBe(true);
+	} else {
+		expect(frost.fieldBg).toBe(frost.pageBg);
+	}
 });
 
 test('a heading clears the bar AND the field that stays under it', async ({

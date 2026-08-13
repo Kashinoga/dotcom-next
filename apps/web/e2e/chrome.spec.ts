@@ -49,6 +49,25 @@ test('every control in the bar clears the minimum target size', async ({
 	expect(brand.height).toBeGreaterThanOrEqual(24);
 });
 
+/*
+ * WHAT A POINTER SEES IS THE WASH, not the box. These two came apart once: the
+ * wash moved off the link and onto the name inside it so it could hug whichever
+ * name was showing, and the brand went on ANSWERING at 32px while LOOKING 20 —
+ * the height of the word and its mark, which is nothing to do with what can be
+ * pressed. Every assertion above still passed, because every one of them asks
+ * the link's box.
+ */
+test('the brand looks the size it answers at', async ({ page }) => {
+	await page.goto('/apps');
+
+	const link = (await page.locator('.brand').boundingBox())!;
+	const wash = (await page.locator('.brand-state.site').boundingBox())!;
+	const control = (await page.locator('header nav a').boundingBox())!;
+
+	expect(wash.height).toBe(link.height);
+	expect(wash.height).toBe(control.height);
+});
+
 test('a touchscreen gets the larger target back', async ({ browser }) => {
 	// `any-pointer: coarse` is what the stylesheet asks, and a context with touch
 	// is what answers it. Chromium is the engine that emulates this faithfully.
@@ -171,11 +190,17 @@ test('the mark and the name are one link home, at the start of the bar', async (
 	await page.goto('/apps');
 
 	// ONE link, not two beside each other: two would be two tab stops and two
-	// announcements to the same place. The word is the accessible name; the mark
-	// is hidden, because "heart handshake Kashinoga" reads as nonsense.
+	// announcements to the same place. The name is `aria-label`; both drawings
+	// are hidden, because "heart handshake Kashinoga" reads as nonsense.
+	//
+	// `.mark` and not any svg under the hidden span: the bar carries a SECOND
+	// drawing now, the page's own, waiting to be faded in. Naming the site's mark
+	// is what keeps this asking about the site's mark.
 	const brand = page.getByRole('link', { name: 'Kashinoga', exact: true });
 	await expect(brand).toHaveAttribute('href', '/');
-	await expect(brand.locator('span[aria-hidden="true"] svg')).toBeAttached();
+	await expect(
+		brand.locator('span[aria-hidden="true"] .mark svg'),
+	).toBeAttached();
 
 	// At the START edge, and before the controls that sit at the end.
 	const box = (await brand.boundingBox())!;
@@ -193,6 +218,141 @@ test('the mark and the name are one link home, at the start of the bar', async (
 
 	await brand.click();
 	await expect(page).toHaveURL(/\/$/);
+});
+
+/*
+ * THE BAR PICKS THE PAGE UP where the page puts it down. These four are about
+ * the swap, and the first one is the one that matters: the LINK'S NAME never
+ * changes while it is still a link home, whatever the bar is drawn as.
+ */
+test('the bar wears the page name once the title has gone under it', async ({
+	page,
+}) => {
+	await page.goto('/emoji-viewer');
+
+	const site = page.locator('.brand-state.site');
+	const here = page.locator('.brand-state.page');
+	await expect(here).toHaveText('Emoji Viewer');
+
+	// At rest the site's name is the one showing.
+	await expect(site).toHaveCSS('opacity', '1');
+	await expect(here).toHaveCSS('opacity', '0');
+
+	// The h1 is what decides, so scroll until it has passed the bar's lower edge.
+	await page.evaluate(() => scrollTo(0, 600));
+	await expect(here).toHaveCSS('opacity', '1');
+	await expect(site).toHaveCSS('opacity', '0');
+});
+
+test('the brand is a link home by name however it is drawn', async ({
+	page,
+}) => {
+	await page.goto('/emoji-viewer');
+	await page.evaluate(() => scrollTo(0, 600));
+	await expect(page.locator('.brand-state.page')).toHaveCSS('opacity', '1');
+
+	/*
+	 * READING "EMOJI VIEWER" AND GOING HOME would be a link that lies. The label
+	 * is pinned to the site's name, so what a screen reader announces and what
+	 * the press does still agree.
+	 */
+	const brand = page.getByRole('link', { name: 'Kashinoga', exact: true });
+	await expect(brand).toHaveAttribute('href', '/');
+	await brand.click();
+	await expect(page).toHaveURL(/\/$/);
+});
+
+test('a pointer can ask where the brand goes before pressing it', async ({
+	page,
+}) => {
+	await page.goto('/emoji-viewer');
+	await page.evaluate(() => scrollTo(0, 600));
+
+	const brand = page.locator('.brand');
+	const site = page.locator('.brand-state.site');
+	await expect(site).toHaveCSS('opacity', '0');
+
+	/*
+	 * `mouse.move` AND NOT `locator.hover()`, and this is not a preference.
+	 * `hover()` scrolls its target into view first, and the bar is sticky — so it
+	 * scrolls to where the bar SITS IN THE DOCUMENT, which is the top. Measured:
+	 * 600 goes to 192. The name would then come back because the title had
+	 * returned, and this test would pass whether or not hovering does anything.
+	 */
+	const box = (await brand.boundingBox())!;
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+
+	// Still scrolled past — so the name came back because of the pointer.
+	await expect(brand).toHaveClass(/showing-page/);
+	await expect(site).toHaveCSS('opacity', '1');
+	expect(await page.evaluate(() => Math.round(scrollY))).toBe(600);
+});
+
+test('without a hover to ask with, the brand returns to the top instead', async ({
+	browser,
+}) => {
+	// A touchscreen fires `:hover` on the tap itself, so the rehearsal the
+	// pointer gets is not available here. The press does the harmless thing.
+	const context = await browser.newContext({ hasTouch: true, isMobile: true });
+	const page = await context.newPage();
+	await page.goto('/emoji-viewer');
+	await page.evaluate(() => scrollTo(0, 600));
+	await expect(page.locator('.brand-state.page')).toHaveCSS('opacity', '1');
+
+	// The name follows the deed: it is no longer offering to go home.
+	const brand = page.getByRole('link', {
+		name: 'Back to the top',
+		exact: true,
+	});
+	await brand.click();
+
+	await expect
+		.poll(async () => page.evaluate(() => Math.round(scrollY)))
+		.toBe(0);
+	// And it did NOT navigate.
+	await expect(page).toHaveURL(/\/emoji-viewer$/);
+
+	await context.close();
+});
+
+/*
+ * A PAGE MAY WEAR ITS OWN MARK IN THE TAB, and the site's is the floor under
+ * every page that does not. The order is the whole mechanism — two icons of one
+ * type, and the browser takes the last — so the order is what this asserts.
+ *
+ * Verified against the network as well as the markup while this was written:
+ * Firefox fetches favicon-emoji-viewer.svg on that page and favicon.svg
+ * elsewhere. Headless Chromium fetches no icon at all, which is why the test
+ * asks the document rather than watching for a request.
+ */
+test('a page with a mark of its own declares it after the site’s', async ({
+	page,
+}) => {
+	await page.goto('/emoji-viewer');
+
+	const icons = await page.evaluate(() =>
+		[...document.querySelectorAll('link[rel~="icon"]')].map(
+			(link) => new URL((link as HTMLLinkElement).href).pathname,
+		),
+	);
+	expect(icons).toEqual(['/favicon.svg', '/favicon-emoji-viewer.svg']);
+
+	// The drawing is really there, and really an SVG.
+	const response = await page.request.get('/favicon-emoji-viewer.svg');
+	expect(response.status()).toBe(200);
+	expect(response.headers()['content-type']).toContain('image/svg+xml');
+});
+
+test('a page with no mark of its own keeps the site’s', async ({ page }) => {
+	for (const path of ['/', '/apps']) {
+		await page.goto(path);
+		const icons = await page.evaluate(() =>
+			[...document.querySelectorAll('link[rel~="icon"]')].map(
+				(link) => new URL((link as HTMLLinkElement).href).pathname,
+			),
+		);
+		expect(icons, path).toEqual(['/favicon.svg']);
+	}
 });
 
 test('the mark and the name share a centre line', async ({ page }) => {
