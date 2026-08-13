@@ -27,6 +27,7 @@
 	 * white mark on a white bar. As a component it inherits `currentColor` and so
 	 * follows this site's display mode, which is the thing it sits on.
 	 */
+	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import HeartHandshake from '@lucide/svelte/icons/heart-handshake';
 	import LayoutGrid from '@lucide/svelte/icons/layout-grid';
 
@@ -136,6 +137,18 @@
 	// The page's name is showing AND there is no way to have checked first.
 	const scrollsToTop = $derived(!!here && scrolledPast && !canHover.current);
 
+	/*
+	 * THE YEAR IS THE BUILD'S, and that is a consequence of prerendering rather
+	 * than an oversight: every page here is rendered once, at build, so this is
+	 * evaluated then and baked into the HTML. It corrects itself on the next
+	 * deploy, and a site that has not been deployed in over a year has a staler
+	 * problem than its footer.
+	 *
+	 * Read once into a constant and not written inline, so the prerendered HTML
+	 * and the hydrated page cannot disagree about it mid-render.
+	 */
+	const year = new Date().getFullYear();
+
 	function onBrandClick(event: MouseEvent) {
 		if (!scrollsToTop) return;
 
@@ -231,6 +244,43 @@
 <main>
 	{@render children()}
 </main>
+
+<!--
+	THE FOOTER IS PAST THE END, always. It is the last thing in the flow and it
+	begins exactly where the window stops, so a page short enough to fit — the
+	home page is — does not show it until somebody goes looking. Nothing hides
+	it and nothing reveals it; it is simply below, and <main> above is what puts
+	it there. See the rule.
+
+	`<footer>` here is a landmark, `contentinfo`, because it is a direct child of
+	the layout rather than of an article. A screen reader can jump to it without
+	scrolling at all, which is the right answer: this is furniture that happens
+	to be placed low, not a secret.
+
+	The links are in a <nav> for the same reason the bar's are, and the copyright
+	is not — it names the site rather than leading anywhere.
+-->
+<footer>
+	<p class="copyright">© {year} {site.name}</p>
+
+	<nav aria-label="Elsewhere">
+		<a href="/apps">Apps</a>
+		<!--
+			THE MARK SAYS THE LINK LEAVES. It is not `target="_blank"` and never
+			has been: taking the tab away is the visitor's decision and their
+			browser already offers it. What the mark does is say, before the
+			press, that this one goes somewhere else — which is the same courtesy
+			the brand does by turning back into "Kashinoga" under a pointer.
+
+			`aria-hidden`, and the word beside it is not made to carry "external"
+			as well. A screen reader announces the href's host itself, so the
+			drawing here is for the eye that cannot hear it.
+		-->
+		<a class="external" href={site.github} rel="me">
+			GitHub<ExternalLink aria-hidden="true" /></a
+		>
+	</nav>
+</footer>
 
 <style>
 	header {
@@ -439,8 +489,110 @@
 	 * follows the writing direction rather than assuming the world reads left to
 	 * right — which is what the `flex-end` it replaced was for.
 	 */
-	nav {
+	header nav {
 		display: flex;
 		margin-inline-start: auto;
+	}
+
+	/*
+	 * WHAT KEEPS THE FOOTER PAST THE END. The content is at least the window
+	 * minus the bar, so the bar and the content together fill the screen exactly
+	 * and the footer begins on the line where the window stops.
+	 *
+	 * `--bar-block-size` and not a number: the bar publishes its height, and a
+	 * copy here would be one more pair that has to agree and cannot check.
+	 *
+	 * `dvh` and not `vh`, for the reason the reset gives: a phone's bars move,
+	 * and `vh` measures the window as though they never do — which on a phone
+	 * would push the footer a bar's height further down than intended and leave
+	 * a strip of nothing under the content on every page.
+	 *
+	 * This is also what makes every page scroll a little. That is the ask: a
+	 * short page should not show its footer until somebody looks for it.
+	 */
+	main {
+		min-block-size: calc(100dvh - var(--bar-block-size));
+	}
+
+	/*
+	 * The footer answers the bar: the same inline padding, the same split, the
+	 * name at the start and the links at the end. Two pieces of furniture from
+	 * one drawing, at opposite ends of the page.
+	 */
+	footer {
+		display: flex;
+		align-items: center;
+		gap: var(--space-m);
+		padding: var(--space-m);
+
+		/*
+		 * A SURFACE AND NOT A LINE. There was a hairline here, and a line drawn
+		 * between two identical grounds is the weaker of the two ways to say the
+		 * same thing: this says the footer is a different KIND of place, rather
+		 * than the same place with a rule across it.
+		 *
+		 * The content above keeps `--bg` and is never anything else. That is the
+		 * arrangement — the thing being read is white or black, and everything
+		 * supporting it steps off that.
+		 */
+		background-color: var(--surface);
+		font-size: var(--text-s);
+	}
+
+	footer nav {
+		display: flex;
+		gap: var(--space-m);
+		margin-inline-start: auto;
+	}
+
+	/* The copyright names the site and leads nowhere, so it steps back from the
+	 * links beside it. Mixed from --fg, so it flips with the display mode. */
+	.copyright {
+		color: color-mix(in oklab, var(--fg) 60%, transparent);
+	}
+
+	/*
+	 * THE UNDERLINE STAYS, unlike every other link on this site, which takes one
+	 * only on hover. Those sit alone or in a list and are obviously links by
+	 * where they are. These sit in a line of text beside a copyright, and colour
+	 * is the only other thing telling them apart from it — which is not enough
+	 * for a reader who cannot see the difference between 60% and full strength.
+	 *
+	 * So hover thickens the line rather than drawing one. `--edge`-thin at rest,
+	 * definite under the pointer, and never a state where the link looks like
+	 * the prose next to it.
+	 */
+	footer a {
+		color: inherit;
+		text-underline-offset: 0.2em;
+	}
+
+	footer a:hover {
+		text-decoration-thickness: 2px;
+	}
+
+	/*
+	 * THE MARK RIDES WITH THE WORD. `inline-flex` puts the two on one line and
+	 * centres them against each other, and the gap is the smallest step there is
+	 * — the mark belongs to the word rather than standing beside it.
+	 *
+	 * `1em` and not a rem: this one is punctuation on a word, so it takes the
+	 * size of the text it is attached to and grows with it. The marks in the bar
+	 * are in rem because they are drawings in their own right.
+	 */
+	.external {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2xs);
+	}
+
+	.external :global(svg) {
+		inline-size: 1em;
+		block-size: 1em;
+	}
+
+	footer a:focus-visible {
+		outline: 2px solid var(--fg);
+		outline-offset: 2px;
 	}
 </style>

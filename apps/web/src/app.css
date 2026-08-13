@@ -336,6 +336,37 @@ body {
 	--edge: color-mix(in oklab, var(--fg) 16%, transparent);
 
 	/*
+	 * A SURFACE THAT IS NOT THE PAGE. The content keeps `--bg` — white in light,
+	 * black in dark, and never anything else — and the furniture around it sits
+	 * on this instead. It is what tells a supporting area from the thing it
+	 * supports without drawing a line between them.
+	 *
+	 * Mixed INTO `--bg` rather than laid over it as a wash, so it is an opaque
+	 * colour and reads the same whatever it happens to be sitting on.
+	 *
+	 * `srgb` HERE, AND OKLAB EVERYWHERE ELSE ON THIS SITE, and the difference is
+	 * the whole reason this line works. Oklab is perceptually uniform, which is
+	 * what makes it right for a wash — and wrong for this. Measured, at 6%:
+	 *
+	 *     oklab   light 255 -> 235      dark 0 -> 1        (1.19:1 and 1.006:1)
+	 *     srgb    light 255 -> 240      dark 0 -> 15       (1.14:1 and 1.10:1)
+	 *
+	 * Six percent of the way from black toward white, measured the way the EYE
+	 * works, is still black — so the dark footer came out one value off the page
+	 * and the whole idea silently did nothing in half the modes this site has.
+	 * Mixing in `srgb` moves both ends by a comparable amount.
+	 *
+	 * 8% then gives light 235 and dark 20, at 1.19:1 and 1.14:1 — the same step
+	 * either side, and the light end is exactly where the first attempt put it.
+	 *
+	 * (`--surface-hover`'s note calls #141414 too dim to find in a bright room.
+	 * That is about a WASH, which has to be spotted on a control the size of a
+	 * thumbnail. This is a band across the whole window, and a step you notice
+	 * without looking for it would be a second page rather than a footer.)
+	 */
+	--surface: color-mix(in srgb, var(--fg) 8%, var(--bg));
+
+	/*
 	 * The wash under a control the pointer is over.
 	 *
 	 * 4%, AND THE HAIRLINE IS WHY. This read 16% and carried an argument against

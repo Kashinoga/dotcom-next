@@ -355,6 +355,99 @@ test('a page with no mark of its own keeps the site’s', async ({ page }) => {
 	}
 });
 
+/*
+ * THE FOOTER IS PAST THE END, and the page that proves it is the HOME page —
+ * the one short enough to fit its window. If the rule holding <main> to the
+ * window's height ever goes, this is where it shows: the footer would simply be
+ * sitting there under the letter, on a page nobody had scrolled.
+ */
+test('the footer starts where the window stops, on every page', async ({
+	page,
+}) => {
+	for (const path of ['/', '/apps', '/emoji-viewer']) {
+		await page.goto(path);
+
+		const seen = await page.evaluate(() => ({
+			footerTop: document.querySelector('footer')!.getBoundingClientRect().top,
+			viewport: window.innerHeight,
+			scrollable: document.documentElement.scrollHeight - window.innerHeight,
+		}));
+
+		expect(seen.footerTop, path).toBeGreaterThanOrEqual(seen.viewport);
+		// And there is always somewhere to scroll TO, or it could never be read.
+		expect(seen.scrollable, path).toBeGreaterThan(0);
+	}
+});
+
+test('the footer holds a copyright and the two ways out', async ({ page }) => {
+	await page.goto('/');
+	await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+
+	const footer = page.locator('footer');
+	await expect(footer).toContainText('Kashinoga');
+	await expect(footer).toContainText(String(new Date().getFullYear()));
+
+	await expect(footer.getByRole('link', { name: 'Apps' })).toHaveAttribute(
+		'href',
+		'/apps',
+	);
+	await expect(footer.getByRole('link', { name: 'GitHub' })).toHaveAttribute(
+		'href',
+		'https://github.com/Kashinoga',
+	);
+
+	// It is a landmark, so it can be reached without scrolling at all.
+	await expect(page.getByRole('contentinfo')).toBeAttached();
+});
+
+/*
+ * THE FOOTER IS A DIFFERENT SURFACE, in both modes, and this guards a bug that
+ * was silent: `--surface` was first mixed `in oklab` like every other colour
+ * here, and six percent of the way from black toward white — measured the way
+ * the eye works — is still black. Light stepped 255 to 235 and dark stepped 0
+ * to 1. The footer simply had no ground of its own in dark mode and nothing
+ * said so.
+ *
+ * A ratio and not a colour, so the two ends can be tuned without editing this.
+ */
+for (const mode of ['light', 'dark'] as const) {
+	test(`the footer stands off the page in ${mode}`, async ({ browser }) => {
+		const context = await browser.newContext({ colorScheme: mode });
+		const page = await context.newPage();
+		await page.goto('/');
+
+		const contrast = await page.evaluate(() => {
+			// Painted and read back: `color-mix` computes as oklab, so the string
+			// getComputedStyle returns is not the colour that reaches the screen.
+			const c = document.createElement('canvas').getContext('2d')!;
+			const read = (css: string) => {
+				c.fillStyle = css;
+				c.fillRect(0, 0, 1, 1);
+				return [...c.getImageData(0, 0, 1, 1).data].slice(0, 3);
+			};
+			const lum = ([r, g, b]: number[]) => {
+				const f = (v: number) => {
+					v /= 255;
+					return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+				};
+				return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+			};
+			const root = getComputedStyle(document.documentElement);
+			const [hi, lo] = [
+				lum(read(root.getPropertyValue('--bg').trim())),
+				lum(read(root.getPropertyValue('--surface').trim())),
+			].sort((x, y) => y - x);
+			return (hi + 0.05) / (lo + 0.05);
+		});
+
+		// Enough to see. Not so much that the footer reads as a second page.
+		expect(contrast).toBeGreaterThan(1.1);
+		expect(contrast).toBeLessThan(1.6);
+
+		await context.close();
+	});
+}
+
 test('the mark and the name share a centre line', async ({ page }) => {
 	await page.goto('/');
 
