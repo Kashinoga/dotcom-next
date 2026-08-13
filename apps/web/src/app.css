@@ -1,9 +1,10 @@
 /*
  * THE GLOBAL STYLESHEET. src/routes/+layout.svelte loads it, so it reaches every
- * page. It holds two things and nothing else:
+ * page. It holds three things and nothing else:
  *
  *   1. A reset, which levels the stylesheet the browser ships.
  *   2. The tokens of the display mode.
+ *   3. The selection, which the browser also colours, and which is taken off it.
  *
  * A component keeps its own rules in its own <style> block, where Svelte scopes
  * them to it. Put a rule here only when it is true of the whole site.
@@ -218,24 +219,28 @@ body {
 	/*
 	 * THE ACCENT, and the one colour on this site that is not black or white.
 	 *
-	 * `--accent-faint` is the SAME yellow held at 12%, made with `color-mix`
-	 * rather than written out as a second hex value. That is the point: change
-	 * the yellow above and the wash follows it, because the two cannot drift when
-	 * only one of them is a decision.
+	 * `--accent-fg` is what goes ON it, and it does NOT follow the display mode —
+	 * which is why it is a literal and not `var(--bg)`. #ffd60a is a light yellow:
+	 * black on it is 14.8:1 and white on it is 1.4:1. Two rules need this pairing,
+	 * the title and the selection, so it is written once.
 	 *
-	 * `in oklab` and not `in srgb`. Mixing in sRGB runs a colour through a dip in
-	 * lightness on the way to transparent; oklab is built so that a step of the
-	 * same size looks the same size to an eye.
+	 * There was a third token here, the same yellow held at 25% through
+	 * `color-mix`. The title was its only reader, and the title now takes the
+	 * accent whole. It is in the history if a wash is ever wanted again.
 	 */
 	--accent: #ffd60a;
-	--accent-faint: color-mix(in oklab, var(--accent) 12%, transparent);
+	--accent-fg: #000;
 
 	/*
 	 * The wash under a control the pointer is over. Mixed from `--fg`, so it
 	 * flips with the display mode by itself and there is no second value to keep
 	 * in agreement with the first.
+	 *
+	 * 16% and not 8%. Dark mode is the hard case: white at 8% over black lands on
+	 * #141414, which a bright room does not show at all. 16% reaches #292929 and
+	 * is visible without becoming a second surface.
 	 */
-	--surface-hover: color-mix(in oklab, var(--fg) 8%, transparent);
+	--surface-hover: color-mix(in oklab, var(--fg) 16%, transparent);
 }
 
 /* `System`: follow the machine. `:not([data-mode='light'])` is what lets an
@@ -254,4 +259,31 @@ body {
 	--fg: #fff;
 
 	color-scheme: dark;
+}
+
+/* ─── The selection ──────────────────────────────────────────────────────────
+ * The browser paints a selection blue, and blue is the only colour on this site
+ * that nobody chose. This takes it.
+ *
+ * The accent AT FULL STRENGTH, and not a wash of it. A selection has work that
+ * decoration does not: it has to say, mid-drag, exactly which letters are
+ * caught. The same yellow at 25% reached #fff5c2 over a white page, which is a
+ * thing you would have to look for.
+ *
+ * IT CANNOT BE GIVEN A CORNER OR A BORDER, whatever is written here. A highlight
+ * takes colours and text decoration and nothing that draws a box, because a
+ * selection runs across line breaks and through the middle of words and there is
+ * no box to put one on. It is square by construction, which is why the title is
+ * square too — the two cannot drift apart.
+ *
+ * No `:root` in front of it. The bare form carries a universal selector, so it
+ * meets every element itself, and does not rest on a highlight inheriting down
+ * the tree.
+ *
+ * The title wears this same yellow, so a selection would vanish on it. The
+ * answer is in +page.svelte, next to the rule that causes it.
+ */
+::selection {
+	background-color: var(--accent);
+	color: var(--accent-fg);
 }

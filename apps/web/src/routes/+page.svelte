@@ -108,38 +108,54 @@
 		 * carries 3px of side bearing at 72px against the tagline's 1px, so the
 		 * title has to come left by the 2px difference to sit level.
 		 *
-		 * The box then adds its own border and padding in front of the K, and the
-		 * calc takes both back. Written against the SAME two properties the box
-		 * uses, so changing the padding moves the alignment with it instead of
-		 * leaving a number behind that used to be right.
+		 * The box then adds its own padding in front of the K, and the calc takes it
+		 * back. Written against the SAME property the box uses, so changing the
+		 * padding moves the alignment with it instead of leaving a number behind
+		 * that used to be right.
 		 *
 		 * CSS has no property for any of this. `text-box-trim` answers the same
 		 * problem on the vertical axis and there is no horizontal equal.
 		 */
-		--highlight-border: 0.03em;
-		--highlight-pad: 0.08em;
-		margin-left: calc(
-			-0.028em - var(--highlight-border) - var(--highlight-pad)
-		);
+		--highlight-pad: 0.11em;
+		margin-left: calc(-0.028em - var(--highlight-pad));
 	}
 
 	/*
-	 * THE HIGHLIGHT. A solid rule of the accent, and a wash of the same yellow at
-	 * 12% inside it.
+	 * THE HIGHLIGHT. Solid accent, the way a real highlighter lays down ink, and
+	 * the same thing a selection does on this site.
 	 *
-	 * Both measures are in `em`, so they hold their proportion to the letters as
-	 * --text-display moves between 40px and 72px. A 2px rule that looked right on
-	 * a desktop would be a heavy line around a title on a phone.
+	 * There was a rule of accent around a wash of it, and this replaces both. A
+	 * border is a frame and says "a box is here"; a highlighter says "read this",
+	 * and leaves no edge behind. The second is what the title wanted.
 	 *
-	 * They are declared on the h1 above rather than here, because the alignment
-	 * of the title has to subtract them and a value that two rules depend on
-	 * should be written once.
+	 * 0.11em of padding and not 0.08em. The border it replaces was 0.03em, and
+	 * the yellow has to reach as far past the K as it did before — that overhang
+	 * IS the stroke. In `em`, so it holds its proportion to the letters as
+	 * --text-display moves between 40px and 72px.
+	 *
+	 * The padding is declared on the h1 above rather than here, because the
+	 * alignment of the title has to subtract it and a value that two rules depend
+	 * on should be written once.
 	 */
 	.highlight {
-		background-color: var(--accent-faint);
-		border: var(--highlight-border) solid var(--accent);
-		border-radius: 8px;
+		background-color: var(--accent);
+		color: var(--accent-fg);
 		padding-inline: var(--highlight-pad);
+	}
+
+	/*
+	 * The title now wears the same yellow the selection does, so a selection over
+	 * it would be a change of nothing at all. This inverts instead — the page's
+	 * own foreground and background, swapped — which reads against yellow in
+	 * either display mode and still says "these letters are caught".
+	 *
+	 * The padding stays yellow at each end, because a selection covers the TEXT
+	 * and not the box around it. That is kept and not worked around: the two ends
+	 * are what separate the mark from the title still lying under it.
+	 */
+	.highlight::selection {
+		background-color: var(--fg);
+		color: var(--bg);
 	}
 
 	.tagline {
