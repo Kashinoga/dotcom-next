@@ -3,7 +3,29 @@
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<meta name="text-scale" content="scale" />
+		<!--
+			THE COLOUR OF THE BROWSER'S OWN CHROME, so a dark page does not sit under
+			a white address bar on a phone.
+
+			These two hex values repeat `--bg` from app.css, which no other file is
+			allowed to do. A <meta> element cannot read a custom property, and there
+			is no other way to tell a browser this. Change app.css and change these.
+
+			They answer the MACHINE and not the stored choice, because a media query
+			is all this element understands. A visitor who chose light on a dark
+			machine keeps a dark address bar over a light page. Correcting that needs
+			script, and script cannot run before the first paint it would be fixing.
+		-->
+		<meta
+			name="theme-color"
+			content="#fff"
+			media="(prefers-color-scheme: light)"
+		/>
+		<meta
+			name="theme-color"
+			content="#000"
+			media="(prefers-color-scheme: dark)"
+		/>
 		<!--
 			THE SITE MARK: Lucide's heart-handshake, in static/favicon.svg.
 
@@ -24,7 +46,11 @@
 			blank mark, which is a fair trade for not keeping a second copy of the
 			same drawing in a format from 1990.
 		-->
-		<link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
+		<link
+			rel="icon"
+			href="%sveltekit.assets%/favicon.svg"
+			type="image/svg+xml"
+		/>
 		<!--
 			THE STORED DISPLAY MODE, SET BEFORE THE FIRST PAINT.
 
@@ -46,7 +72,8 @@
 		<script>
 			try {
 				const saved = localStorage.getItem('display-mode');
-				if (saved === 'light' || saved === 'dark') document.documentElement.dataset.mode = saved;
+				if (saved === 'light' || saved === 'dark')
+					document.documentElement.dataset.mode = saved;
 			} catch {
 				// A browser that refuses localStorage still gets a page, and app.css
 				// still follows the setting of the machine.
