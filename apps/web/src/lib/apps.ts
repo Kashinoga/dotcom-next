@@ -19,6 +19,7 @@ import type { Component } from 'svelte';
 // One deep import per icon, as everywhere else — the root `@lucide/svelte`
 // makes the dev server pre-bundle all 1600.
 import FaceSlightlySmiling from '@lucide/svelte/icons/face-slightly-smiling';
+import SquarePen from '@lucide/svelte/icons/square-pen';
 
 export interface App {
 	slug: string;
@@ -36,6 +37,21 @@ export interface App {
 	 * is optional for the same reason `href` is.
 	 */
 	icon?: Component;
+	/*
+	 * A FULLSCREEN APP takes the whole window and wears none of the site's
+	 * furniture: no masthead above it, no footer below it, and no reading
+	 * measure holding it in. What is left is the bar, which carries the app's
+	 * name because the page never says it.
+	 *
+	 * It is a fact about the APP and not about the route, which is why it lives
+	 * here beside the name and the mark: the layout looks this list up once and
+	 * gets all three, rather than keeping a second list of which paths are
+	 * different.
+	 *
+	 * Absent means no. Most apps are content laid on the site and want the site
+	 * around them; the Emoji Viewer is one, and only a working surface is not.
+	 */
+	fullscreen?: boolean;
 }
 
 export const apps: App[] = [
@@ -85,6 +101,18 @@ export const apps: App[] = [
 		slug: 'text-editor',
 		name: 'Text Editor',
 		description: 'A Markdown editor, set as a page of the manual it renders.',
+		/*
+		 * IT HAS AN ADDRESS BEFORE IT HAS AN EDITOR. The page is furniture with
+		 * nothing behind it yet — no document opens, nothing is typed, nothing is
+		 * kept. `href` is here anyway because the rule it answers to is that a
+		 * card must not lead to a 404, and this one leads somewhere real that
+		 * plainly says what it is.
+		 *
+		 * Take it off again if the shell stops being honest about being one.
+		 */
+		href: '/text-editor',
+		icon: SquarePen,
+		fullscreen: true,
 	},
 	{
 		slug: 'weather',

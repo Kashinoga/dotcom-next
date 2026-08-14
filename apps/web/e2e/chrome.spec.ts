@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 /*
  * The furniture the whole site wears: the bar, its frost, the selection, and
@@ -379,6 +379,23 @@ test('the footer starts where the window stops, on every page', async ({
 	}
 });
 
+/*
+ * A FULLSCREEN APP WEARS NO FOOTER, and the bar is what is left. Asserted
+ * against a page that DOES wear one, so this says "these two pages differ" and
+ * not "there is no footer anywhere" — which is what a bug in the layout would
+ * also look like.
+ */
+test('a fullscreen app has no footer, and the rest do', async ({ page }) => {
+	await page.goto('/emoji-viewer');
+	await expect(page.getByRole('contentinfo')).toHaveCount(1);
+
+	await page.goto('/text-editor');
+	await expect(page.getByRole('contentinfo')).toHaveCount(0);
+
+	// The bar stays. It is how you leave.
+	await expect(page.getByRole('link', { name: 'Kashinoga' })).toBeVisible();
+});
+
 test('the footer holds a copyright and the two ways out', async ({ page }) => {
 	await page.goto('/');
 	await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
@@ -499,22 +516,391 @@ test('the Apps control leads to Apps, and comes back from it', async ({
 	await expect(page).toHaveURL(/\/$/);
 });
 
-test('a built app is reachable from its card, by its name alone', async ({
+/*
+ * A LETTER IS CAPPED AT THE MEASURE; AN APP IS NOT. The editor was inside the
+ * reading measure at first, which gave Split two 300px panes and wrapped the
+ * source mid-line.
+ *
+ * Compared against a page that IS a letter, so neither number is written here
+ * and `--measure` can move without this being told.
+ */
+test('the editor takes the window; a letter takes the measure', async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 1500, height: 1000 });
+
+	await page.goto('/emoji-viewer');
+	const letter = (await page.locator('.hero').boundingBox())!;
+
+	await page.goto('/text-editor');
+	const app = (await page.locator('.app').boundingBox())!;
+
+	expect(app.width).toBeGreaterThan(letter.width * 2);
+
+	// It begins on the bar's own line rather than a line of its own.
+	const mark = (await page.locator('.brand .mark').boundingBox())!;
+	const workspace = (await page.locator('.workspace').boundingBox())!;
+	expect(Math.round(workspace.x)).toBe(Math.round(mark.x));
+
+	// Three columns, and nothing pushed the page sideways.
+	await expect(page.locator('.workspace')).toBeVisible();
+	await expect(page.locator('.outline')).toBeVisible();
+	expect(
+		await page.evaluate(
+			() =>
+				document.documentElement.scrollWidth -
+				document.documentElement.clientWidth,
+		),
+	).toBeLessThanOrEqual(0);
+});
+
+/*
+ * AND IT TAKES THE WINDOW DOWNWARDS TOO. The app is `100dvh` less the bar, so
+ * the PAGE never scrolls and each region scrolls itself instead — which is what
+ * keeps the keys, the workspace and the outline on screen while somebody is a
+ * thousand lines into a document.
+ *
+ * Asked at two heights, because the first version of this was
+ * `min-block-size: 60dvh` — a guess at how much of the window would be left
+ * over, right at one size and wrong at every other.
+ */
+for (const height of [900, 620]) {
+	test(`the editor fills a ${height}px window and the page does not scroll`, async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1400, height });
+		await page.goto('/text-editor');
+
+		const seen = await page.evaluate(() => {
+			const bottom = (s) =>
+				Math.round(document.querySelector(s)!.getBoundingClientRect().bottom);
+			return {
+				app: bottom('.app'),
+				sheet: bottom('.sheet'),
+				workspace: bottom('.workspace'),
+				viewport: window.innerHeight,
+				pageScroll: document.documentElement.scrollHeight - window.innerHeight,
+			};
+		});
+
+		// The app ends where the window does, and so does everything in it.
+		expect(seen.app).toBe(seen.viewport);
+		expect(seen.sheet).toBeGreaterThan(seen.viewport - 40);
+		expect(seen.workspace).toBeGreaterThan(seen.viewport - 40);
+		expect(seen.pageScroll).toBe(0);
+	});
+}
+
+/*
+ * THE SITE'S CONTROLS SIT AT THE END OF THE BAR, on every page, and this is a
+ * regression test rather than a precaution.
+ *
+ * `margin-inline-start: auto` on the <nav> is what splits the bar. When the
+ * editor's end-side panel switch arrived, the nav stopped being the first thing
+ * over there and the rule was rewritten as "the nav, unless a panel precedes
+ * it" — `:not(.panel ~ nav)`. `:not()` takes the SPECIFICITY OF ITS ARGUMENT,
+ * so that outranked the fallback beside it and zeroed the margin on every page
+ * with no panel. Apps and the display mode slid back to the middle, and nothing
+ * failed: the bar was still a valid bar, just wrong.
+ *
+ * Asked of all four pages, because the one that kept working was the one the
+ * change had been made for.
+ */
+test('the site controls stay at the end of the bar, on every page', async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 1400, height: 800 });
+
+	for (const path of ['/', '/apps', '/emoji-viewer', '/text-editor']) {
+		await page.goto(path);
+
+		const bar = (await page.locator('header').boundingBox())!;
+		const nav = (await page.locator('header nav').boundingBox())!;
+
+		// Past the halfway line is the whole claim: the split either happened or
+		// it did not, and no number here has to follow the bar's contents.
+		expect(nav.x, path).toBeGreaterThan(bar.x + bar.width / 2);
+	}
+});
+
+/*
+ * THE WORKSPACE'S SWITCH LIVES IN THE BAR, on a fullscreen app where the bar is
+ * the app's chrome rather than the site's furniture. It is drawn only while a
+ * page has claimed it — a control for a panel that is not on the page would be
+ * a control for nothing.
+ */
+test('the panel switches are in the bar, and only where there are panels', async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 1400, height: 800 });
+
+	await page.goto('/emoji-viewer');
+	await expect(page.locator('header .panel')).toHaveCount(0);
+
+	await page.goto('/text-editor');
+	await expect(page.locator('header .panel')).toHaveCount(2);
+
+	for (const [name, controls] of [
+		['Workspace', 'workspace'],
+		['Outline', 'outline'],
+	]) {
+		const button = page.getByRole('button', { name, exact: true });
+		await expect(button, name).toBeVisible();
+		await expect(button, name).toHaveAttribute('aria-controls', controls);
+	}
+});
+
+/*
+ * PUT AWAY, THE WORKSPACE GIVES ITS COLUMN BACK. A switch that hid the panel
+ * and left the room reserved would be no use at all on a working surface — the
+ * width is the whole reason to close it.
+ */
+for (const [name, id] of [
+	['Workspace', 'workspace'],
+	['Outline', 'outline'],
+]) {
+	test(`closing the ${id} hands its width to the desk`, async ({ page }) => {
+		await page.setViewportSize({ width: 1400, height: 800 });
+		await page.goto('/text-editor');
+
+		const button = page.getByRole('button', { name, exact: true });
+		const rail = page.locator(`#${id}`);
+		const sheet = page.locator('.sheet');
+
+		await expect(button).toHaveAttribute('aria-expanded', 'true');
+		await expect(rail).toBeVisible();
+		const wide = (await sheet.boundingBox())!.width;
+
+		await button.click();
+
+		await expect(button).toHaveAttribute('aria-expanded', 'false');
+		await expect(rail).toBeHidden();
+		expect((await sheet.boundingBox())!.width).toBeGreaterThan(wide);
+
+		await button.click();
+		await expect(rail).toBeVisible();
+	});
+}
+
+/*
+ * BOTH AWAY IS THE FOURTH STATE, and the one a rule written as "the panel that
+ * is closed" would miss. Two panels give four benches and the stylesheet names
+ * all four rather than working them out.
+ */
+test('with both panels away the desk takes the whole bench', async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 1400, height: 800 });
+	await page.goto('/text-editor');
+
+	const sheet = page.locator('.sheet');
+	const both = (await sheet.boundingBox())!.width;
+
+	await page.getByRole('button', { name: 'Workspace', exact: true }).click();
+	await page.getByRole('button', { name: 'Outline', exact: true }).click();
+
+	await expect(page.locator('#workspace')).toBeHidden();
+	await expect(page.locator('#outline')).toBeHidden();
+	expect((await sheet.boundingBox())!.width).toBeGreaterThan(both);
+
+	// And nothing was pushed sideways by taking the columns out.
+	expect(
+		await page.evaluate(
+			() =>
+				document.documentElement.scrollWidth -
+				document.documentElement.clientWidth,
+		),
+	).toBeLessThanOrEqual(0);
+});
+
+/*
+ * AND IT GOES WHERE THE PANEL GOES. Below 64rem the workspace has no column to
+ * stand in, so the control that moves it is not drawn either. Two rules hold
+ * that one breakpoint — the layout's and the page's — which is the sort of pair
+ * this repo warns about, so it is asserted rather than trusted.
+ */
+test('the switches are not offered where the panels cannot be shown', async ({
+	page,
+}) => {
+	await page.goto('/text-editor');
+
+	await page.setViewportSize({ width: 1400, height: 800 });
+	await expect(page.locator('header .panel').first()).toBeVisible();
+	await expect(page.locator('#workspace')).toBeVisible();
+	await expect(page.locator('#outline')).toBeVisible();
+
+	await page.setViewportSize({ width: 900, height: 800 });
+	for (const nth of [0, 1]) {
+		await expect(page.locator('header .panel').nth(nth)).toBeHidden();
+	}
+	await expect(page.locator('#workspace')).toBeHidden();
+	await expect(page.locator('#outline')).toBeHidden();
+});
+
+/*
+ * THE SCRATCH NOTES — the first thing this editor actually does. A note here
+ * has no file behind it: it lives in this browser and nowhere else, which is
+ * why it can exist before any of the storage does.
+ *
+ * WAIT FOR STORAGE TO HAVE BEEN READ, and this is the same trap the Emoji
+ * Viewer's suite documents, arriving a third time. The page is prerendered, so
+ * the textarea is in the HTML and accepts typing before Svelte has attached the
+ * handler that keeps it — the text went in, nothing was stored, and the reload
+ * showed an empty note. The page publishes `data-ready` for exactly this.
+ */
+async function editor(page: Page) {
+	await page.goto('/text-editor');
+	await page.locator('.workspace[data-ready]').waitFor({ state: 'attached' });
+}
+
+test('a scratch note is there to type in, and survives a reload', async ({
+	page,
+}) => {
+	await editor(page);
+
+	const sheet = page.locator('textarea.sheet');
+	await expect(sheet).toBeVisible();
+
+	await sheet.fill('The terrain is unforgiving by design.');
+	await page.reload();
+	await page.locator('.workspace[data-ready]').waitFor({ state: 'attached' });
+	await expect(page.locator('textarea.sheet')).toHaveValue(
+		'The terrain is unforgiving by design.',
+	);
+});
+
+/*
+ * THE NUMBER IS A SLOT AND NOT AN IDENTITY. Close Ephemeral 1 out of three and
+ * the next one opened is 1 again, in its old place — counting upwards instead
+ * would leave somebody at Ephemeral 47 by the afternoon, and appending instead
+ * of sorting once produced the list `0, 2, 1`.
+ */
+test('a closed ephemeral number comes back, in order', async ({ page }) => {
+	await editor(page);
+
+	const names = () =>
+		page.locator('.workspace section').first().locator('.file .name');
+	const add = page.getByRole('button', { name: 'Open a new ephemeral note' });
+
+	await expect(names()).toHaveText(['Ephemeral 0']);
+
+	await add.click();
+	await add.click();
+	await expect(names()).toHaveText([
+		'Ephemeral 0',
+		'Ephemeral 1',
+		'Ephemeral 2',
+	]);
+
+	const one = page.locator('.row', { hasText: 'Ephemeral 1' });
+	await one.hover();
+	await one.getByRole('button', { name: 'Close Ephemeral 1' }).click();
+	await expect(names()).toHaveText(['Ephemeral 0', 'Ephemeral 2']);
+
+	await add.click();
+	await expect(names()).toHaveText([
+		'Ephemeral 0',
+		'Ephemeral 1',
+		'Ephemeral 2',
+	]);
+});
+
+/*
+ * CLOSING IS TWO DIFFERENT THINGS, and the label is what says which. Ephemeral
+ * 0 is emptied and stays; anything else goes. Without the permanent one there
+ * would be a state with nowhere at all to type, which is an editor greeting
+ * somebody with no way in.
+ */
+test('closing Ephemeral 0 clears it; closing another removes it', async ({
+	page,
+}) => {
+	await editor(page);
+
+	await page.locator('textarea.sheet').fill('Take care.');
+
+	const zero = page.locator('.row', { hasText: 'Ephemeral 0' });
+	await zero.hover();
+	// The label says CLEAR here and CLOSE everywhere else.
+	await zero.getByRole('button', { name: 'Clear Ephemeral 0' }).click();
+
+	await expect(
+		page.locator('.workspace section').first().locator('.file .name'),
+	).toHaveText(['Ephemeral 0']);
+	await expect(page.locator('textarea.sheet')).toHaveValue('');
+});
+
+/*
+ * A PAGE THAT NEVER SAYS ITS NAME leaves the bar saying it, from the first
+ * paint and without anybody scrolling. The editor has no masthead — a working
+ * surface with a title above it has less room to work on — so the rule the
+ * other pages follow arrives here at a different answer.
+ *
+ * The LINK is still a link home, and still says so. That is the part worth
+ * guarding: the drawing changed and the name did not.
+ */
+test('the bar names a page that has no masthead of its own', async ({
+	page,
+}) => {
+	await page.goto('/text-editor');
+
+	// Nothing on the page claims to be its title.
+	await expect(page.locator('[data-page-title]')).toHaveCount(0);
+
+	const brand = page.locator('.brand');
+	await expect(brand).toHaveClass(/showing-page/);
+	await expect(page.locator('.brand-state.page')).toHaveText('Text Editor');
+	await expect(page.locator('.brand-state.page')).toHaveCSS('opacity', '1');
+
+	// Unscrolled — the name is there because the page never says it, not because
+	// anything went under the bar.
+	expect(await page.evaluate(() => Math.round(scrollY))).toBe(0);
+
+	await expect(
+		page.getByRole('link', { name: 'Kashinoga', exact: true }),
+	).toHaveAttribute('href', '/');
+});
+
+/*
+ * THE RULE AND NOT THE ROSTER. This asserted a count of one and named Emoji
+ * Viewer, and the day a second app was built it failed — having found nothing
+ * wrong. What it is FOR is the rule that a card with nowhere to go is not an
+ * anchor, because a link that 404s is worse than no link; that rule holds at
+ * any number of apps, so it is what gets asserted.
+ */
+test('every built app is reachable from its card, and only those', async ({
 	page,
 }) => {
 	await page.goto('/apps');
 
-	// Only the built ones are links. A card with nowhere to go is not an anchor,
-	// because a link that 404s is worse than no link.
-	await expect(page.locator('.app a')).toHaveCount(1);
+	const built = page.locator('.app.built');
+	const count = await built.count();
+	expect(count).toBeGreaterThan(0);
 
-	const link = page.getByRole('link', { name: 'Emoji Viewer', exact: true });
-	await expect(link).toHaveAttribute('href', '/emoji-viewer');
+	// As many links as there are built cards: none of the others is one.
+	await expect(page.locator('.app a')).toHaveCount(count);
 
-	// The whole card is pressable even though only the name is the link — the
-	// ::after sheet covers the card, so the accessible name stays short.
-	const card = page.locator('.app.built');
-	const box = (await card.boundingBox())!;
-	await page.mouse.click(box.x + box.width - 6, box.y + box.height - 6);
-	await expect(page).toHaveURL(/\/emoji-viewer$/);
+	for (let i = 0; i < count; i++) {
+		const card = built.nth(i);
+		const name = await card.locator('a').textContent();
+		const href = await card.locator('a').getAttribute('href');
+
+		// An app lives at the top level, not under /apps — that path is kept for
+		// the page ABOUT an app.
+		expect(href, name ?? '').toMatch(/^\/[a-z0-9-]+$/);
+
+		// The whole card is pressable even though only the name is the link — the
+		// ::after sheet covers the card, so the accessible name stays short. The
+		// corner is the part furthest from the words.
+		//
+		// Brought into view first: `mouse.click` takes VIEWPORT coordinates, and
+		// the apps page is long enough now that a card further down the list has
+		// a box the pointer cannot reach. The click landed on nothing and the test
+		// read it as a card that does not navigate.
+		await card.scrollIntoViewIfNeeded();
+		const box = (await card.boundingBox())!;
+		await page.mouse.click(box.x + box.width - 6, box.y + box.height - 6);
+		await expect(page).toHaveURL(new RegExp(`${href}$`));
+
+		await page.goBack();
+	}
 });

@@ -30,12 +30,17 @@
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import HeartHandshake from '@lucide/svelte/icons/heart-handshake';
 	import LayoutGrid from '@lucide/svelte/icons/layout-grid';
+	import PanelLeftClose from '@lucide/svelte/icons/panel-left-close';
+	import PanelLeftOpen from '@lucide/svelte/icons/panel-left-open';
+	import PanelRightClose from '@lucide/svelte/icons/panel-right-close';
+	import PanelRightOpen from '@lucide/svelte/icons/panel-right-open';
 
 	import { page } from '$app/state';
 	import { MediaQuery } from 'svelte/reactivity';
 
 	import { apps } from '$lib/apps';
 	import DisplayModeButton from '$lib/components/DisplayModeButton.svelte';
+	import { outline, workspace } from '$lib/panel.svelte';
 	import { site } from '$lib/site';
 
 	let { children } = $props();
@@ -58,11 +63,23 @@
 	 */
 	const here = $derived.by(() => {
 		const path = page.url.pathname;
-		if (onApps) return { name: 'Apps', Icon: LayoutGrid };
+		if (onApps) return { name: 'Apps', Icon: LayoutGrid, fullscreen: false };
 
 		const app = apps.find((a) => a.href === path);
-		return app?.icon ? { name: app.name, Icon: app.icon } : null;
+		return app?.icon
+			? { name: app.name, Icon: app.icon, fullscreen: !!app.fullscreen }
+			: null;
 	});
+
+	/*
+	 * A FULLSCREEN APP WEARS NO FOOTER. The footer is the site's furniture and a
+	 * working surface is not a page of the site to be furnished — it is the whole
+	 * window, and the copyright under it would be a line of chrome the app has to
+	 * scroll past to reach nothing.
+	 *
+	 * The bar stays. It is how you leave.
+	 */
+	const fullscreen = $derived(!!here?.fullscreen);
 
 	/*
 	 * THE TITLE HAS GONE UNDER THE BAR, which is the moment the bar has something
@@ -88,12 +105,28 @@
 
 		const update = () => {
 			frame = 0;
-			const h1 = document.querySelector('h1');
 			const header = document.querySelector('header');
-			if (!h1 || !header) return;
+			if (!header) return;
+
+			/*
+			 * A PAGE THAT NEVER SAYS ITS NAME leaves the bar saying it always. The
+			 * Text Editor is one: it has no masthead at all, because a working
+			 * surface with a title above it is a surface with less room to work in.
+			 *
+			 * `[data-page-title]` and not `h1`, which is what this asked for before
+			 * and was a guess that held only while every page was a letter. An
+			 * editor's PREVIEW renders a document that has an h1 of its own, and
+			 * mistaking that for the page's masthead would put the bar's name back
+			 * on a page that still is not saying it.
+			 */
+			const title = document.querySelector('[data-page-title]');
+			if (!title) {
+				scrolledPast = true;
+				return;
+			}
 
 			scrolledPast =
-				h1.getBoundingClientRect().bottom <=
+				title.getBoundingClientRect().bottom <=
 				header.getBoundingClientRect().bottom;
 		};
 
@@ -226,6 +259,63 @@
 		</span>
 	</a>
 
+	<!--
+		THE PANEL'S SWITCH, and it stands at the START of the bar because that is
+		the side the panel is on — the drawing says which edge it moves and the
+		position agrees with it.
+
+		Drawn only while a page has claimed it, and only where the panel it
+		controls can be shown: below 64rem the workspace has nowhere to stand, and
+		a control that does nothing is worse than no control. See the rule.
+
+		`aria-expanded` is the state and `aria-controls` names what it moves, so it
+		is announced as "Workspace, button, expanded" rather than as two icons that
+		a sighted reader has to tell apart.
+	-->
+	{#if workspace.present}
+		<button
+			type="button"
+			class="control panel"
+			aria-expanded={workspace.open}
+			aria-controls="workspace"
+			aria-label="Workspace"
+			title={workspace.open ? 'Put the workspace away' : 'Show the workspace'}
+			onclick={() => workspace.toggle()}
+		>
+			{#if workspace.open}
+				<PanelLeftClose />
+			{:else}
+				<PanelLeftOpen />
+			{/if}
+		</button>
+	{/if}
+
+	<!--
+		AND THE OUTLINE'S, LEADING THE END CLUSTER, for the same reason the
+		workspace's stands beside the brand: each switch is on the side of the bar
+		that its panel is on, so the drawing and the position say the same thing.
+
+		It comes BEFORE the site's own controls. Apps and the display mode belong
+		to the site and are on every page; this belongs to the app and is on one.
+	-->
+	{#if outline.present}
+		<button
+			type="button"
+			class="control panel end"
+			aria-expanded={outline.open}
+			aria-controls="outline"
+			aria-label="Outline"
+			title={outline.open ? 'Put the outline away' : 'Show the outline'}
+			onclick={() => outline.toggle()}
+		>
+			{#if outline.open}
+				<PanelRightClose />
+			{:else}
+				<PanelRightOpen />
+			{/if}
+		</button>
+	{/if}
+
 	<nav aria-label="Site">
 		<a
 			class="control"
@@ -260,12 +350,13 @@
 	The links are in a <nav> for the same reason the bar's are, and the copyright
 	is not — it names the site rather than leading anywhere.
 -->
-<footer>
-	<p class="copyright">© {year} {site.name}</p>
+{#if !fullscreen}
+	<footer>
+		<p class="copyright">© {year} {site.name}</p>
 
-	<nav aria-label="Elsewhere">
-		<a href="/apps">Apps</a>
-		<!--
+		<nav aria-label="Elsewhere">
+			<a href="/apps">Apps</a>
+			<!--
 			THE MARK SAYS THE LINK LEAVES. It is not `target="_blank"` and never
 			has been: taking the tab away is the visitor's decision and their
 			browser already offers it. What the mark does is say, before the
@@ -276,11 +367,12 @@
 			as well. A screen reader announces the href's host itself, so the
 			drawing here is for the eye that cannot hear it.
 		-->
-		<a class="external" href={site.github} rel="me">
-			GitHub<ExternalLink aria-hidden="true" /></a
-		>
-	</nav>
-</footer>
+			<a class="external" href={site.github} rel="me">
+				GitHub<ExternalLink aria-hidden="true" /></a
+			>
+		</nav>
+	</footer>
+{/if}
 
 <style>
 	header {
@@ -492,6 +584,46 @@
 	header nav {
 		display: flex;
 		margin-inline-start: auto;
+	}
+
+	/*
+	 * WHAT SPLITS THE BAR is whichever thing on the end side comes first. The nav
+	 * carries the auto margin by default, and where an end-side switch stands in
+	 * front of it, the switch takes the job and the nav gives it up.
+	 *
+	 * Two plain rules, and they replaced a clever one that was wrong: it tried to
+	 * say "the nav, unless a panel precedes it" with `:not(.panel ~ nav)`, and
+	 * `:not()` takes the SPECIFICITY OF ITS ARGUMENT — so that selector outranked
+	 * the fallback beside it and zeroed the margin on every page that has no
+	 * panel at all. Every page but the editor lost its right-aligned controls,
+	 * and nothing failed: the bar was still a valid bar, just wrong.
+	 */
+	.panel.end {
+		margin-inline-start: auto;
+	}
+
+	.panel.end ~ nav {
+		margin-inline-start: 0;
+	}
+
+	/*
+	 * THE SWITCH APPEARS WITH THE PANEL AND GOES WITH IT. Below 64rem the
+	 * workspace has no column to stand in — the same breakpoint the page's own
+	 * rule uses — so the control that moves it is not drawn either. Two rules
+	 * holding one number is a thing this repo warns about, and this is that: if
+	 * the page's breakpoint moves, this has to move with it.
+	 *
+	 * The alternative was a switch that is always there and does nothing on a
+	 * phone, which is worse than the duplication.
+	 */
+	.panel {
+		display: none;
+	}
+
+	@media (min-width: 64rem) {
+		.panel {
+			display: inline-flex;
+		}
 	}
 
 	/*

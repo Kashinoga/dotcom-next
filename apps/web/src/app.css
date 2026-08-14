@@ -103,14 +103,29 @@ h6 {
 
 	/*
 	 * THE GUTTER IS ALWAYS THERE, whether or not the page is long enough to need
-	 * a scrollbar. Without this the home page (which fits) and Apps (which does
-	 * not) reserve different widths, and the centred column jumps sideways by
-	 * half a scrollbar every time a visitor crosses between them. The bar above
+	 * a scrollbar. Without this, a page that scrolls and a page that does not
+	 * reserve different widths, and everything measured against the window jumps
+	 * sideways by a scrollbar every time a visitor crosses between them. The bar
 	 * moves with it, which is what makes it obvious.
+	 *
+	 * WHICH PAGES THOSE ARE HAS CHANGED TWICE, and the rule has outlived both.
+	 * It was written when the home page fitted its window and Apps did not. Then
+	 * the footer arrived and every page scrolled, and for one commit this looked
+	 * like a rule with nothing left to do. Then the first FULLSCREEN app arrived,
+	 * which wears no footer and fills the window exactly — measured, it is the
+	 * only page that does not scroll, and every other page does.
+	 *
+	 * So it is load-bearing again, and the lesson is not to read it as being
+	 * about any particular pair of pages.
 	 *
 	 * `stable` and not `stable both-edges`. One gutter on the end side costs the
 	 * column a few pixels of true centring; `both-edges` buys that back and
 	 * spends a whole scrollbar's width on a margin nothing is ever drawn in.
+	 *
+	 * Not demonstrable in the e2e suite: both headless engines here draw OVERLAY
+	 * scrollbars, which take no layout space, so neither can be made to show the
+	 * jump. It is visible wherever scrollbars are classic, which is most of
+	 * Windows.
 	 */
 	scrollbar-gutter: stable;
 }

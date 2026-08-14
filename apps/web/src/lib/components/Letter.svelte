@@ -34,8 +34,19 @@
 		into the reading of the title. The highlight here is decoration, and
 		decoration belongs in an element that claims nothing.
 	-->
+	<!--
+		`data-page-title` IS A CONTRACT WITH THE BAR. The bar wears a page's name
+		once the page has stopped saying it, and it needs to know which element is
+		the page saying it — which is this one, and not any <h1>.
+
+		It was `document.querySelector('h1')`, and that was a guess that held only
+		while every page was a letter. A page with no masthead has no h1 and the
+		bar must carry its name from the first paint; a page whose CONTENT has an
+		h1 in it — a rendered document in a preview, say — must not have that
+		mistaken for its masthead. Marking the real one answers both.
+	-->
 	<div class="masthead">
-		<h1><span class="highlight">{title}</span></h1>
+		<h1 data-page-title><span class="highlight">{title}</span></h1>
 		{#if tagline}
 			<!--
 				A <p> and not an <h2>. A heading opens a SECTION, and this opens
