@@ -109,6 +109,14 @@ export const POLL_EVERY_MS = 2000;
 export const POLL_FOR_MS = 5 * 60 * 1000;
 
 /*
+ * AND HOW LONG TO WAIT AFTER BEING TOLD TO SLOW DOWN. Nextcloud counts every
+ * unanswered poll against its brute-force protection, so asking at the same rate
+ * after a 429 is asking to be throttled harder — this is the one answer where
+ * carrying on unchanged makes the next one worse.
+ */
+export const POLL_SLOWLY_MS = 10_000;
+
+/*
  * Through the relay, always — see the note at the head of this file. The route
  * allows the two login paths and nothing else about them is special: no
  * authorization header, because this is the step that exists to create one.
@@ -148,36 +156,70 @@ export async function startLogin(base: string): Promise<LoginFlow | null> {
 }
 
 /*
- * STEP 3, ONCE.
+ * WHAT ONE POLL CAME BACK WITH.
  *
- * `pending` is the ORDINARY answer and is not an error: Nextcloud sends 404 for
- * as long as nobody has granted it, which is most of the time somebody is looking
- * at a login page.
- *
- * A request that did not happen, and the relay's own word for a server it could
- * not reach, are `pending` TOO — and that is a change from the first site, which
- * gave up on both. A dropped connection or one 502 while somebody is halfway
- * through a login is not an answer about whether they granted it, and abandoning
- * the flow there means abandoning it at the moment they are most likely to be
- * about to finish. The DEADLINE is what ends a flow that is going nowhere; a
- * blip is not a decision.
+ * `failed` CARRIES THE STATUS, and that is not for a log — it is for the sentence
+ * somebody reads. A poll that collapses every way of not working into one null
+ * can only say "that sign-in did not finish", which is true, useless, and
+ * indistinguishable from the case where they simply did not finish it. The number
+ * is the difference between "your server is rate-limiting this" and "something is
+ * wrong", and only the number can tell them apart.
  */
-export async function pollOnce(
-	flow: LoginFlow,
-): Promise<Granted | 'pending' | null> {
+export type Polled =
+	| { state: 'granted'; granted: Granted }
+	/* A pending answer carries its status too, because one of them — 429 — is the
+	 * server asking to be asked less often, and the caller can only slow down if it
+	 * is told which. */
+	| { state: 'pending'; status: number | null }
+	| { state: 'failed'; status: number | null };
+
+/*
+ * WHICH ANSWERS MEAN "ASK AGAIN", and this is the part with a server's own
+ * behaviour written into it.
+ *
+ * 404 is the ORDINARY one: Nextcloud sends it for as long as nobody has granted
+ * the flow, which is most of the time somebody is looking at a login page.
+ *
+ * 429 is the one that cost a working sign-in. Nextcloud counts every unanswered
+ * poll as a failed attempt against its brute-force protection, so a flow that
+ * takes a minute to complete — a password, then a second factor, on a phone —
+ * has already spent thirty attempts by the time somebody presses Grant. The
+ * server then answers the SUCCESSFUL poll with a throttle rather than the
+ * credential, and treating that as a refusal throws away a grant that was made.
+ *
+ * 502 and 504 are the relay's own words for a server it could not reach, and a
+ * 5xx is the server having a moment. Neither is an answer about whether anybody
+ * granted anything.
+ *
+ * Everything else is a real no. The DEADLINE is what ends a flow that is going
+ * nowhere; a blip is not a decision.
+ */
+const ASK_AGAIN = (status: number) =>
+	status === 404 || status === 429 || status >= 500;
+
+/** Step 3, once. */
+export async function pollOnce(flow: LoginFlow): Promise<Polled> {
 	const answer = await viaRelay(
 		flow.pollEndpoint,
 		`token=${encodeURIComponent(flow.pollToken)}`,
 	);
 
-	if (!answer) return 'pending';
-	if (answer.status === 404) return 'pending';
-	if (answer.status === 502 || answer.status === 504) return 'pending';
-	if (!answer.ok) return null;
+	/* The request did not happen at all — offline, or a tab that has been asleep.
+	 * Nothing about the grant is known either way. */
+	if (!answer) return { state: 'pending', status: null };
+
+	if (!answer.ok) {
+		return ASK_AGAIN(answer.status)
+			? { state: 'pending', status: answer.status }
+			: { state: 'failed', status: answer.status };
+	}
 
 	try {
-		return readGranted(await answer.json());
+		const granted = readGranted(await answer.json());
+		return granted
+			? { state: 'granted', granted }
+			: { state: 'failed', status: answer.status };
 	} catch {
-		return null;
+		return { state: 'failed', status: answer.status };
 	}
 }

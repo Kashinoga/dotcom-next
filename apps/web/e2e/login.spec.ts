@@ -166,3 +166,116 @@ test('signing in is offered only where the requests can be made', async ({
 	await relayed.check();
 	await expect(signIn).toHaveCount(1);
 });
+
+/*
+ * THE WHOLE FLOW, against a stubbed server.
+ *
+ * This is the test that would have caught the bug the readers above cannot see.
+ * Everything in `readFlow` and `readGranted` was right; what was wrong was three
+ * lines of the component, and no amount of asking the pure parts would have said
+ * so.
+ *
+ * THE BUG: `window.open(url, '_blank', 'noopener')` returns NULL BY SPEC — the
+ * browser disowns the window and so has no reference to hand back — and the
+ * null-check that exists to notice a blocked pop-up read every successful open as
+ * a blocked one. The tab opened, somebody signed in on their own server and
+ * pressed Grant, and this never polled once.
+ *
+ * `/api/dav` is stubbed rather than reached, so no Nextcloud is needed: the relay
+ * is the only thing between this and a server, and what it forwards is tested
+ * separately in relay.spec.ts.
+ */
+test('a granted sign-in fills the form in', async ({ page, context }) => {
+	const BASE_URL = 'https://cloud.example.com';
+
+	/* Nobody is sent anywhere real: the tab that opens lands on a stub. What
+	 * matters is that a tab opens at all. */
+	await context.route(`${BASE_URL}/**`, (route) =>
+		route.fulfill({ status: 200, body: 'the sign-in page' }),
+	);
+
+	let polls = 0;
+	await context.route('**/api/dav', async (route) => {
+		const target = route.request().headers()['x-dav-target'] ?? '';
+
+		if (target.endsWith('/index.php/login/v2')) {
+			return route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				/*
+				 * THE REWRITTEN FORM, because that is what a real server sends:
+				 * Nextcloud writes these with `linkToRouteAbsolute`, which drops
+				 * `/index.php` wherever URL rewriting is on.
+				 *
+				 * It does not make this test catch an allow-list that refuses that
+				 * form — `/api/dav` is stubbed here, so the relay never runs. Checked:
+				 * with the narrow list restored, this still passes and the relay's own
+				 * test is the one that fails. It is the right URL to stub anyway, so
+				 * the two tests are not describing different servers.
+				 */
+				body: JSON.stringify({
+					login: `${BASE_URL}/login/v2/flow/abc`,
+					poll: {
+						token: 'poll-token',
+						endpoint: `${BASE_URL}/login/v2/poll`,
+					},
+				}),
+			});
+		}
+
+		if (target.endsWith('/poll')) {
+			polls += 1;
+			/* 404 is the ORDINARY answer for as long as nobody has granted it, which
+			 * is most of the time somebody is looking at a login page. Two of them
+			 * first, so the loop has to actually loop. */
+			if (polls < 3) return route.fulfill({ status: 404, body: '' });
+			return route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({
+					loginName: 'someone',
+					appPassword: 'the-app-password',
+				}),
+			});
+		}
+
+		return route.fulfill({ status: 400, body: '' });
+	});
+
+	await page.setViewportSize({ width: 1400, height: 780 });
+	await page.goto('/text-editor');
+	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+
+	await page.getByRole('button', { name: 'Connect a drive' }).click();
+	await page.getByLabel('Server', { exact: true }).fill('cloud.example.com');
+
+	const opened = context.waitForEvent('page');
+	await page.getByRole('button', { name: /Sign in instead/ }).click();
+
+	// A tab really is opened, and it is sent to the server's own login page.
+	const tab = await opened;
+	expect(tab.url()).toContain('/login/v2/flow/');
+
+	// And while it waits, it says what it is waiting for.
+	await expect(
+		page.getByRole('button', { name: /Waiting for you to grant it/ }),
+	).toBeVisible();
+
+	/*
+	 * THE ANSWER FILLS THE FORM IN rather than connecting on its own. A granted
+	 * password and a reachable workspace are two different claims, so the probe
+	 * still runs before anything is remembered.
+	 */
+	await expect(page.getByLabel('User', { exact: true })).toHaveValue(
+		'someone',
+		{
+			timeout: 15_000,
+		},
+	);
+	await expect(page.getByLabel('App password', { exact: true })).toHaveValue(
+		'the-app-password',
+	);
+
+	// It polled more than once, so a 404 really is treated as "not yet".
+	expect(polls).toBeGreaterThan(1);
+});

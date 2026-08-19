@@ -43,6 +43,54 @@ test('a method this editor does not use is refused', async ({ request }) => {
 	}
 });
 
+/*
+ * BOTH SPELLINGS OF THE LOGIN PATHS, and the second one is not politeness.
+ *
+ * The DAV URL is one this app BUILDS, so it is always the `/remote.php/` form.
+ * The poll endpoint is one the SERVER hands back, written with Nextcloud's own
+ * `linkToRouteAbsolute` — which drops `/index.php` on any instance with URL
+ * rewriting on, which is most of them.
+ *
+ * Allowing only the `/index.php` form meant step 1 succeeded, somebody signed in,
+ * their server said it was done, and the poll came back 400 from this relay.
+ */
+test('a login path is allowed with or without index.php', async ({
+	request,
+}) => {
+	const forwards = async (target: string) => {
+		const answer = await request.fetch('/api/dav', {
+			method: 'POST',
+			headers: { 'x-dav-target': target },
+			data: '',
+		});
+		// 400 is this relay refusing; anything else means it tried to forward.
+		return answer.status() !== 400;
+	};
+
+	for (const path of [
+		'/index.php/login/v2',
+		'/index.php/login/v2/poll',
+		'/login/v2',
+		'/login/v2/poll',
+	]) {
+		expect(await forwards(`https://cloud.example.com${path}`), path).toBe(true);
+	}
+
+	/* And the widening did not turn it into "anything with login in it". Each of
+	 * these is one character away from an allowed path. */
+	for (const path of [
+		'/login/v3',
+		'/login',
+		'/login/v2/poll/extra',
+		'/nc/login/v2/poll',
+		'/index.php/login',
+	]) {
+		expect(await forwards(`https://cloud.example.com${path}`), path).toBe(
+			false,
+		);
+	}
+});
+
 test('a target that is not a Nextcloud files path is refused', async ({
 	request,
 }) => {

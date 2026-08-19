@@ -122,12 +122,23 @@ export const FORWARD_RES = ['etag', 'content-type', 'dav', 'last-modified'];
  * app uses one is an allow-list doing four fifths of nothing. The narrower it is,
  * the less an app password borrowed through here can reach.
  *
- * The two login paths are how this mode gets a token at all, which cannot itself
- * be done directly for the same CORS reason everything here exists for.
+ * The login paths are how this mode gets a token at all, which cannot itself be
+ * done directly for the same CORS reason everything here exists for.
+ *
+ * BOTH SPELLINGS OF THEM, and that is not belt and braces — it is the difference
+ * between the flow working and not. The DAV URL is one this app BUILDS, so it is
+ * always the `/remote.php/` form; the poll endpoint is one the SERVER hands back,
+ * and Nextcloud writes it with `linkToRouteAbsolute`, which drops `/index.php`
+ * on any instance with URL rewriting on — which is most of them, and is the
+ * default where the rewrite works.
+ *
+ * So step 1 succeeded and step 3 was refused by this very list: somebody signed
+ * in, their server said it was done, and the poll came back 400 from here. Four
+ * exact paths, still narrower than "a login path".
  */
 const ALLOWED_PATHS = [
 	/^\/remote\.php\/dav\/files\//,
-	/^\/index\.php\/login\/v2(\/poll)?$/,
+	/^(?:\/index\.php)?\/login\/v2(?:\/poll)?$/,
 ];
 
 /*

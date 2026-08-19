@@ -15,7 +15,13 @@
 
 	import { probe, type DavConfig } from '$lib/dav';
 	import { driveId, toOrigin, toRoot, type Drive } from '$lib/drives';
-	import { pollOnce, POLL_EVERY_MS, POLL_FOR_MS, startLogin } from '$lib/login';
+	import {
+		pollOnce,
+		POLL_EVERY_MS,
+		POLL_FOR_MS,
+		POLL_SLOWLY_MS,
+		startLogin,
+	} from '$lib/login';
 
 	let {
 		onconnect,
@@ -76,26 +82,57 @@
 		 * OPENED FROM THE PRESS, so a browser lets it through. A blocked pop-up is
 		 * the one failure that would otherwise leave this polling for five minutes
 		 * on a page nobody has been sent to, so it is said rather than waited out.
+		 *
+		 * NOT `noopener` IN THE FEATURES, and that is the whole reason this works.
+		 * `window.open` with `noopener` returns NULL BY SPEC — the browser disowns
+		 * the window and so has no reference to give back — so the check below read
+		 * every successful open as a blocked one. The tab opened, somebody signed in
+		 * and granted it, and nothing here ever polled.
+		 *
+		 * The window is disowned on the next line instead, which is the same
+		 * protection reached the other way round: it cannot reach back through
+		 * `window.opener` and navigate this page out from under a form that is
+		 * holding an app password.
 		 */
-		const tab = window.open(flow.login, '_blank', 'noopener');
+		const tab = window.open(flow.login, '_blank');
 		if (!tab) {
 			waitingOnGrant = false;
 			said =
 				'The sign-in page was blocked from opening. Allow pop-ups for this site, or paste an app password instead.';
 			return;
 		}
+		tab.opener = null;
 
 		const until = Date.now() + POLL_FOR_MS;
+		/* Slowed the first time the server asks for it, and never sped up again: it
+		 * counts every ask, so returning to the fast rate spends the allowance it
+		 * has just been asked to stop spending. */
+		let every = POLL_EVERY_MS;
+
 		while (live && Date.now() < until) {
-			await sleep(POLL_EVERY_MS);
+			await sleep(every);
 			if (!live) return;
 
 			const answer = await pollOnce(flow);
-			if (answer === 'pending') continue;
+
+			if (answer.state === 'pending') {
+				if (answer.status === 429) every = POLL_SLOWLY_MS;
+				continue;
+			}
 
 			waitingOnGrant = false;
-			if (!answer) {
-				said = 'That sign-in did not finish.';
+
+			if (answer.state === 'failed') {
+				/*
+				 * THE STATUS IS IN THE SENTENCE. "That sign-in did not finish" was true
+				 * of every way this can fail and told nobody anything — including the
+				 * case where somebody DID finish it and the server answered in a way
+				 * this did not expect, which is exactly when a person needs to know
+				 * what was said rather than what was concluded.
+				 */
+				said = answer.status
+					? `That server answered the sign-in with ${answer.status}, and handed over no app password. Paste one instead, or try again.`
+					: 'That sign-in did not finish.';
 				return;
 			}
 
@@ -103,8 +140,8 @@
 			 * the ordinary path takes over — the probe still runs before anything is
 			 * remembered, because a granted password and a reachable workspace are two
 			 * different claims. */
-			user = answer.user;
-			token = answer.token;
+			user = answer.granted.user;
+			token = answer.granted.token;
 			return;
 		}
 
