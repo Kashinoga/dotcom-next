@@ -108,26 +108,108 @@ h6 {
 	 * sideways by a scrollbar every time a visitor crosses between them. The bar
 	 * moves with it, which is what makes it obvious.
 	 *
-	 * WHICH PAGES THOSE ARE HAS CHANGED TWICE, and the rule has outlived both.
-	 * It was written when the home page fitted its window and Apps did not. Then
-	 * the footer arrived and every page scrolled, and for one commit this looked
-	 * like a rule with nothing left to do. Then the first FULLSCREEN app arrived,
-	 * which wears no footer and fills the window exactly — measured, it is the
-	 * only page that does not scroll, and every other page does.
+	 * WHICH PAGES THOSE ARE HAS CHANGED THREE TIMES. It was written when the home
+	 * page fitted its window and Apps did not. Then the footer arrived and every
+	 * page scrolled, and for one commit this looked like a rule with nothing left
+	 * to do. Then the first FULLSCREEN app arrived, which wears no footer and
+	 * fills the window exactly, and the rule had a page to hold in line again.
 	 *
-	 * So it is load-bearing again, and the lesson is not to read it as being
-	 * about any particular pair of pages.
+	 * MEASURED, IT IS DOWN TO THAT ONE PAGE. `main` is at least the window less
+	 * the bar and the footer follows it, so every page that wears a footer scrolls
+	 * by at least the footer's height, at every window size — and where a
+	 * scrollbar is really there, reserving room for it changes nothing. The only
+	 * page this rule still moves is the one that does not scroll.
 	 *
 	 * `stable` and not `stable both-edges`. One gutter on the end side costs the
 	 * column a few pixels of true centring; `both-edges` buys that back and
 	 * spends a whole scrollbar's width on a margin nothing is ever drawn in.
 	 *
-	 * Not demonstrable in the e2e suite: both headless engines here draw OVERLAY
-	 * scrollbars, which take no layout space, so neither can be made to show the
-	 * jump. It is visible wherever scrollbars are classic, which is most of
-	 * Windows.
+	 * Demonstrable in the e2e suite on CHROMIUM, which draws classic scrollbars
+	 * headless; Firefox draws overlay ones, which take no layout space, so there
+	 * the rule is inert and a test of it can only pass vacuously. Write the
+	 * assertion as "nothing is reserved" rather than "fifteen pixels are", so it
+	 * says something true on both.
 	 */
 	scrollbar-gutter: stable;
+}
+
+/*
+ * AN APP DOES NOT RESERVE THE SITE'S FURNITURE. A fullscreen app is not another
+ * page of this site — it drops the masthead, the measure and the footer, takes
+ * the whole window, and the bar above it stops being the site's furniture and
+ * becomes the app's own chrome. Crossing into one is a BOUNDARY and not a step
+ * between two pages, and the rule above is about steps.
+ *
+ * So the gutter goes here, and the app is a scrollbar's width wider for it. What
+ * that costs is the bar's end-side controls moving by that width as you cross —
+ * the start edge does not move, because it is not measured from the window's far
+ * side. That jump is the price and it is being paid on purpose.
+ *
+ * `:has()` and not a class on <html>. The gutter belongs to the SCROLLING
+ * element, which is <html>, and no page can reach up there — so the sheet asks
+ * downwards for the mark the layout leaves on <main>. It is in the markup rather
+ * than set on hydration, which matters: a gutter that is drawn and then taken
+ * away is the same fifteen pixels moving, on every load, where the jump this
+ * pays for happens only on a crossing.
+ */
+:root:has(main[data-fullscreen]) {
+	scrollbar-gutter: auto;
+
+	/*
+	 * THE STOCK EVERY OBJECT IN AN APP IS CUT FROM — the panes in a rail, and the
+	 * island of view keys in the bar. It is a THIRD shade because an object the
+	 * colour of the desk has nothing left to round: its corners dissolve into the
+	 * field and it stops being an object laid on anything.
+	 *
+	 * BETWEEN THE SHEET AND THE DESK, at half `--surface`'s own step — light 245
+	 * against a 255 sheet and a 235 desk, dark 10 against 0 and 20. So it reads as
+	 * behind the document in both, which is the whole of the arrangement: the
+	 * thing you are writing is at the far end, the desk is furthest in, and what
+	 * only says where things are sits between.
+	 *
+	 * HERE AND NOT IN THE PAGE, because two components read it now: the editor
+	 * draws the rails and the layout draws the bar's island. It was in the page
+	 * while the page was the only reader, and a second copy in the layout would be
+	 * two values that must agree and cannot check each other.
+	 *
+	 * NOT ON BARE `:root`, because it is not true of the whole site — a letter has
+	 * no objects to cut from it. It belongs to a fullscreen app, which is exactly
+	 * what this selector says.
+	 *
+	 * ONE ARM AND NOT TWO. The first site needs a pair here, because it mixes
+	 * toward an ink that flips while its desk does not, so one percentage moves
+	 * its two schemes in opposite directions. This mixes `--fg` into `--bg` and
+	 * both of those flip together — the same reason `--surface` needs only one,
+	 * measured in its own note.
+	 *
+	 * `srgb` for that note's reason too: in oklab, four percent of the way from
+	 * black toward white is still black, and this would do nothing at all in dark.
+	 */
+	--rail: color-mix(in srgb, var(--fg) 4%, var(--bg));
+}
+
+/*
+ * THE BAR JOINS THE DESK on a fullscreen app, and the frost comes off with it.
+ *
+ * The frost is for a LETTER going soft as it passes under the bar. Nothing
+ * passes under this one: the app is exactly the window below it and never
+ * scrolls, so the blur is spent on a static field and the 50% it lets through is
+ * `--bg` showing where the desk is `--surface`. That difference drew a hard line
+ * across the top of the app — the one thing the desk was introduced to stop
+ * drawing.
+ *
+ * So the bar takes the desk's own colour and the whole window becomes one field
+ * with the document laid on it. It is also what the bar already IS on this page:
+ * the app's chrome rather than the site's furniture, holding the app's name and
+ * its two panel switches.
+ *
+ * `--surface` and not a value of its own, so this cannot drift from the desk it
+ * is continuing. They are one surface and there is one token.
+ */
+:root:has(main[data-fullscreen]) header {
+	background-color: var(--surface);
+	-webkit-backdrop-filter: none;
+	backdrop-filter: none;
 }
 
 /* ─── The font ───────────────────────────────────────────────────────────────
@@ -262,8 +344,22 @@ body {
 	 * emerging at it, the page uses it to know how far under the bar an anchor
 	 * would land, and the things that stick use it to stop short of the bar
 	 * instead of sliding beneath it.
+	 *
+	 * `--space-xs` and not `--space-m` on the block edges, which is what makes it
+	 * 48px rather than 64. The lower one of those two paddings is not the bar's
+	 * private air: on every page it is also the space between the bar and the
+	 * first thing under it, and on the editor it was the app's top edge. 16px
+	 * there against the 8px parting the editor's own regions read as two
+	 * different ideas about the same space — which is the answer the first site's
+	 * editor reached, where one token is both the gutter between panes and the
+	 * padding around them.
+	 *
+	 * SITE-WIDE and not on the app alone. A bar that is 48px in the editor and
+	 * 64px on a letter is the site's most persistent element changing size as you
+	 * move through it. One height everywhere costs a letter 16px it was not using
+	 * for anything.
 	 */
-	--bar-block-size: calc(var(--control-block-size) + var(--space-m) * 2);
+	--bar-block-size: calc(var(--control-block-size) + var(--space-xs) * 2);
 
 	/*
 	 * How far a jump to a `#name` should stop short. Without this the browser puts
@@ -560,6 +656,27 @@ body {
  */
 .frost {
 	background-color: var(--bg);
+}
+
+/*
+ * OFF THE SCREEN BUT NOT OUT OF THE ACCESSIBILITY TREE. `display: none` and
+ * `visibility: hidden` would take the words away from a screen reader too, which
+ * is the one thing they are here for.
+ *
+ * HERE FOR THE REASON `.frost` IS HERE: a component's <style> is scoped to that
+ * component, so a recipe two of them wear cannot live in either. It was the
+ * search field's alone while the search field was the only wearer; the bar's view
+ * keys wear it too now, and take it back off on a window wide enough to hold
+ * their names — which is why this is the base state there and the media query is
+ * the one that gains something.
+ */
+.visually-hidden {
+	position: absolute;
+	inline-size: 1px;
+	block-size: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
 }
 
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {

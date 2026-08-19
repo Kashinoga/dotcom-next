@@ -141,18 +141,4 @@
 		color: inherit;
 		cursor: pointer;
 	}
-
-	/*
-	 * Off the screen but NOT out of the accessibility tree. `display: none` and
-	 * `visibility: hidden` would take the label away from a screen reader too,
-	 * which is the one thing it is here for.
-	 */
-	.visually-hidden {
-		position: absolute;
-		inline-size: 1px;
-		block-size: 1px;
-		overflow: hidden;
-		clip-path: inset(50%);
-		white-space: nowrap;
-	}
 </style>

@@ -15,43 +15,16 @@
 	 * different set of constraints, and the ones that still hold will hold again
 	 * when the questions are asked here.
 	 */
-	import Columns2 from '@lucide/svelte/icons/columns-2';
-	import Eye from '@lucide/svelte/icons/eye';
 	import File from '@lucide/svelte/icons/file';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import NotepadText from '@lucide/svelte/icons/notepad-text';
 	import Plus from '@lucide/svelte/icons/plus';
-	import SquarePen from '@lucide/svelte/icons/square-pen';
 	import X from '@lucide/svelte/icons/x';
 
 	import Seo from '$lib/components/Seo.svelte';
 	import { outline as outlinePanel, workspace } from '$lib/panel.svelte';
+	import { view } from '$lib/view.svelte';
 	import { name as scratchName, PERMANENT, scratch } from '$lib/scratch.svelte';
-
-	/*
-	 * THE THREE WAYS TO LOOK AT A DOCUMENT. `split` is the one that costs a
-	 * decision later — it needs a window wide enough to hold two columns of
-	 * readable text, and below that width it is not offered rather than being
-	 * offered and disappointing.
-	 */
-	const VIEWS = [
-		{ id: 'edit', name: 'Edit', hint: 'Type on the sheet', Icon: SquarePen },
-		{ id: 'preview', name: 'Preview', hint: 'Read it set', Icon: Eye },
-		{ id: 'split', name: 'Split', hint: 'Both at once', Icon: Columns2 },
-	] as const;
-
-	type View = (typeof VIEWS)[number]['id'];
-
-	/*
-	 * SPLIT IS WHERE IT OPENS. The source and the setting are the two halves of
-	 * what this app is for, and showing one of them first would be a claim about
-	 * which half matters — made on a visitor's behalf, before they have said
-	 * anything.
-	 *
-	 * On a narrow window the two stack rather than standing side by side, so this
-	 * is a sensible thing to open with at any size. See the rule on `.area`.
-	 */
-	let view = $state<View>('split');
 
 	/*
 	 * STANDING IN FOR A WORKSPACE. A real one comes from one of three places —
@@ -88,9 +61,11 @@
 	// the prerendered HTML and the hydrated page agreeing about what is there.
 	$effect(() => scratch.watch());
 
-	// The bar draws each panel's switch while this page is the one showing.
+	// The bar draws each panel's switch, and the view keys, while this page is the
+	// one showing.
 	$effect(() => workspace.claim());
 	$effect(() => outlinePanel.claim());
+	$effect(() => view.claim());
 
 	function closeScratch(id: number) {
 		scratch.close(id);
@@ -272,35 +247,14 @@ The terrain is unforgiving by design.
 
 		<div class="desk">
 			<!--
-				THE VIEW KEYS, above the sheet rather than in the bar. The bar belongs
-				to the site and says where you are; these belong to the document and
-				say how you are looking at it, and a control that changes with the
-				page should not sit among controls that do not.
-			-->
-			<div class="views" role="group" aria-label="How to look at the document">
-				{#each VIEWS as { id, name, hint, Icon } (id)}
-					<button
-						type="button"
-						class="view"
-						aria-pressed={view === id}
-						title={hint}
-						onclick={() => (view = id)}
-					>
-						<Icon aria-hidden="true" />
-						{name}
-					</button>
-				{/each}
-			</div>
-
-			<!--
 		THE SHEET AND THE PROOF. In `split` both are drawn; otherwise one is. They
 		are siblings in a grid rather than one element that changes what it is,
 		because in `split` they are genuinely two things and a component that
 		becomes two under a flag is harder to reason about than two that are
 		sometimes one.
 	-->
-			<div class="area" data-view={view}>
-				{#if view !== 'preview'}
+			<div class="area" data-view={view.current}>
+				{#if view.current !== 'preview'}
 					<!--
 						A SCRATCH NOTE CAN BE TYPED IN and a placeholder file cannot,
 						because one of them exists. The textarea is deliberately plain
@@ -324,7 +278,7 @@ The terrain is unforgiving by design.
 					{/if}
 				{/if}
 
-				{#if view !== 'edit'}
+				{#if view.current !== 'edit'}
 					<div class="proof" aria-label="The document, set">
 						{#if openScratch !== null}
 							<!--
@@ -362,18 +316,26 @@ The terrain is unforgiving by design.
 		means "scroll to it". Only one of those is a URL, so neither is.
 	-->
 		<nav id="outline" class="rail outline" aria-label="Outline">
-			<h2>Outline</h2>
-			<ol>
-				{#each OUTLINE as heading (heading.text)}
-					<li>
-						<button
-							type="button"
-							class="heading"
-							style="--depth: {heading.depth - 1}">{heading.text}</button
-						>
-					</li>
-				{/each}
-			</ol>
+			<!--
+				ONE SECTION AND NOT NONE, so the outline is a pane by the same rule
+				the workspace's two are rather than by a rule of its own. A rail
+				holds panes; that this one holds a single pane is a fact about the
+				outline and not a second kind of rail.
+			-->
+			<section class="section">
+				<h2>Outline</h2>
+				<ol>
+					{#each OUTLINE as heading (heading.text)}
+						<li>
+							<button
+								type="button"
+								class="heading"
+								style="--depth: {heading.depth - 1}">{heading.text}</button
+							>
+						</li>
+					{/each}
+				</ol>
+			</section>
 		</nav>
 	</div>
 </div>
@@ -394,71 +356,67 @@ The terrain is unforgiving by design.
 	 *
 	 * `dvh` and not `vh`, for the reason the reset gives — a phone's bars move,
 	 * and `vh` would make this taller than the window it is supposed to be.
+	 *
+	 * `block-size` AND NOT `min-block-size`, and the word in the first line is
+	 * what settles it: EXACTLY is a height, and a minimum is a floor with nothing
+	 * over it. The rail is a grid item in an auto row, and an auto row is sized by
+	 * its content unless the grid has a height to divide up — so with only a
+	 * minimum here, nothing above the rail had a definite height to give it, the
+	 * row grew to fit the whole list, and the page grew with it. The rail's
+	 * `overflow-y` had nothing to overflow and never once ran.
+	 *
+	 * It was measured: five scratch notes in a 320px window pushed the page 112px
+	 * past its end. Every region on this page scrolling itself rests on this one
+	 * declaration.
 	 */
 	.app {
 		/*
-		 * NO PADDING ON TOP, because the bar already put it there. The bar is a
-		 * 32px control between two `--space-m` paddings, so the lower one is a
-		 * step of air below the controls that belongs to the bar and is drawn
-		 * whether or not anything sits under it. Adding another here made two
-		 * steps where the design has one — and on a fullscreen app that is a
-		 * band of window not being worked in.
+		 * ONE STEP ON ALL FOUR SIDES, and the top one is the bar's to draw. The bar
+		 * is a control between two `--space-xs` paddings, so the lower of them is
+		 * already this same step; a padding here would make two where the design
+		 * has one.
 		 *
-		 * The other three sides keep theirs: nothing else on the page is offering
-		 * to hold the content off an edge.
+		 * `--space-xs` and not `--space-m`, so the frame round the regions is the
+		 * step that parts them from each other. An edge and a gap at different
+		 * sizes read as two ideas about one space — which is the answer the first
+		 * site's editor reached, where a single token is both the gutter between
+		 * the panes and the padding around them.
 		 */
-		padding: 0 var(--space-m) var(--space-m);
-		min-block-size: calc(100dvh - var(--bar-block-size));
+		padding: 0 var(--space-xs) var(--space-xs);
+		block-size: calc(100dvh - var(--bar-block-size));
+
+		/*
+		 * THE DESK, and the panes are sheets laid on it. It was `--bg` with a
+		 * hairline round each pane, which is a line drawn between two things that
+		 * are the same colour — the least the design can do, and the thing
+		 * `--surface` exists to make unnecessary: it is what tells a supporting
+		 * area from the thing it supports without drawing a line between them.
+		 *
+		 * So the SPACE does the parting. The gutter is already there and already
+		 * one step; giving it a colour of its own is what makes it read as a field
+		 * the panes sit on rather than as a gap between two edges.
+		 *
+		 * THE RAILS TAKE NO COLOUR OF THEIR OWN and let this through, so there are
+		 * two shades here and not three: the document, and everything that is not
+		 * the document. The first site's editor has a third, a step between the
+		 * desk and the sheet for its rails — it needs one because its rails are
+		 * panes with corners of their own, and these are bare lists.
+		 */
+		background-color: var(--surface);
+		/*
+		 * THE SIZE OF A CONTROL IN A RAIL. Smaller than the bar's `2rem`, because
+		 * these sit at the end of a heading or a file row rather than in a bar
+		 * with nothing else in it, and a control the height of the row it is in
+		 * would leave the row no line to be.
+		 *
+		 * Written down because THREE rules read it and one of them is not a
+		 * control: the add, the close, and the height of every heading in a pane.
+		 * That last is the reason it is a token at all — see `.section h2`.
+		 */
+		--rail-control-block-size: 1.5rem;
 
 		display: flex;
 		flex-direction: column;
-	}
-
-	/*
-	 * THE VIEW KEYS. A row of them, sized like every other control on this site
-	 * so the whole page answers a pointer the same way.
-	 */
-	.views {
-		display: flex;
-		gap: var(--space-2xs);
-	}
-
-	.view {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2xs);
-
-		block-size: var(--control-block-size);
-		padding-inline: var(--space-xs);
-		border: none;
-		border-radius: var(--radius-round);
-		background: none;
-		color: inherit;
-		font-size: var(--text-s);
-		cursor: pointer;
-	}
-
-	.view :global(svg) {
-		inline-size: 1em;
-		block-size: 1em;
-	}
-
-	.view:hover {
-		background-color: var(--surface-hover);
-		box-shadow: inset 0 0 0 1px var(--edge);
-	}
-
-	.view:focus-visible {
-		outline: 2px solid var(--fg);
-		outline-offset: 2px;
-	}
-
-	/* THE ONE IN USE. `aria-pressed` is the state, and this draws it — so the
-	 * mark and the announcement cannot disagree, because they are the same
-	 * attribute read twice. */
-	.view[aria-pressed='true'] {
-		background-color: var(--accent);
-		color: var(--accent-fg);
 	}
 
 	/*
@@ -513,7 +471,22 @@ The terrain is unforgiving by design.
 		overflow-y: auto;
 
 		padding: var(--space-s);
-		border: 1px solid var(--edge);
+
+		/*
+		 * `--bg` AND NOT A THIRD COLOUR. The rule the whole site keeps is that the
+		 * content is `--bg` — white in light, black in dark, and never anything
+		 * else — and the furniture around it steps off that. A document is the
+		 * content here, so the sheet and the proof are the only two things in this
+		 * app wearing it.
+		 *
+		 * It puts the DOCUMENT at the far end in both modes and the desk a step in
+		 * from it, which is the arrangement every editor uses and is why it needs
+		 * no explaining to anybody who opens this. The first site's editor reads
+		 * the other way in dark — its sheet is the LIGHTEST thing, because there
+		 * the metaphor is paper on a desk and paper stays paper. Both are
+		 * coherent; this one is the one this site already committed to.
+		 */
+		background-color: var(--bg);
 		border-radius: var(--space-2xs);
 	}
 
@@ -535,15 +508,22 @@ The terrain is unforgiving by design.
 	 */
 	textarea.sheet {
 		resize: none;
-		border: 1px solid var(--edge);
-		background: none;
+		/* The pane above draws the box and the colour; this gives up everything the
+		 * browser would draw over them. `resize: none` because the pane's height is
+		 * the window's — a drag handle offering to change it would be offering
+		 * something the layout takes straight back. */
+		border: none;
 		color: inherit;
 		line-height: var(--leading-prose);
 	}
 
+	/* INSIDE THE PANE, by the ring's whole width. It was -1px, which put it over
+	 * the hairline that used to be there; with the hairline gone the ring has
+	 * nothing to sit on and would hang half of itself in the gutter, where the
+	 * pane beside it is 8px away. */
 	textarea.sheet:focus-visible {
 		outline: 2px solid var(--fg);
-		outline-offset: -1px;
+		outline-offset: -2px;
 	}
 
 	/* Not the document, so it does not read as one. */
@@ -598,8 +578,10 @@ The terrain is unforgiving by design.
 		 * It was `--space-m` throughout, which is the letter's step — right on a
 		 * page of prose, where space is what separates one thought from the next,
 		 * and too much on a working surface, where every step of it is window not
-		 * being worked in. The EDGES keep `--space-m`: holding the app off the
-		 * window is a different job from parting its regions from each other.
+		 * being worked in. The EDGES came to it afterwards: they were `--space-m`
+		 * for one commit, on the argument that holding the app off the window is a
+		 * different job from parting its regions from each other, and the first
+		 * site had already tried that and written down what it read as.
 		 */
 		gap: var(--space-xs);
 	}
@@ -622,15 +604,26 @@ The terrain is unforgiving by design.
 	/*
 	 * NOT STICKY ANY MORE. A rail used to be as tall as its own list and stuck to
 	 * the bar as the page went past it; the page does not go past anything now,
-	 * so it is a full-height column that scrolls its own list instead. A
-	 * workspace of two hundred files keeps the desk beside it exactly where it
-	 * was.
+	 * so it is a full-height column and what scrolls is the column. A workspace of
+	 * two hundred files keeps the desk beside it exactly where it was.
+	 *
+	 * THE OVERFLOW IS HERE AND NOT ON THE LIST, which is what makes a pane the
+	 * height of what is in it. A list that scrolls inside its pane holds the pane
+	 * open at whatever height is going spare — so the pane stops being sized by
+	 * its contents and starts being sized by the window, which is the one thing
+	 * these are not.
+	 *
+	 * The rail is the only thing on this page with an `--space-xs` gap that is not
+	 * the workbench's own: the panes in a rail are parted by exactly what parts
+	 * the rail from the desk.
 	 */
 	.rail {
 		display: none;
 
 		min-block-size: 0;
+		overflow-y: auto;
 		flex-direction: column;
+		gap: var(--space-xs);
 	}
 
 	/* Two rails and a desk. The rails are fixed at 12rem because a column of file
@@ -672,38 +665,86 @@ The terrain is unforgiving by design.
 		}
 	}
 
-	/* The heading stays; the list under it is what moves. */
-	.rail ol {
-		min-block-size: 0;
-		overflow-y: auto;
-	}
+	/* Nothing moves inside a pane — see the overflow on `.rail`. */
 
-	.rail h2 {
-		font-size: var(--text-s);
-		line-height: var(--leading-tight);
-		color: color-mix(in oklab, var(--fg) 60%, transparent);
+	/*
+	 * THE SECTIONS ARE THE PANES. Scratch is one and the files are another, and
+	 * they were marked as sections before they were drawn as anything because they
+	 * are different kinds of thing: one is in this browser and one is somewhere
+	 * else. Giving each its own corners says out loud what the markup already
+	 * said, and says it to the eye rather than only to a screen reader.
+	 *
+	 * ONE SHADE ACROSS ALL OF THEM. Two panes in two colours would be a claim that
+	 * one matters more, and the difference between them is what they hold and not
+	 * how much they are worth. What separates them is the gap, the same as
+	 * everywhere else on this page.
+	 *
+	 * `flex: none` is what keeps a pane the height of its content. Flex items do
+	 * not grow on their own, but they DO shrink, and a rail with more in it than
+	 * fits would otherwise squeeze both panes to fit rather than scrolling.
+	 */
+	.section {
+		flex: none;
+
+		display: flex;
+		flex-direction: column;
+
+		padding: var(--space-xs);
+		/*
+		 * MORE AT THE FOOT THAN AT THE HEAD, and it is what makes the pane look
+		 * evenly filled rather than measured evenly. The heading above is a
+		 * CONTROL'S height and the text in it is centred, so the air over that
+		 * text is the pane's own padding plus whatever the control leaves around
+		 * it; the last row below has only the pane's padding and its own. Matching
+		 * the two numbers would leave the pane visibly bottom-light — so what is
+		 * matched is the air, which is the thing being looked at.
+		 *
+		 * ONE RUNG UP FROM THE OTHER THREE, and it stays one rung up now that they
+		 * have all moved: at 4 the foot was 8, and at 8 it is 16.
+		 *
+		 * MEASURE THE INK AND NOT THE LINE BOXES, and this is the whole of why 16
+		 * is here rather than 12. By the boxes, 16 is plainly wrong — 15.3px over
+		 * the heading against 19.4 under the last row — and 12 squares them at 15.3
+		 * and 15.4. Set both and look at them, and 12 is the one that reads
+		 * top-heavy.
+		 *
+		 * A line box is not where the letters are. The heading's carries half its
+		 * leading above the cap, so its ink starts 3px below the top of its own
+		 * box; the last row's name ends in a descender that reaches the bottom of
+		 * its box exactly. So the air a reader actually sees is 18.3 against 19.4
+		 * at a foot of 16 — a pixel apart — and 18.3 against 15.4 at 12, which is
+		 * three the other way.
+		 *
+		 * The two numbers here are UNEQUAL ON PURPOSE. Squaring them is the obvious
+		 * edit and it has been made and undone once; what is being balanced is what
+		 * can be seen, and the two paddings are not made of the same parts.
+		 */
+		padding-block-end: var(--space-m);
+		border-radius: var(--space-2xs);
+		background-color: var(--rail);
 	}
 
 	/*
-	 * THE SECTIONS. Scratch is one and the files are another, and they are marked
-	 * as sections rather than run together because they are different kinds of
-	 * thing: one is in this browser and one is somewhere else. The rail scrolls
-	 * as a whole, so the sections are stacked and only the rail has an overflow.
+	 * THE HEADING TAKES THE ROWS' OWN INSET, so its first letter stands on the
+	 * same line as theirs — and, through them, on the line the bar's own mark
+	 * stands on. The pane is inset from the app's edge and the row is inset from
+	 * the pane's, and the two together come to the bar's inline padding.
+	 *
+	 * EVERY HEADING IS A CONTROL TALL, and only one of them holds a control.
+	 * "Scratch" carries the button that opens a note, so its row came out taller
+	 * than "Files" and "Outline" by the difference between a control and a line of
+	 * text — three panes down one window, each with a differently sized head. The
+	 * minimum gives the other two the same room without giving them a control they
+	 * have no use for, and it is the rail's own control size rather than a figure,
+	 * so a heading cannot come to disagree with the button sitting in it.
 	 */
-	.section {
-		display: flex;
-		flex-direction: column;
-		min-block-size: 0;
-	}
-
-	.section + .section {
-		margin-block-start: var(--space-xs);
-	}
-
 	.section h2 {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2xs);
+
+		min-block-size: calc(var(--rail-control-block-size) + var(--space-2xs) * 2);
+		padding: var(--space-2xs);
 
 		font-size: var(--text-s);
 		line-height: var(--leading-tight);
@@ -723,8 +764,8 @@ The terrain is unforgiving by design.
 		justify-content: center;
 		flex: none;
 
-		inline-size: 1.5rem;
-		block-size: 1.5rem;
+		inline-size: var(--rail-control-block-size);
+		block-size: var(--rail-control-block-size);
 		padding: 0;
 		border: none;
 		border-radius: var(--radius-round);
@@ -761,13 +802,12 @@ The terrain is unforgiving by design.
 		align-items: center;
 
 		/*
-		 * A STEP BETWEEN THE TWO WASHES. Both the selected name and the hovered
-		 * close draw a rounded ground, and with nothing between them the two
-		 * touched and read as one shape with a bite out of it. The same step the
-		 * rows keep from each other, so the air around a row is even on all four
-		 * sides.
+		 * NO GAP HERE ANY MORE. There is still a step between the two washes —
+		 * both draw a rounded ground and touching would read as one shape with a
+		 * bite out of it — but it is the CLOSE'S margin now, because a gap belongs
+		 * to the row and cannot go away when only one of the two things it parts
+		 * is there. See `.close`.
 		 */
-		gap: var(--space-2xs);
 	}
 
 	/*
@@ -782,16 +822,68 @@ The terrain is unforgiving by design.
 		min-inline-size: 0;
 	}
 
-	/* The close is drawn only when the row is pointed at or reached by Tab, so a
-	 * column of notes is a column of names rather than a column of crosses. It
-	 * stays in the layout throughout, or the name would jump as it appeared. */
+	/*
+	 * THE CLOSE TAKES NO ROOM UNTIL IT IS WANTED, and the name has all of it
+	 * until then. It used to sit in the layout the whole time, hidden — which
+	 * kept the name from jumping as it appeared, and cost the name a control's
+	 * width on every row for a control that is not there. A selected note could
+	 * not draw its ground across its own row: the wash stopped 28px short of the
+	 * end, at an edge with nothing on the other side of it.
+	 *
+	 * SO IT OPENS INSTEAD OF APPEARING. The width goes from nothing to a control
+	 * and the name gives way as it does — one wash becoming two, over
+	 * `--motion-morph`, which is the same length as every other thing on this site
+	 * that changes what it is. The jump the old rule was avoiding is answered by
+	 * the animation rather than by the reservation, so the name keeps the row.
+	 *
+	 * `visibility` IS IN THE TRANSITION, and it is doing a job `opacity` cannot: a
+	 * button that is only transparent is still in the tab order, so a column of
+	 * notes would hold a column of invisible controls to tab through. Transitioned
+	 * rather than switched, so it stays `visible` while the width closes and the
+	 * close does not vanish before it has finished leaving.
+	 *
+	 * The margin is the step between the two washes, and it collapses with the
+	 * width because it is a step between two things and there is only one of them
+	 * to begin with.
+	 */
 	.close {
 		visibility: hidden;
+		overflow: hidden;
+
+		inline-size: 0;
+		margin-inline-start: 0;
+		opacity: 0;
+
+		transition:
+			inline-size var(--motion-morph),
+			margin-inline-start var(--motion-morph),
+			opacity var(--motion-morph),
+			visibility var(--motion-morph);
 	}
 
 	.row:hover .close,
 	.row:focus-within .close {
 		visibility: visible;
+
+		inline-size: var(--rail-control-block-size);
+		margin-inline-start: var(--space-2xs);
+		opacity: 1;
+	}
+
+	/*
+	 * A KEYBOARD GETS IT AT ONCE. The morph is a POINTER'S affordance — a shape
+	 * giving way as the hand arrives — and somebody stepping through with Tab has
+	 * already asked for the next control rather than happening past it.
+	 *
+	 * It is also a correctness rule and not a preference. A control is not
+	 * focusable while it is still opening, so for the length of the animation the
+	 * close is not in the tab order at all: two quick presses of Tab step from the
+	 * name straight to the next note, and the close a person was tabbing toward is
+	 * the one thing they cannot reach. Measured — it is 180ms, which is well
+	 * inside the gap between two deliberate keypresses.
+	 */
+	.row:focus-within .close {
+		transition: none;
 	}
 
 	/*
@@ -808,6 +900,10 @@ The terrain is unforgiving by design.
 	@media (any-pointer: coarse) {
 		.close {
 			visibility: visible;
+
+			inline-size: var(--rail-control-block-size);
+			margin-inline-start: var(--space-2xs);
+			opacity: 1;
 		}
 	}
 
@@ -838,7 +934,7 @@ The terrain is unforgiving by design.
 		align-items: center;
 		gap: var(--space-2xs);
 
-		padding: var(--space-2xs) var(--space-xs);
+		padding: var(--space-2xs);
 		border: none;
 		border-radius: var(--radius-round);
 		background: none;
@@ -894,8 +990,10 @@ The terrain is unforgiving by design.
 		inline-size: 100%;
 		/* The depth is a step of indent, and it comes from the heading level so a
 		 * document with no H1 does not start indented. */
-		padding: var(--space-2xs) var(--space-xs);
-		padding-inline-start: calc(var(--space-xs) + var(--depth) * var(--space-s));
+		padding: var(--space-2xs);
+		padding-inline-start: calc(
+			var(--space-2xs) + var(--depth) * var(--space-s)
+		);
 
 		border: none;
 		border-radius: var(--radius-round);

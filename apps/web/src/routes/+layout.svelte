@@ -41,6 +41,7 @@
 	import { apps } from '$lib/apps';
 	import DisplayModeButton from '$lib/components/DisplayModeButton.svelte';
 	import { outline, workspace } from '$lib/panel.svelte';
+	import { view, VIEWS } from '$lib/view.svelte';
 	import { site } from '$lib/site';
 
 	let { children } = $props();
@@ -291,9 +292,67 @@
 	{/if}
 
 	<!--
-		AND THE OUTLINE'S, LEADING THE END CLUSTER, for the same reason the
-		workspace's stands beside the brand: each switch is on the side of the bar
-		that its panel is on, so the drawing and the position say the same thing.
+		THE VIEW KEYS, AND THEY LEAD THE END CLUSTER. They were on the desk, in a
+		row over the sheet; the argument for that was that a control belonging to
+		the document should not sit among controls belonging to the site. On a
+		fullscreen app the bar carries the APP — its name, its mark, its panel
+		switches — so up here they are already among their own kind, and the row
+		they left is desk being worked on again.
+
+		AN ISLAND, drawn on the bar rather than in it: one object cut from the same
+		stock as the panes in the rails, so a group of three keys reads as a group
+		before anybody has to notice they are three. Every other control in this bar
+		is a bare mark on the field; this is the only one that is a set.
+
+		FIRST OF THE END CLUSTER, so the order runs outward from the document: how
+		you are looking at it, then what is beside it, then the site. See the
+		margin rules — whichever end-side thing comes first is what splits the bar.
+	-->
+	{#if view.present}
+		<!--
+			`--slot` IS WHICH KEY IS PRESSED, as a number, and it is the whole of what
+			the sliding ground needs to know. `--count` is how many there are, so the
+			stylesheet can work out a key's width without being told it.
+
+			Both are written here rather than measured on the client, which is what
+			keeps this honest on the first paint: the page is prerendered, the pressed
+			key is already the pressed one in the markup, and the ground is drawn
+			under it before any script has run.
+		-->
+		<div
+			class="views"
+			role="group"
+			aria-label="How to look at the document"
+			style="--count: {VIEWS.length}; --slot: {VIEWS.findIndex(
+				(candidate) => candidate.id === view.current,
+			)}"
+		>
+			<!--
+				THE GROUND THE PRESSED KEY STANDS ON, and it is ONE thing that moves
+				rather than three that take turns being coloured. Aria-hidden because
+				it says nothing a reader has not already been told by `aria-pressed`.
+			-->
+			<span class="thumb" aria-hidden="true"></span>
+
+			{#each VIEWS as { id, name, hint, Icon } (id)}
+				<button
+					type="button"
+					class="view"
+					aria-pressed={view.current === id}
+					title={hint}
+					onclick={() => view.show(id)}
+				>
+					<Icon aria-hidden="true" />
+					<span class="name visually-hidden">{name}</span>
+				</button>
+			{/each}
+		</div>
+	{/if}
+
+	<!--
+		AND THE OUTLINE'S, for the same reason the workspace's stands beside the
+		brand: each switch is on the side of the bar that its panel is on, so the
+		drawing and the position say the same thing.
 
 		It comes BEFORE the site's own controls. Apps and the display mode belong
 		to the site and are on every page; this belongs to the app and is on one.
@@ -331,7 +390,18 @@
 	<DisplayModeButton />
 </header>
 
-<main>
+<!--
+	`data-fullscreen` IS FOR THE STYLESHEET TO READ, and it is on <main> because
+	that is the nearest thing to <html> this component owns. The one rule that
+	wants it — the scrollbar gutter — belongs to the scrolling element, which is
+	<html>, and a page cannot reach up there; `:has()` is what lets the sheet ask
+	downwards instead. See the note beside `scrollbar-gutter` in src/app.css.
+
+	An attribute and not a class, and it says WHAT THE PAGE IS rather than what to
+	do about it — the same arrangement as `data-mode` on <html>, where the app
+	states the mode and the stylesheet decides what the mode means.
+-->
+<main data-fullscreen={fullscreen || undefined}>
 	{@render children()}
 </main>
 
@@ -379,7 +449,15 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2xs);
-		padding: var(--space-m);
+		/*
+		 * TIGHT ON THE BLOCK EDGES, ordinary on the inline ones, and they are two
+		 * different jobs. The block padding is what the bar is MADE of — a control
+		 * between two of them — and the lower one is also the space between the bar
+		 * and the first thing under it, which is why it is the small rung. The
+		 * inline padding is where the site's column starts, and the footer answers
+		 * it; that line does not move.
+		 */
+		padding: var(--space-xs) var(--space-m);
 
 		/* Asserted, not left to add up. --bar-block-size is this same sum, and the
 		 * page and the emoji TOC both measure themselves against it — so the bar
@@ -598,12 +676,238 @@
 	 * panel at all. Every page but the editor lost its right-aligned controls,
 	 * and nothing failed: the bar was still a valid bar, just wrong.
 	 */
+	.views,
 	.panel.end {
 		margin-inline-start: auto;
 	}
 
+	.views ~ .panel.end,
+	.views ~ nav,
 	.panel.end ~ nav {
 		margin-inline-start: 0;
+	}
+
+	/*
+	 * THE ISLAND. `--rail` is the stock every object in an app is cut from — the
+	 * panes in the rails wear it too — and it is declared in src/app.css under the
+	 * fullscreen page, which is the only place it means anything.
+	 *
+	 * NO BLOCK PADDING. The bar is a control between two paddings and the keys are
+	 * that control, so the island is exactly as tall as what is in it. Any padding
+	 * over or under would make the bar taller than the height it publishes, and
+	 * every region measured off `--bar-block-size` would follow it down the page.
+	 *
+	 * The inline padding is the step that keeps the pressed key's own pill off the
+	 * island's rounded ends, so one shape sits inside the other instead of the two
+	 * running together at the edge.
+	 */
+	/*
+	 * EQUAL COLUMNS, and they are not a matter of taste — they are what lets the
+	 * ground below be placed by a NUMBER. "Preview" is wider than "Edit", so with
+	 * keys at their own widths the second slot's offset is not twice the first's,
+	 * and finding it means measuring three boxes on the client and measuring them
+	 * again whenever the window resizes or the webfont lands.
+	 *
+	 * `grid-auto-columns: 1fr` in a grid that is sized by its content gives every
+	 * column the width of the widest, which is the one arrangement where slot n
+	 * begins at n times a constant. The island is about 26px wider for it.
+	 */
+	.views {
+		position: relative;
+
+		display: grid;
+		grid-auto-flow: column;
+		grid-auto-columns: 1fr;
+		gap: var(--space-2xs);
+
+		padding-inline: var(--space-2xs);
+		border-radius: var(--radius-round);
+		background-color: var(--rail);
+	}
+
+	/*
+	 * ONE GROUND THAT TRAVELS. It was three grounds taking turns, and switching
+	 * views put the accent out in one place and on in another with nothing in
+	 * between — the two keys never being the same shape at the same moment is
+	 * exactly what a morph is for.
+	 *
+	 * The same gesture as the close opening out of a scratch row, over the same
+	 * `--motion-morph`, because they are the same kind of event: a shape becoming
+	 * another shape rather than a thing appearing. Reduced motion drops that token
+	 * to zero and this arrives instantly, on the same path.
+	 *
+	 * THE TWO PERCENTAGES ARE DIFFERENT PERCENTAGES, which is worth saying out
+	 * loud. In `inline-size` it is the island's padding box, so the island's own
+	 * padding and its gaps come out before the division. In `translate` it is this
+	 * element's own width — one column — so a step of one slot is a column plus
+	 * the gap after it.
+	 *
+	 * It is absolutely positioned, so it is not a grid item and takes no column of
+	 * its own; and it is FIRST in the markup, so the keys paint over it without
+	 * either needing a `z-index`.
+	 */
+	.thumb {
+		position: absolute;
+		inset-block: var(--space-2xs);
+		inset-inline-start: var(--space-2xs);
+		inline-size: calc(
+			(100% - var(--space-2xs) * 2 - var(--space-2xs) * (var(--count) - 1)) /
+				var(--count)
+		);
+		translate: calc(var(--slot) * (100% + var(--space-2xs)));
+
+		border-radius: var(--radius-round);
+		background-color: var(--accent);
+
+		transition: translate var(--motion-morph);
+	}
+
+	/*
+	 * THE KEY IS THE CONTROL'S FULL HEIGHT and its GROUND is drawn a step inside
+	 * it, which are two different things and were one before this.
+	 *
+	 * A ground that filled the key was flush with the island's top and bottom
+	 * while standing a step in from its ends — one shape inside another on two
+	 * sides and level with it on the other two, which reads as a mistake rather
+	 * than as a decision. The step is `--space-2xs` on all four now: at the ends
+	 * it is the island's own padding, between the keys it is the gap, and above
+	 * and below it is the inset on `::before`.
+	 *
+	 * THE BUTTON DID NOT SHRINK TO DO IT, and that is the point of drawing this
+	 * with a pseudo-element rather than by padding the island. Padding the island
+	 * would take the step out of the CONTROL: 32px down to 24 for a pointer, and
+	 * on a touchscreen 44 down to 36 — under the size this site gives a finger,
+	 * for the sake of four pixels of drawing. What a finger has to hit is not what
+	 * the eye has to see.
+	 *
+	 * `isolation: isolate` is what lets `z-index: -1` mean "behind this key's own
+	 * label" rather than "behind everything": the key becomes a stacking context,
+	 * so the ground cannot fall through it and end up under the island.
+	 */
+	.view {
+		position: relative;
+		isolation: isolate;
+
+		display: inline-flex;
+		align-items: center;
+		/*
+		 * CENTRED, because the key is no longer the width of what is in it. Every
+		 * column is as wide as the widest — see `.views` — so "Edit" and "Split"
+		 * are given room "Preview" needed, and left where they fell they sat at
+		 * the start of a box a third wider than their own words while the ground
+		 * under them filled the whole of it.
+		 *
+		 * `padding-inline` stops being what places them and becomes a floor: the
+		 * least room a label may have at either end, on the narrow bar where the
+		 * keys hold nothing but a mark.
+		 */
+		justify-content: center;
+		gap: var(--space-2xs);
+
+		block-size: var(--control-block-size);
+		padding-inline: var(--space-xs);
+		border: none;
+		background: none;
+		color: inherit;
+		font-size: var(--text-s);
+		cursor: pointer;
+
+		/* WITH THE GROUND AND NOT AHEAD OF IT. The label flips to `--accent-fg` as
+		 * it becomes the pressed one, and snapping that while the ground is still
+		 * on its way turns the colour black before the yellow arrives under it. In
+		 * light both colours are already black and nothing here shows; in dark it
+		 * is white becoming black, and it shows. */
+		transition: color var(--motion-morph);
+	}
+
+	.view::before {
+		content: '';
+		position: absolute;
+		z-index: -1;
+		inset-block: var(--space-2xs);
+		inset-inline: 0;
+
+		border-radius: var(--radius-round);
+	}
+
+	.view :global(svg) {
+		inline-size: 1em;
+		block-size: 1em;
+	}
+
+	/*
+	 * A KEY IS A MARK, AND A WIDE BAR GAINS ITS NAME. Under the width where they
+	 * all fit, the line shrinks what it can, and what it can is the island — which
+	 * pays out of its own MARKS. Measured at 380 before this rule: 224px down to
+	 * 182, the three marks gone to nothing, three bare words left behind. A control
+	 * that drops its icon to keep its label has given up the wrong half.
+	 *
+	 * So the names are what is given up instead. Every key keeps its mark, its
+	 * `title` and its name in the reading, and a key with only its mark is exactly
+	 * `--control-block-size` square, which is what every other control in this bar
+	 * already is. Measured after: 106px at 380, with nothing compressed.
+	 *
+	 * 33rem BECAUSE THE PARTS COME TO 510px, and that is a sum to re-add rather
+	 * than a number to keep: the brand at 128, this island at 274, Apps and the
+	 * display mode at 32 each, three gaps of 4, and the bar's own 32 of padding.
+	 * It was 30rem when the island was 224 wide, and the island grew 50px the day
+	 * its keys became equal columns — so at 481 the labels were being held onto at
+	 * a width that could not hold them, and a mark was down to 13px again. If the
+	 * island changes width, this is the line that has to be re-added.
+	 *
+	 * WRITTEN AS A GAIN AND NOT A LOSS, both because that is what the rest of this
+	 * stylesheet does and because it is what keeps the recipe in one place: the
+	 * span wears the site's own `.visually-hidden` from src/app.css, and this
+	 * takes it back off. The other way round — hiding it here under `max-width` —
+	 * meant a second copy of those five declarations that could not check itself
+	 * against the first.
+	 */
+	@media (min-width: 33rem) {
+		.view .name {
+			position: static;
+			inline-size: auto;
+			block-size: auto;
+			clip-path: none;
+		}
+	}
+
+	.view:hover::before {
+		background-color: var(--surface-hover);
+		box-shadow: inset 0 0 0 1px var(--edge);
+	}
+
+	/* ON THE GROUND AND NOT ON THE KEY, so the ring follows the shape a reader can
+	 * see. Drawn at the key's own edge it would stand four pixels outside the pill
+	 * and cross the island's edge at the ends. */
+	.view:focus-visible {
+		outline: none;
+	}
+
+	.view:focus-visible::before {
+		outline: 2px solid var(--fg);
+		outline-offset: 0;
+	}
+
+	/* THE ONE IN USE. `aria-pressed` is the state and this draws it, so the mark
+	 * and the announcement cannot disagree — they are the same attribute read
+	 * twice. The colour stays on the KEY because it belongs to the label, and the
+	 * label is not what is inset. */
+	.view[aria-pressed='true'] {
+		color: var(--accent-fg);
+	}
+
+	/*
+	 * THE PRESSED KEY DRAWS NOTHING. The travelling ground is under it, and a
+	 * hover wash painted on top of the accent would be a grey film over the yellow
+	 * for as long as the pointer sat there.
+	 *
+	 * `:hover::before` is the only thing this is taking back, so it is written as
+	 * the pair rather than as `background: none` — which would also have to undo
+	 * the ring, and then keep undoing whatever a later rule adds.
+	 */
+	.view[aria-pressed='true']:hover::before {
+		background-color: transparent;
+		box-shadow: none;
 	}
 
 	/*
