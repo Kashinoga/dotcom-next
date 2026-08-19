@@ -1,3 +1,7 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { expect, test, type Page } from '@playwright/test';
 
 /*
@@ -613,6 +617,123 @@ for (const height of [900, 620]) {
 }
 
 /*
+ * AN EMPTY SHEET DOES NOT SCROLL, and a full one does.
+ *
+ * The bug this was written for was 8px of it. A textarea is an inline-block by
+ * default, so it sits on a line box's BASELINE and leaves the descender's space
+ * under it — and a textarea filling a pane that is exactly the window's height
+ * put the pane 8px over its own, for a scrollbar with nothing to scroll to.
+ *
+ * Asked at three heights, because the number is not a constant of the layout: it
+ * is whatever the font leaves under a baseline, and a test pinned to one window
+ * would pass on the one it was written at.
+ */
+for (const height of [1000, 700, 500]) {
+	test(`an empty sheet has nothing to scroll at ${height}px`, async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1400, height });
+		await page.goto('/text-editor');
+		await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+
+		const seen = await page.evaluate(() => {
+			const over = (selector: string) => {
+				const element = document.querySelector(selector)!;
+				return element.scrollHeight - element.clientHeight;
+			};
+			return {
+				sheet: over('.sheet'),
+				proof: over('.proof'),
+				page: document.documentElement.scrollHeight - window.innerHeight,
+			};
+		});
+
+		expect(seen.sheet).toBe(0);
+		expect(seen.proof).toBe(0);
+		expect(seen.page).toBe(0);
+	});
+}
+
+/*
+ * ...AND A DOCUMENT LONGER THAN THE PANE STILL SCROLLS INSIDE IT. The fix above
+ * is one declaration away from being "nothing scrolls ever", which would look
+ * correct on an empty sheet and lose the end of every real document.
+ */
+test('a document longer than the pane scrolls, and the page does not', async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 1400, height: 500 });
+	await page.goto('/text-editor');
+	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+
+	const sheet = page.locator('.sheet textarea');
+	await sheet.fill(
+		Array.from({ length: 200 }, (_, line) => `Line ${line + 1}`).join('\n'),
+	);
+
+	const seen = await page.evaluate(() => {
+		const area = document.querySelector('.sheet textarea')!;
+		return {
+			// The textarea is its own scroller — a textarea always is.
+			area: area.scrollHeight - area.clientHeight,
+			page: document.documentElement.scrollHeight - window.innerHeight,
+		};
+	});
+
+	expect(seen.area).toBeGreaterThan(0);
+	// And the app is still exactly the window, which is the invariant it all rests on.
+	expect(seen.page).toBe(0);
+});
+
+/*
+ * NOTHING INSIDE A PANE PAINTS ITS OWN GROUND. The pane draws the colour and
+ * everything in it is transparent — which matters because a FORM CONTROL does
+ * not default to transparent: a textarea's background is the system's `field`,
+ * and `field` follows `color-scheme`.
+ *
+ * This is the bug it was written for. The textarea had no background of its own,
+ * so it took `field` — white in light, and #3b3b3b in dark. In light that
+ * happened to equal the sheet and nothing looked wrong; in dark it was a light
+ * grey box on a black sheet. A mistake that is invisible in the mode you happen
+ * to be working in is exactly what a two-scheme test is for.
+ *
+ * Asked of every control the panes hold, and not only the one that was wrong.
+ */
+for (const mode of ['light', 'dark'] as const) {
+	test(`no control inside a pane paints its own ground in ${mode}`, async ({
+		browser,
+	}) => {
+		const context = await browser.newContext({ colorScheme: mode });
+		const page = await context.newPage();
+		await page.goto('/text-editor');
+		await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+
+		const seen = await page.evaluate(() => {
+			const pane = document.querySelector('.sheet')!;
+			return {
+				pane: getComputedStyle(pane).backgroundColor,
+				inside: [...pane.querySelectorAll('*')].map((child) => ({
+					tag: child.tagName.toLowerCase(),
+					background: getComputedStyle(child).backgroundColor,
+				})),
+			};
+		});
+
+		// The pane itself is opaque — that is the whole point of it.
+		expect(seen.pane).not.toBe('rgba(0, 0, 0, 0)');
+
+		/* And nothing in it is. Transparent, not "the same colour as the pane":
+		 * matching by value is how this passed in light while being wrong. */
+		expect(seen.inside.length).toBeGreaterThan(0);
+		for (const child of seen.inside) {
+			expect(child.background, child.tag).toBe('rgba(0, 0, 0, 0)');
+		}
+
+		await context.close();
+	});
+}
+
+/*
  * THE SPACE PARTS THE PANES, AND NOT A LINE. The sheet and the proof used to be
  * `--bg` boxes on a `--bg` page with a hairline drawn round each — a line
  * between two things of the same colour, which is what `--surface` exists to
@@ -702,7 +823,7 @@ test('a selected note fills its row, and gives way to the close', async ({
 	await page.setViewportSize({ width: 1280, height: 600 });
 	await page.goto('/text-editor');
 	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
-	await page.locator('.add').click();
+	await page.getByRole('button', { name: 'Open a new ephemeral note' }).click();
 
 	const widths = () =>
 		page.evaluate(() => {
@@ -776,7 +897,11 @@ test('a heading starts where its own rows start', async ({ page }) => {
 
 		return [...document.querySelectorAll('.rail .section')].map((pane) => {
 			const heading = pane.querySelector('h2')!;
-			const row = pane.querySelector('li button')!;
+			/* Files starts with no folder and so with no rows. Its heading still has
+			 * to stand where its rows WOULD, but there is nothing to compare it to
+			 * until there is one — so it says so rather than reading null. */
+			const row = pane.querySelector('li button');
+			if (!row) return { heading: text(heading.firstChild!), row: null };
 			const mark = row.querySelector('svg');
 			return {
 				heading: text(heading.firstChild!),
@@ -788,15 +913,23 @@ test('a heading starts where its own rows start', async ({ page }) => {
 		});
 	});
 
-	expect(seen).toHaveLength(3);
-	for (const pane of seen) expect(pane.heading).toBe(pane.row);
+	/* Asserted as "more than two" rather than as a count: the claim is about every
+	 * pane there is, and how many there are is a different fact. */
+	expect(seen.length).toBeGreaterThan(2);
+
+	/* Scratch and the outline have rows on a first visit; Files and Drives do not
+	 * until something is handed over. Every pane that HAS rows keeps the line. */
+	const withRows = seen.filter((pane) => pane.row !== null);
+	expect(withRows.length).toBeGreaterThan(1);
+	for (const pane of withRows) expect(pane.heading).toBe(pane.row);
 });
 
 /*
- * EVERY PANE'S HEAD IS THE SAME HEIGHT, and only one of them has a reason to
- * be. "Scratch" carries the button that opens a note; "Files" and "Outline"
- * carry a word. Left alone, the first came out a control taller than the other
- * two and three panes down one window each had a differently sized head.
+ * EVERY PANE'S HEAD IS THE SAME HEIGHT, and not all of them have a reason to be.
+ * Scratch carries the button that opens a note, Files the one that opens a
+ * folder, Drives the one that connects a server — and the outline carries a
+ * word. Left alone, the ones with a control came out taller than the one
+ * without, and four panes down one window had differently sized heads.
  *
  * The FOOT is asserted with it, because the two are one decision: a heading is
  * a control's height with its text centred in it, so the air above that text is
@@ -814,9 +947,18 @@ test('every pane in a rail has the same head, and a foot to answer it', async ({
 		const panes = [...document.querySelectorAll('.rail .section')];
 		return panes.map((pane) => {
 			const head = pane.querySelector('h2')!.getBoundingClientRect();
-			const last = [...pane.querySelectorAll('li')]
-				.pop()!
-				.getBoundingClientRect();
+			/*
+			 * THE LAST THING IN THE PANE, whatever it is. Files holds rows once a
+			 * folder is open and a line of grey saying there is none before that, and
+			 * the foot is measured from whichever it currently ends with — the air
+			 * under the last thing is the claim, not the air under a row.
+			 */
+			const tail = [...pane.children].filter(
+				(child) => child.getBoundingClientRect().height > 0,
+			);
+			const last = (
+				[...pane.querySelectorAll('li')].pop() ?? tail[tail.length - 1]
+			).getBoundingClientRect();
 			const box = pane.getBoundingClientRect();
 			return {
 				head: Math.round(head.height),
@@ -830,18 +972,335 @@ test('every pane in a rail has the same head, and a foot to answer it', async ({
 		});
 	});
 
-	const [scratch, ...rest] = seen;
+	/*
+	 * SOME HEADS HOLD A CONTROL AND SOME DO NOT, and that is the whole point of
+	 * the claim: Scratch carries the button that opens a note, Files carries the
+	 * one that opens a folder, and the outline carries a word. A head with no
+	 * control must still be a control tall.
+	 */
+	const withControl = seen.filter((pane) => pane.control > 0);
+	const without = seen.filter((pane) => pane.control === 0);
+	expect(withControl.length).toBeGreaterThan(0);
+	expect(without.length).toBeGreaterThan(0);
 
-	// Scratch is the one with a control in its head, and it sets the height.
-	expect(scratch.control).toBeGreaterThan(0);
-	for (const pane of rest) {
-		expect(pane.control).toBe(0);
-		expect(pane.head).toBe(scratch.head);
-	}
+	const heights = new Set(seen.map((pane) => pane.head));
+	expect(heights.size).toBe(1);
+
+	// And the height is the control's, not the word's.
+	expect([...heights][0]).toBeGreaterThan(withControl[0].control);
 
 	// The foot answers the head rather than the padding, so it is the larger step.
 	for (const pane of seen) expect(pane.foot).toBeGreaterThan(0);
 	expect(new Set(seen.map((p) => p.foot)).size).toBe(1);
+});
+
+/*
+ * A FOLDER FROM THIS DEVICE, listed and read.
+ *
+ * FIREFOX ONLY, and that is the app's shape rather than the test's. Chromium has
+ * `showDirectoryPicker`, which opens a dialog belonging to the operating system
+ * and cannot be driven from here; everything else has `<input webkitdirectory>`,
+ * which can. So the snapshot store is what is exercised, and the walk it shares
+ * with the handle-backed one is the same walk.
+ *
+ * The folder is BUILT HERE rather than committed. A fixture would need a binary
+ * to prove the inert row, and the repository's .gitignore opts files back in by
+ * extension — so a committed `.png` would either be untracked and mysteriously
+ * absent on another machine, or would mean adding an extension to that list for
+ * the sake of four bytes.
+ */
+function fixtureFolder() {
+	const root = mkdtempSync(join(tmpdir(), 'workspace-'));
+	writeFileSync(
+		join(root, 'The Curriculum.md'),
+		'# The Curriculum\n\nWelcome.\n',
+	);
+	writeFileSync(join(root, 'Notes.txt'), 'plain words');
+	// Not text, so it is listed and inert rather than dropped.
+	writeFileSync(join(root, 'crest.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+	// Machinery, so it is not listed at all.
+	writeFileSync(join(root, '.hidden'), 'skip me');
+	mkdirSync(join(root, 'Deeper'));
+	writeFileSync(join(root, 'Deeper', 'inside.md'), 'nested words');
+	return root;
+}
+
+test('a folder is walked, listed, and read onto the sheet', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(
+		browserName !== 'firefox',
+		'the input is the only way in from here',
+	);
+
+	const root = fixtureFolder();
+
+	await page.goto('/text-editor');
+	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+
+	// Before: no folder, and the rail says so rather than showing an empty list.
+	await expect(page.locator('.workspace ol')).toHaveCount(1);
+	/* Scoped to the Files pane: Drives says "nothing here" too, so a bare
+	 * `.workspace .note` matches both. */
+	await expect(
+		page.locator('.workspace .section').nth(1).locator('.note'),
+	).toContainText('No folder open');
+
+	await page.locator('input[webkitdirectory]').setInputFiles(root);
+
+	const files = page.locator('.workspace .section').nth(1).locator('.file');
+
+	/* Three documents at the root and the folder the fourth is in — SHUT, so what
+	 * is inside it is not drawn until it is asked for. */
+	await expect(files).toHaveCount(4);
+	await expect(page.getByRole('button', { name: 'inside.md' })).toHaveCount(0);
+
+	await page.getByRole('button', { name: 'Deeper' }).click();
+	await expect(files).toHaveCount(5);
+
+	const seen = await page.evaluate(() =>
+		[
+			...document
+				.querySelectorAll('.workspace .section')[1]
+				.querySelectorAll('.file'),
+		].map((row) => ({
+			name: row.querySelector('.name')!.textContent,
+			inert: (row as HTMLButtonElement).disabled,
+			folder: row.classList.contains('folder'),
+			depth: Number(
+				getComputedStyle(row).getPropertyValue('--depth').trim() || 0,
+			),
+		})),
+	);
+
+	const names = seen.map((row) => row.name);
+	// Walked into the subfolder, and left the dot-file alone.
+	expect(names).toContain('inside.md');
+	expect(names).not.toContain('.hidden');
+
+	/*
+	 * A FOLDER FIRST, AND WHAT IS IN IT INDENTED UNDER IT. A reader scanning the
+	 * column is looking for a place or for a thing in one, never for both at once,
+	 * so folders sort ahead of documents — and `Deeper` coming before `crest.png`
+	 * is how you can tell the sort is by KIND first and by name second.
+	 */
+	expect(seen[0].folder).toBe(true);
+	expect(seen[0].name).toBe('Deeper');
+	expect(seen[0].depth).toBe(0);
+	expect(seen[1].name).toBe('inside.md');
+	expect(seen[1].depth).toBe(1);
+	// Everything after that folder's contents is back at the root.
+	for (const row of seen.slice(2)) expect(row.depth).toBe(0);
+
+	// Listed and plainly dead, rather than dropped — see FolderEntry.openable.
+	expect(seen.find((row) => row.name === 'crest.png')!.inert).toBe(true);
+	expect(seen.find((row) => row.name === 'Notes.txt')!.inert).toBe(false);
+
+	// The head of the tree names itself.
+	await expect(
+		page.locator('.workspace .section').nth(1).locator('h2'),
+	).toContainText(root.split('/').pop()!);
+
+	// And a row puts its own words on the sheet.
+	await page.getByRole('button', { name: 'The Curriculum.md' }).click();
+	await expect(page.locator('.sheet pre')).toContainText('# The Curriculum');
+	await expect(page.locator('.sheet pre')).toContainText('Welcome.');
+
+	await page.getByRole('button', { name: 'inside.md' }).click();
+	await expect(page.locator('.sheet pre')).toContainText('nested words');
+});
+
+/*
+ * THE TWO RAILS ARE NOT THE SAME WIDTH, and the workspace is the wider of them.
+ * It holds paths — names that nest, indent and carry guides in front of them —
+ * where the outline holds headings, which are short and already stepped. The
+ * figures come from the first site: 15rem and 13rem.
+ *
+ * Asserted as a RELATIONSHIP and a figure both. The relationship is the design;
+ * the figure is what stops a later edit quietly making them equal again while
+ * keeping the relationship true at 1px.
+ */
+test('the workspace rail is wider than the outline', async ({ page }) => {
+	await page.setViewportSize({ width: 1400, height: 800 });
+	await page.goto('/text-editor');
+	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+
+	const seen = await page.evaluate(() => ({
+		workspace: Math.round(
+			document.querySelector('#workspace')!.getBoundingClientRect().width,
+		),
+		outline: Math.round(
+			document.querySelector('#outline')!.getBoundingClientRect().width,
+		),
+	}));
+
+	expect(seen.workspace).toBeGreaterThan(seen.outline);
+	expect(seen.workspace).toBe(240);
+	expect(seen.outline).toBe(208);
+});
+
+/*
+ * A ROW SITS AS FAR IN AS IT IS DEEP, and the indent is the whole of what says
+ * so. Asserted on where the MARK is drawn rather than where the box begins: the
+ * box is the rail's full width at every depth, so it says nothing about nesting.
+ */
+test('the tree indents by depth, one step per level', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(
+		browserName !== 'firefox',
+		'the input is the only way in from here',
+	);
+
+	const root = mkdtempSync(join(tmpdir(), 'workspace-'));
+	writeFileSync(join(root, 'top.md'), 'x');
+	mkdirSync(join(root, 'Densette'));
+	writeFileSync(join(root, 'Densette', 'one.md'), 'x');
+	mkdirSync(join(root, 'Densette', 'Library'));
+	writeFileSync(join(root, 'Densette', 'Library', 'two.md'), 'x');
+
+	await page.setViewportSize({ width: 1400, height: 800 });
+	await page.goto('/text-editor');
+	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+	await page.locator('input[webkitdirectory]').setInputFiles(root);
+
+	await page.getByRole('button', { name: 'Densette' }).click();
+	await page.getByRole('button', { name: 'Library' }).click();
+
+	const seen = await page.evaluate(() =>
+		[
+			...document
+				.querySelectorAll('.workspace .section')[1]
+				.querySelectorAll('.file'),
+		].map((row) => ({
+			name: row.querySelector('.name')!.textContent,
+			/* Where the MARK is drawn, not where the box begins — the box is the full
+			 * width of the rail at every depth. */
+			mark: Math.round(row.querySelector('svg')!.getBoundingClientRect().x),
+		})),
+	);
+
+	const at = (name: string) => seen.find((row) => row.name === name)!;
+
+	/* One step per level, and the step is the same one every time. */
+	const step = at('Densette').mark;
+	expect(at('Library').mark - at('Densette').mark).toBeGreaterThan(0);
+	expect(at('two.md').mark - at('Library').mark).toBe(
+		at('Library').mark - at('Densette').mark,
+	);
+	expect(at('top.md').mark).toBe(step);
+});
+
+/*
+ * A FOLDER FOLDS, and what is inside it goes with it. `aria-expanded` is the
+ * state and the mark is drawn from it, so this asks the attribute and trusts the
+ * drawing to follow — they are one thing read twice.
+ */
+test('folding a folder takes its contents with it', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(
+		browserName !== 'firefox',
+		'the input is the only way in from here',
+	);
+
+	const root = fixtureFolder();
+
+	await page.goto('/text-editor');
+	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+	await page.locator('input[webkitdirectory]').setInputFiles(root);
+
+	const inside = page.getByRole('button', { name: 'inside.md' });
+	const deeper = page.getByRole('button', { name: 'Deeper' });
+
+	/*
+	 * SHUT TO BEGIN WITH, whichever kind of store it came from. It was open for a
+	 * folder on this device and shut for one on a server, which made the two behave
+	 * differently for a reason that was about the STORE and not about the reader —
+	 * and a workspace of thirty folders unrolled is a column nobody can find
+	 * anything in.
+	 */
+	await expect(deeper).toHaveAttribute('aria-expanded', 'false');
+	await expect(inside).toHaveCount(0);
+
+	await deeper.click();
+	await expect(deeper).toHaveAttribute('aria-expanded', 'true');
+	await expect(inside).toBeVisible();
+
+	// The documents beside it are untouched — only what was IN it came.
+	await expect(page.getByRole('button', { name: 'Notes.txt' })).toBeVisible();
+
+	await deeper.click();
+	await expect(inside).toHaveCount(0);
+});
+
+/*
+ * A SNAPSHOT CANNOT BE WRITTEN TO, and the sheet says so by BEING a `<pre>`
+ * rather than by refusing a keystroke somebody has already made.
+ *
+ * This is the read-only half of the write work. The other half needs a folder
+ * handed over by `showDirectoryPicker`, which is a dialog belonging to the
+ * operating system — so what this guards is the seam that decides between them.
+ */
+test('a folder that cannot be written to offers no typing', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(
+		browserName !== 'firefox',
+		'the input is the only way in from here',
+	);
+
+	const root = fixtureFolder();
+
+	await page.goto('/text-editor');
+	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+	await page.locator('input[webkitdirectory]').setInputFiles(root);
+	await page.getByRole('button', { name: 'The Curriculum.md' }).click();
+
+	// The document is shown, and shown as something that cannot be typed in.
+	await expect(page.locator('.sheet pre')).toContainText('# The Curriculum');
+	await expect(page.locator('.sheet textarea')).toHaveCount(0);
+
+	/* A scratch note in the same session still takes typing — the sheet is
+	 * read-only about THIS document and not about itself. */
+	await page.getByRole('button', { name: 'Ephemeral 0' }).click();
+	await expect(page.locator('.sheet textarea')).toHaveCount(1);
+});
+
+/*
+ * ONE WAY IN PER BROWSER, and the right one. `showDirectoryPicker` hands over a
+ * folder this app could write through and remember; the input hands over a
+ * snapshot that is read-only and gone at the end of the session. Where the first
+ * exists it is strictly the better bargain, so the second is not also offered.
+ *
+ * The detect is on that one function and on nothing else, because everything
+ * else lies: `FileSystemDirectoryHandle` and `createWritable` are present in
+ * browsers that will not let a page ask for a folder at all.
+ */
+test('a browser is offered the one way it has, and not both', async ({
+	page,
+}) => {
+	await page.goto('/text-editor');
+	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+
+	const seen = await page.evaluate(() => ({
+		picker:
+			typeof (window as unknown as Record<string, unknown>)
+				.showDirectoryPicker === 'function',
+		input: document.querySelectorAll('input[webkitdirectory]').length,
+	}));
+
+	// Exactly one of the two, whichever engine this is.
+	expect(seen.input).toBe(seen.picker ? 0 : 1);
+
+	// And the control is a button either way, so the rail reads the same.
+	await expect(
+		page.getByRole('button', { name: /Open a folder from this device/ }),
+	).toHaveCount(1);
 });
 
 /*
@@ -1234,7 +1693,10 @@ test('a rail scrolls; its panes keep the height of their content', async ({
 	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
 
 	// Enough notes that the two panes together cannot fit the rail.
-	for (let i = 0; i < 4; i += 1) await page.locator('.add').click();
+	for (let i = 0; i < 4; i += 1)
+		await page
+			.getByRole('button', { name: 'Open a new ephemeral note' })
+			.click();
 
 	const seen = await page.evaluate(() => {
 		const rail = document.querySelector('#workspace')!;
@@ -1252,8 +1714,8 @@ test('a rail scrolls; its panes keep the height of their content', async ({
 	expect(seen.pageScroll).toBe(0);
 	expect(seen.railScroll).toBeGreaterThan(0);
 
-	// Two panes, and each is its own content's height — not squeezed to fit.
-	expect(seen.panes).toHaveLength(2);
+	// Every pane is its own content's height — not squeezed to fit.
+	expect(seen.panes.length).toBeGreaterThan(1);
 	for (const pane of seen.panes) expect(pane.drawn).toBe(pane.content);
 });
 
@@ -1286,8 +1748,8 @@ for (const mode of ['light', 'dark'] as const) {
 			};
 		});
 
-		// Scratch, Files, Outline — each its own pane with its own corners.
-		expect(seen.count).toBe(3);
+		// Scratch, Files, Drives and the outline — each its own pane with corners.
+		expect(seen.count).toBeGreaterThan(2);
 		expect(seen.radii).toHaveLength(1);
 		expect(seen.radii[0]).not.toBe('0px');
 
@@ -1559,13 +2021,13 @@ test('a scratch note is there to type in, and survives a reload', async ({
 }) => {
 	await editor(page);
 
-	const sheet = page.locator('textarea.sheet');
+	const sheet = page.locator('.sheet textarea');
 	await expect(sheet).toBeVisible();
 
 	await sheet.fill('The terrain is unforgiving by design.');
 	await page.reload();
 	await page.locator('.workspace[data-ready]').waitFor({ state: 'attached' });
-	await expect(page.locator('textarea.sheet')).toHaveValue(
+	await expect(page.locator('.sheet textarea')).toHaveValue(
 		'The terrain is unforgiving by design.',
 	);
 });
@@ -1617,7 +2079,7 @@ test('closing Ephemeral 0 clears it; closing another removes it', async ({
 }) => {
 	await editor(page);
 
-	await page.locator('textarea.sheet').fill('Take care.');
+	await page.locator('.sheet textarea').fill('Take care.');
 
 	const zero = page.locator('.row', { hasText: 'Ephemeral 0' });
 	await zero.hover();
@@ -1627,7 +2089,7 @@ test('closing Ephemeral 0 clears it; closing another removes it', async ({
 	await expect(
 		page.locator('.workspace section').first().locator('.file .name'),
 	).toHaveText(['Ephemeral 0']);
-	await expect(page.locator('textarea.sheet')).toHaveValue('');
+	await expect(page.locator('.sheet textarea')).toHaveValue('');
 });
 
 /*

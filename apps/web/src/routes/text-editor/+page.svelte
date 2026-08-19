@@ -18,44 +18,54 @@
 	import File from '@lucide/svelte/icons/file';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import NotepadText from '@lucide/svelte/icons/notepad-text';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
+	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import FolderOpen from '@lucide/svelte/icons/folder-open';
+	import Cloud from '@lucide/svelte/icons/cloud';
 	import Plus from '@lucide/svelte/icons/plus';
 	import X from '@lucide/svelte/icons/x';
 
+	import ConnectDrive from '$lib/components/ConnectDrive.svelte';
 	import Seo from '$lib/components/Seo.svelte';
+	import { canPickFolder, folder } from '$lib/folder.svelte';
 	import { outline as outlinePanel, workspace } from '$lib/panel.svelte';
 	import { view } from '$lib/view.svelte';
 	import { name as scratchName, PERMANENT, scratch } from '$lib/scratch.svelte';
 
 	/*
-	 * STANDING IN FOR A WORKSPACE. A real one comes from one of three places —
-	 * a folder on the disk, a folder the browser keeps privately, or a server —
-	 * and none of them exists yet. The shape is what is being agreed here: a
-	 * name, and whether this editor can open it.
-	 *
-	 * `openable: false` is not decoration. A workspace that hides what it cannot
-	 * open shows a folder of six things as a folder of four, and leaves the
-	 * reader wondering whether the walk missed them or they were never there.
-	 */
-	const WORKSPACE = [
-		{ name: 'The Curriculum.md', openable: true },
-		{ name: 'Library 101.md', openable: true },
-		{ name: 'Notes.txt', openable: true },
-		{ name: 'The Peaks.md', openable: true },
-		{ name: 'crest.png', openable: false },
-		{ name: 'handbook.pdf', openable: false },
-	];
-
-	/*
-	 * WHAT IS ON THE DESK. A scratch note and a file are not the same kind of
-	 * thing — one is a number in this browser and the other is a path somewhere
-	 * — so what is open is a KIND and a handle rather than a name, and nothing
+	 * WHAT IS ON THE DESK. A scratch note and a document in a folder are not the
+	 * same kind of thing — one is a number in this browser and the other is a path
+	 * in somebody's workspace — so what is open is a KIND and a handle, and nothing
 	 * has to guess which sort of thing a string was.
+	 *
+	 * The folder's own side of it lives in $lib/folder.svelte.ts, because reading a
+	 * document is asynchronous and a folder closing has to take the open one with
+	 * it. This holds only which of the two kinds is showing.
 	 */
-	type Open = { kind: 'scratch'; id: number } | { kind: 'file'; name: string };
+	type Open = { kind: 'scratch'; id: number } | { kind: 'file'; path: string };
 
 	let open = $state<Open>({ kind: 'scratch', id: PERMANENT });
 
 	const openScratch = $derived(open.kind === 'scratch' ? open.id : null);
+
+	/* The input is the fallback path — see `canPickFolder`. Held so the button can
+	 * be a button and the input can stay out of the reading. */
+	let dirInput = $state<HTMLInputElement | null>(null);
+
+	async function openFile(path: string) {
+		open = { kind: 'file', path };
+		await folder.open(path);
+	}
+
+	async function takeFolder(
+		event: Event & { currentTarget: HTMLInputElement },
+	) {
+		const picked = [...(event.currentTarget.files ?? [])];
+		// Cleared so choosing the SAME folder twice fires a change the second time.
+		event.currentTarget.value = '';
+		open = { kind: 'scratch', id: PERMANENT };
+		await folder.take(picked);
+	}
 
 	// The stored notes arrive a tick after the first paint, which is what keeps
 	// the prerendered HTML and the hydrated page agreeing about what is there.
@@ -66,6 +76,21 @@
 	$effect(() => workspace.claim());
 	$effect(() => outlinePanel.claim());
 	$effect(() => view.claim());
+
+	/* Ask whether a folder was remembered. It does not open one — a browser will
+	 * not grant permission except in answer to a click — so what this can produce
+	 * is an offer, and the offer is a button. See `look` and `resume`. */
+	$effect(() => {
+		void folder.look();
+	});
+
+	/* The drives this browser knows, read once. No tokens are touched. */
+	$effect(() => {
+		void folder.loadDrives();
+	});
+
+	/* The connect form takes the desk while it is up — see the note on it. */
+	let connecting = $state(false);
 
 	function closeScratch(id: number) {
 		scratch.close(id);
@@ -86,16 +111,6 @@
 		{ text: 'The Wand is It', depth: 3 },
 		{ text: 'The Path You Choose', depth: 2 },
 	];
-
-	const SHEET = `# The Curriculum
-
-Welcome to adventure. There was always bad and good rolls. There was always
-scheduling conflicts and snack duties.
-
-## The Year is 2172
-
-The terrain is unforgiving by design.
-`;
 </script>
 
 <Seo
@@ -208,40 +223,222 @@ The terrain is unforgiving by design.
 				</ol>
 			</section>
 
+			<!--
+				THE FILES ARE REAL NOW, and until somebody hands over a folder there
+				are none. The heading carries the folder's name once there is one, so
+				the rail says WHICH workspace rather than just "Files" — a person with
+				two of them open across two tabs should not have to guess.
+			-->
 			<section class="section">
-				<h2>Files</h2>
-				<ol>
-					{#each WORKSPACE as file (file.name)}
-						<li>
-							<button
-								type="button"
-								class="file"
-								class:inert={!file.openable}
-								aria-current={open.kind === 'file' && open.name === file.name
-									? 'true'
-									: undefined}
-								disabled={!file.openable}
-								onclick={() => (open = { kind: 'file', name: file.name })}
-							>
-								<!--
-								A PAGE WITH WRITING ON IT, or a page without. The inert
-								mark was a closed FOLDER, which said the wrong thing
-								entirely: `crest.png` is not a folder, and a reader
-								scanning the column would have counted two folders that
-								are not there. What these rows have in common is being
-								files this editor cannot read, so they get the file with
-								nothing written on it.
-							-->
-								{#if file.openable}
-									<FileText aria-hidden="true" />
+				<h2>
+					{folder.name ?? 'Files'}
+
+					<!--
+						TWO WAYS IN, AND ONLY ONE IS OFFERED. Chromium can hand over a
+						folder the app could later write through; every other browser has
+						`<input webkitdirectory>`, which is a snapshot and read-only. The
+						control looks the same either way and the label does not, because
+						what a visitor gets is not the same thing.
+					-->
+					{#if folder.name}
+						<!--
+							CLOSING IS A DECISION ABOUT THIS FOLDER, so it forgets it too —
+							otherwise the next visit opens on the folder somebody just put
+							away. The scratch notes are untouched: they were never in it.
+						-->
+						<button
+							type="button"
+							class="add"
+							title="Put this folder away"
+							aria-label="Put {folder.name} away"
+							onclick={() => folder.close()}
+						>
+							<X aria-hidden="true" />
+						</button>
+					{:else if canPickFolder()}
+						<button
+							type="button"
+							class="add"
+							title="Open a folder from this device"
+							aria-label="Open a folder from this device"
+							onclick={() => folder.pick()}
+						>
+							<FolderOpen aria-hidden="true" />
+						</button>
+					{:else}
+						<button
+							type="button"
+							class="add"
+							title="Open a folder from this device, as it is now"
+							aria-label="Open a folder from this device, read-only"
+							onclick={() => dirInput?.click()}
+						>
+							<FolderOpen aria-hidden="true" />
+						</button>
+
+						<!--
+							OUT OF THE READING, and not `display: none`, which would take it
+							out of the tab order and out of reach of the click above. The
+							button beside it is the control; this is the mechanism.
+						-->
+						<input
+							bind:this={dirInput}
+							class="visually-hidden"
+							type="file"
+							tabindex="-1"
+							aria-hidden="true"
+							webkitdirectory
+							multiple
+							onchange={takeFolder}
+						/>
+					{/if}
+				</h2>
+
+				{#if folder.reading}
+					<p class="note">Reading the folder.</p>
+				{:else if folder.waiting}
+					<!--
+						A FOLDER FROM LAST TIME. Named, because "the folder from last time"
+						is a question nobody can answer and "Notes" is one they can. It is a
+						button because a browser grants the permission again only in answer
+						to a press.
+					-->
+					<p class="note">Last time you had {folder.waiting.name}.</p>
+					<button type="button" class="file" onclick={() => folder.resume()}>
+						<FolderOpen aria-hidden="true" />
+						<span class="name">Open it again</span>
+					</button>
+				{:else if folder.trouble === 'idle' && !folder.count}
+					<!--
+						NO FOLDER YET, which is not a failure and does not read as one. It
+						says what the control above does, because a mark on its own is a
+						thing to work out and this is the one row a first visit sees.
+					-->
+					<p class="note">
+						No folder open. The scratch notes above are kept in this browser.
+					</p>
+				{:else if folder.trouble === 'empty'}
+					<p class="note">Nothing in {folder.name} this editor can open.</p>
+				{:else if folder.trouble === 'unreadable'}
+					<p class="note">That folder could not be read.</p>
+				{:else if folder.trouble === 'denied'}
+					<p class="note">That folder was not handed over.</p>
+				{/if}
+
+				<!--
+					NO LIST UNTIL THERE IS SOMETHING IN IT. An empty <ol> is not nothing:
+					it keeps the step every list holds off what is above it, so the pane
+					that had no rows carried four pixels more foot than the two that did.
+				-->
+				{#if folder.rows.length}
+					<ol>
+						{#each folder.rows as row (row.path)}
+							<li>
+								{#if row.kind === 'dir'}
+									<!--
+										A FOLDER FOLDS. `aria-expanded` is the state and the mark
+										is drawn from it, so the announcement and the drawing are
+										one attribute read twice.
+									-->
+									<button
+										type="button"
+										class="file folder"
+										style="--depth: {row.depth}"
+										aria-expanded={!folder.isClosed(row.path)}
+										title={row.path}
+										onclick={() => folder.fold(row.path)}
+									>
+										{#if folder.isClosed(row.path)}
+											<ChevronRight aria-hidden="true" />
+										{:else}
+											<ChevronDown aria-hidden="true" />
+										{/if}
+										<span class="name">{row.name}</span>
+									</button>
 								{:else}
-									<File aria-hidden="true" />
+									<button
+										type="button"
+										class="file"
+										class:inert={!row.openable}
+										style="--depth: {row.depth}"
+										aria-current={open.kind === 'file' && open.path === row.path
+											? 'true'
+											: undefined}
+										disabled={!row.openable}
+										title={row.path}
+										onclick={() => openFile(row.path)}
+									>
+										<!--
+											A PAGE WITH WRITING ON IT, or a page without. What these
+											rows have in common is being files this editor cannot
+											read, so they get the page with nothing on it.
+										-->
+										{#if row.openable}
+											<FileText aria-hidden="true" />
+										{:else}
+											<File aria-hidden="true" />
+										{/if}
+										<span class="name">{row.name}</span>
+									</button>
 								{/if}
-								<span class="name">{file.name}</span>
-							</button>
-						</li>
-					{/each}
-				</ol>
+							</li>
+						{/each}
+					</ol>
+				{/if}
+			</section>
+
+			<!--
+				DRIVES ARE THEIR OWN PANE, because a folder on this device and a folder
+				on a server are different kinds of thing to somebody choosing between
+				them — one is here and one is somewhere else, and which of those it is
+				matters more than which folder it is.
+
+				The editor cannot tell them apart once one is open, which is the seam
+				doing its job. A person can, and the rail says so.
+			-->
+			<section class="section">
+				<h2>
+					Drives
+					<button
+						type="button"
+						class="add"
+						title="Connect a Nextcloud or ownCloud drive"
+						aria-label="Connect a drive"
+						onclick={() => (connecting = true)}
+					>
+						<Plus aria-hidden="true" />
+					</button>
+				</h2>
+
+				{#if !folder.drives.length}
+					<p class="note">No drives. Nextcloud and ownCloud.</p>
+				{:else}
+					<ol>
+						{#each folder.drives as drive (drive.id)}
+							<li class="row">
+								<button
+									type="button"
+									class="file"
+									title="{drive.user} at {drive.base}"
+									onclick={() => folder.openDrive(drive.id)}
+								>
+									<Cloud aria-hidden="true" />
+									<span class="name">{drive.name}</span>
+								</button>
+
+								<button
+									type="button"
+									class="close"
+									title="Forget it"
+									aria-label="Forget {drive.name}"
+									onclick={() => folder.dropDrive(drive.id)}
+								>
+									<X aria-hidden="true" />
+								</button>
+							</li>
+						{/each}
+					</ol>
+				{/if}
 			</section>
 		</nav>
 
@@ -253,56 +450,119 @@ The terrain is unforgiving by design.
 		becomes two under a flag is harder to reason about than two that are
 		sometimes one.
 	-->
-			<div class="area" data-view={view.current}>
-				{#if view.current !== 'preview'}
-					<!--
+			{#if connecting}
+				<div class="area">
+					<ConnectDrive
+						onconnect={async (drive, token) => {
+							connecting = false;
+							open = { kind: 'scratch', id: PERMANENT };
+							await folder.connect(drive, token);
+						}}
+						oncancel={() => (connecting = false)}
+					/>
+				</div>
+			{:else}
+				<div class="area" data-view={view.current}>
+					{#if view.current !== 'preview'}
+						<!--
 						A SCRATCH NOTE CAN BE TYPED IN and a placeholder file cannot,
 						because one of them exists. The textarea is deliberately plain
 						and deliberately temporary — it is standing in for an editor, and
 						the whole reason for the scratch notes is to have somewhere real
 						to put one when it arrives.
 					-->
-					{#if openScratch !== null}
-						<textarea
-							class="sheet"
-							aria-label="{scratchName(openScratch)}, the document"
-							placeholder="Type something."
-							value={scratch.text(openScratch)}
-							oninput={(event) =>
-								scratch.write(openScratch, event.currentTarget.value)}
-						></textarea>
-					{:else}
-						<div class="sheet" aria-label="The document">
-							<pre>{SHEET}</pre>
-						</div>
-					{/if}
-				{/if}
-
-				{#if view.current !== 'edit'}
-					<div class="proof" aria-label="The document, set">
 						{#if openScratch !== null}
+							<div class="sheet">
+								<textarea
+									class="column"
+									aria-label="{scratchName(openScratch)}, the document"
+									placeholder="Type something."
+									value={scratch.text(openScratch)}
+									oninput={(event) =>
+										scratch.write(openScratch, event.currentTarget.value)}
+								></textarea>
+							</div>
+						{:else if folder.openText !== null && folder.writable}
 							<!--
+							A WRITABLE FOLDER TAKES TYPING. The sheet keeps the words the
+							moment they are typed and the disk catches up a beat later — see
+							SETTLE_MS. A textarea and not a `<pre>` because the difference
+							between the two IS whether this folder can be written to, and a
+							sheet that took typing and dropped it would be worse than one
+							that never offered.
+						-->
+							<div class="sheet">
+								<textarea
+									class="column"
+									aria-label="{open.kind === 'file'
+										? open.path
+										: 'The document'}, the document"
+									value={folder.openText}
+									oninput={(event) => folder.edit(event.currentTarget.value)}
+								></textarea>
+							</div>
+						{:else}
+							<!--
+							AND A SNAPSHOT DOES NOT. It is a `<pre>`, which says so without a
+							word: there is no folder behind these files to write back to.
+						-->
+							<div class="sheet" aria-label="The document">
+								{#if folder.openText !== null}
+									<pre class="column">{folder.openText}</pre>
+								{:else}
+									<p class="pending">
+										{open.kind === 'file'
+											? 'That document could not be read.'
+											: 'Nothing is open.'}
+									</p>
+								{/if}
+							</div>
+						{/if}
+					{/if}
+
+					{#if view.current !== 'edit'}
+						<div class="proof" aria-label="The document, set">
+							{#if openScratch !== null}
+								<!--
 								NOTHING SETS A DOCUMENT YET. The proof says so rather than
 								showing the source in prose type, which is what a broken
 								renderer looks like — and a placeholder that looks like a
 								bug is worse than one that says what it is.
 							-->
-							<p class="pending">
-								There is no setting yet. What you type is on the sheet, and
-								kept.
-							</p>
-						{:else}
-							<h2>The Curriculum</h2>
-							<p>
-								Welcome to adventure. There was always bad and good rolls. There
-								was always scheduling conflicts and snack duties.
-							</p>
-							<h3>The Year is 2172</h3>
-							<p>The terrain is unforgiving by design.</p>
-						{/if}
-					</div>
-				{/if}
-			</div>
+								<p class="pending">
+									There is no setting yet. What you type is on the sheet, and
+									kept.
+								</p>
+							{:else}
+								<!--
+								WHERE THE WORDS STAND, and this is the one place it can be said.
+								A save that failed leaves the sheet looking exactly like a save
+								that worked, so a document that is not on the disk has to say so
+								somewhere or nobody will ever know.
+							-->
+								{#if folder.save === 'trouble'}
+									<p class="pending" role="status">
+										{folder.saveWhy === 'denied'
+											? 'This folder cannot be written to.'
+											: folder.saveWhy === 'gone'
+												? 'That document is no longer there.'
+												: 'Those words are not saved.'}
+									</p>
+								{:else if folder.save === 'saving'}
+									<p class="pending" role="status">Saving.</p>
+								{:else if folder.save === 'dirty'}
+									<p class="pending" role="status">Not saved yet.</p>
+								{:else}
+									<p class="pending">
+										There is no setting yet. What is on the sheet is the
+										document as it is written.
+									</p>
+								{/if}
+							{/if}
+						</div>
+					{/if}
+				</div>
+			{/if}
 		</div>
 
 		<!--
@@ -490,10 +750,51 @@ The terrain is unforgiving by design.
 		border-radius: var(--space-2xs);
 	}
 
+	/*
+	 * THE MEASURE, AND THE PANE IS NOT IT. The sheet stays the width of the desk
+	 * and the COLUMN inside it caps — a pane that narrowed with its text would be a
+	 * white card floating on a grey field, which is a different design.
+	 *
+	 * TWO NUMBERS BECAUSE THERE ARE TWO FACES. The sheet is monospace and the proof
+	 * is prose, and the same pixel width is a different number of characters in
+	 * each: 52rem is about 82 columns of the mono face, 34rem about 68 of the body
+	 * face, and those are the same reading comfort. Both from the first site.
+	 *
+	 * The cap goes on a WRAPPER and not on the textarea, so the pane keeps its
+	 * padding and its scroll and the text column is the only thing bounded.
+	 */
+	.sheet .column {
+		max-inline-size: 52rem;
+	}
+
+	/* The proof holds whatever a renderer gives it, so the cap goes on its CHILDREN
+	 * — there is no one element to put it on and there should not be. */
+	.proof > :global(*) {
+		max-inline-size: 34rem;
+	}
+
+	/* Full height, so the pane's whole area takes a click into the text rather than
+	 * only the part a short document reaches. */
+	textarea.column {
+		/*
+		 * BLOCK, AND THAT IS THE LINE THAT MATTERS. A textarea is an inline-block by
+		 * default, so it sits on the BASELINE of a line box and leaves the
+		 * descender's space under it — the same default the reset in src/app.css
+		 * corrects for an <img> and an <svg>, and for the same reason.
+		 *
+		 * Measured, it was 8px: the sheet is exactly as tall as the window allows,
+		 * the textarea fills it, and those 8 put the pane 8px over its own height —
+		 * so an empty document showed a scrollbar with nothing to scroll to.
+		 */
+		display: block;
+		inline-size: 100%;
+		min-block-size: 100%;
+	}
+
 	/* The sheet is where the SOURCE is, so it is set in a face where a column of
 	 * characters lines up. The proof beside it is prose and is not. */
 	.sheet pre,
-	textarea.sheet {
+	.sheet textarea {
 		margin: 0;
 		font-family: ui-monospace, monospace;
 		font-size: var(--text-s);
@@ -506,13 +807,25 @@ The terrain is unforgiving by design.
 	 * the window's — a drag handle offering to change it would be offering
 	 * something the layout takes straight back.
 	 */
-	textarea.sheet {
+	.sheet textarea {
 		resize: none;
 		/* The pane above draws the box and the colour; this gives up everything the
 		 * browser would draw over them. `resize: none` because the pane's height is
 		 * the window's — a drag handle offering to change it would be offering
 		 * something the layout takes straight back. */
 		border: none;
+		/*
+		 * TRANSPARENT, so the PANE'S colour is what shows. A textarea's default
+		 * background is the system's `field`, which follows `color-scheme` — and in
+		 * dark that is #3b3b3b, a light grey box sitting on a black sheet.
+		 *
+		 * It read as correct for a while because in LIGHT the default is white and
+		 * the sheet is white, so the two agreed by luck and the mistake was only
+		 * visible in the mode nobody had screenshotted. This declaration was here
+		 * once and was taken off when the textarea WAS the pane — where transparent
+		 * would have punched through to the desk. Inside a pane it is right again.
+		 */
+		background: none;
 		color: inherit;
 		line-height: var(--leading-prose);
 	}
@@ -521,26 +834,47 @@ The terrain is unforgiving by design.
 	 * the hairline that used to be there; with the hairline gone the ring has
 	 * nothing to sit on and would hang half of itself in the gutter, where the
 	 * pane beside it is 8px away. */
-	textarea.sheet:focus-visible {
+	.sheet textarea:focus-visible {
 		outline: 2px solid var(--fg);
-		outline-offset: -2px;
+		/* Inside the column, which is inside the pane's padding, so the ring is not
+		 * drawn under the pane's own rounded edge. */
+		outline-offset: 0;
 	}
 
-	/* Not the document, so it does not read as one. */
+	/*
+	 * NOT THE DOCUMENT, so it does not read as one. Both the proof's "there is no
+	 * setting yet" and the sheet's "that could not be read" wear it: neither is
+	 * anybody's words, and the one thing they must not look like is the words.
+	 */
 	.pending {
 		color: color-mix(in oklab, var(--fg) 60%, transparent);
 		font-size: var(--text-s);
 	}
 
-	.proof h2,
-	.proof h3 {
-		font-size: var(--text-m);
+	/*
+	 * WHAT A RAIL SAYS WHEN IT HAS NOTHING TO LIST. The same grey as a heading and
+	 * the same inset as the rows, so it stands in the column rather than beside it.
+	 *
+	 * `text-wrap: pretty` because these are two or three words wider than a 12rem
+	 * rail, and a last line holding one word is the shape a message like this
+	 * always lands in.
+	 */
+	.note {
+		padding: var(--space-2xs);
+
+		color: color-mix(in oklab, var(--fg) 60%, transparent);
+		font-size: var(--text-s);
 		line-height: var(--leading-tight);
+		text-wrap: pretty;
 	}
 
-	.proof > * + * {
-		margin-block-start: var(--space-xs);
-	}
+	/*
+	 * THE PROOF'S OWN TYPE IS GONE WITH THE MARKUP IT SET. `.proof h2`, `h3` and
+	 * the stack between them styled a hand-written document that stood in for a
+	 * renderer; there is a real document on the sheet now and nothing setting it,
+	 * so those rules had no elements left. They come back with the renderer, which
+	 * is the commit that can say what they should be.
+	 */
 
 	/*
 	 * THE THREE REGIONS, as one grid. The rails were absolute against `.prose`
@@ -626,11 +960,22 @@ The terrain is unforgiving by design.
 		gap: var(--space-xs);
 	}
 
-	/* Two rails and a desk. The rails are fixed at 12rem because a column of file
-	 * names does not want to grow with the window — only the desk does. */
+	/*
+	 * TWO RAILS AND A DESK, and the rails are FIXED because a column of file names
+	 * does not want to grow with the window — only the desk does.
+	 *
+	 * THE TWO ARE NOT THE SAME WIDTH, and that is the first site's answer rather
+	 * than an oversight. The workspace holds paths — names that nest, indent, and
+	 * carry a folder's name in front of them — and the outline holds headings,
+	 * which are short and already stepped. 15rem and 13rem, from there.
+	 *
+	 * (The first site's own note beside those two says "same width and material as
+	 * the workspace on the other side" while the rules say 15 and 13. The material
+	 * is shared; the width is not, and the widths are the part that was measured.)
+	 */
 	@media (min-width: 64rem) {
 		.workbench {
-			grid-template-columns: 12rem minmax(0, 1fr) 12rem;
+			grid-template-columns: 15rem minmax(0, 1fr) 13rem;
 		}
 
 		/*
@@ -644,11 +989,11 @@ The terrain is unforgiving by design.
 		 * the whole set at once instead of working it out from a rule.
 		 */
 		.workbench[data-workspace='closed'] {
-			grid-template-columns: minmax(0, 1fr) 12rem;
+			grid-template-columns: minmax(0, 1fr) 13rem;
 		}
 
 		.workbench[data-outline='closed'] {
-			grid-template-columns: 12rem minmax(0, 1fr);
+			grid-template-columns: 15rem minmax(0, 1fr);
 		}
 
 		.workbench[data-workspace='closed'][data-outline='closed'] {
@@ -928,13 +1273,34 @@ The terrain is unforgiving by design.
 	/* THE FILES. A button and not a link: opening one changes what this page is
 	 * showing rather than going anywhere, and the address bar should not claim
 	 * otherwise until a document has an address of its own. */
+	/*
+	 * A ROW SITS AS FAR IN AS IT IS DEEP, and the indent is the whole of what says
+	 * so. A guide line was drawn at every level a row had passed and has been
+	 * taken off again: the rail is 15rem now and the folders open one at a time, so
+	 * a column of nested names is short and the indent alone reads. The lines were
+	 * answering a crowding that the width and the folding had already fixed.
+	 *
+	 * `--depth` defaults to 0 so a row that never sets it — a scratch note, a drive
+	 * — is not indented by a variable it has never heard of.
+	 */
 	.file {
+		--depth: 0;
+		--indent: var(--space-m);
+
 		inline-size: 100%;
 		display: flex;
 		align-items: center;
 		gap: var(--space-2xs);
 
 		padding: var(--space-2xs);
+		/*
+		 * AFTER THE SHORTHAND, and that is not a matter of tidiness. `padding` is a
+		 * shorthand: written below this longhand it resets it, so an indent declared
+		 * first and a `padding` declared second is no indent at all. It was, once,
+		 * and it failed silently — the tree drew as a flat list.
+		 */
+		padding-inline-start: calc(var(--space-2xs) + var(--depth) * var(--indent));
+
 		border: none;
 		border-radius: var(--radius-round);
 		background: none;
