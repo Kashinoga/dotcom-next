@@ -6,6 +6,7 @@ import {
 	MAX_BODY,
 	METHODS,
 	TIMEOUT_MS,
+	USER_AGENT,
 } from '$lib/relay';
 import type { RequestHandler } from './$types';
 
@@ -62,6 +63,14 @@ const relay: RequestHandler = async ({ request, fetch }) => {
 		const value = request.headers.get(name);
 		if (value !== null) headers.set(name, value);
 	}
+
+	/*
+	 * SAID BY THIS ROUTE, not passed on from the caller — which is why it is set
+	 * after the loop above and why `user-agent` is not in that list. Nextcloud
+	 * names an app password after this header, so it is the name somebody reads in
+	 * Devices & sessions when they go to revoke one. See USER_AGENT.
+	 */
+	headers.set('user-agent', USER_AGENT);
 
 	/*
 	 * A MOVE names a second URL, and it gets every check the first got plus a

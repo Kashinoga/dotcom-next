@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+import { FORWARD_REQ, USER_AGENT } from '../src/lib/relay';
+
 /*
  * THE RELAY'S REFUSALS.
  *
@@ -119,4 +121,42 @@ test('a refusal says nothing, and is never cached', async ({ request }) => {
 	// A private document must not give the platform in front of this a reason to
 	// keep one, and the refusals answer the same way as the successes.
 	expect(answer.headers()['cache-control']).toBe('no-store');
+});
+
+/*
+ * THE NAME THE FAR END SEES IS THE NAME OF THE CREDENTIAL.
+ *
+ * Nextcloud names an app password after the `User-Agent` that asked for it, and
+ * that name is what somebody reads in Devices & sessions — the one real control
+ * they have over a token this app holds. Unset, it was `node`: the browser's own
+ * agent never reaches the far end, so what a server saw was whatever runtime did
+ * the fetch, which also meant the name changed with the machine.
+ *
+ * The header cannot be checked from out here without a server to receive it, so
+ * what is checked is the two rules that make it right — it is SET by the relay,
+ * and it is NOT something a caller can choose.
+ */
+test('the relay names itself, and a caller cannot name it', () => {
+	// Recognisable: it says who, and which app of theirs.
+	expect(USER_AGENT).toContain('Kashinoga');
+	expect(USER_AGENT).toContain('Text Editor');
+
+	/*
+	 * And STABLE. Somebody who connected a drive last year should find the entry
+	 * they made, so this must carry no version and no build stamp — which is what
+	 * a digit in it would almost always be.
+	 */
+	expect(USER_AGENT).not.toMatch(/\d/);
+
+	/*
+	 * NOT FORWARDABLE. A relay that let a caller choose this header would let one
+	 * person name a stranger's app password anything they liked, in the list that
+	 * stranger is meant to be able to trust. This is the assertion that keeps it
+	 * out of the allow-list when somebody later wonders why it is missing.
+	 */
+	expect(FORWARD_REQ).not.toContain('user-agent');
+	// Nor under any casing — the route reads the list verbatim.
+	for (const name of FORWARD_REQ) {
+		expect(name.toLowerCase()).not.toBe('user-agent');
+	}
 });

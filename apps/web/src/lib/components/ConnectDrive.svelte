@@ -11,8 +11,11 @@
 	 * come back 207 — a drive that is written down and does not work is worse than
 	 * no drive, because it looks like it should work every time it is opened.
 	 */
+	import { onDestroy } from 'svelte';
+
 	import { probe, type DavConfig } from '$lib/dav';
 	import { driveId, toOrigin, toRoot, type Drive } from '$lib/drives';
+	import { pollOnce, POLL_EVERY_MS, POLL_FOR_MS, startLogin } from '$lib/login';
 
 	let {
 		onconnect,
@@ -36,6 +39,80 @@
 
 	let trying = $state(false);
 	let said = $state<string | null>(null);
+
+	/*
+	 * SIGNING IN ON THEIR OWN SERVER. Only offered where the requests are certain
+	 * to work — see the head of $lib/login.ts for why that is the relayed mode and
+	 * only the relayed mode, and why direct mode keeping the paste is the right
+	 * answer rather than a gap.
+	 */
+	let waitingOnGrant = $state(false);
+
+	/* The poll has to stop when this form goes, or it keeps asking a server about a
+	 * login nobody is completing until the deadline runs out. */
+	let live = true;
+	onDestroy(() => {
+		live = false;
+	});
+
+	const sleep = (ms: number) =>
+		new Promise((resolve) => setTimeout(resolve, ms));
+
+	async function signIn() {
+		if (!origin) return;
+
+		waitingOnGrant = true;
+		said = null;
+
+		const flow = await startLogin(origin);
+		if (!flow) {
+			waitingOnGrant = false;
+			said =
+				'That server would not start a sign-in. Check the address, or paste an app password instead.';
+			return;
+		}
+
+		/*
+		 * OPENED FROM THE PRESS, so a browser lets it through. A blocked pop-up is
+		 * the one failure that would otherwise leave this polling for five minutes
+		 * on a page nobody has been sent to, so it is said rather than waited out.
+		 */
+		const tab = window.open(flow.login, '_blank', 'noopener');
+		if (!tab) {
+			waitingOnGrant = false;
+			said =
+				'The sign-in page was blocked from opening. Allow pop-ups for this site, or paste an app password instead.';
+			return;
+		}
+
+		const until = Date.now() + POLL_FOR_MS;
+		while (live && Date.now() < until) {
+			await sleep(POLL_EVERY_MS);
+			if (!live) return;
+
+			const answer = await pollOnce(flow);
+			if (answer === 'pending') continue;
+
+			waitingOnGrant = false;
+			if (!answer) {
+				said = 'That sign-in did not finish.';
+				return;
+			}
+
+			/* What comes back IS the credential, so the form is filled in with it and
+			 * the ordinary path takes over — the probe still runs before anything is
+			 * remembered, because a granted password and a reachable workspace are two
+			 * different claims. */
+			user = answer.user;
+			token = answer.token;
+			return;
+		}
+
+		if (live) {
+			waitingOnGrant = false;
+			said = 'That sign-in was not granted in time.';
+		}
+	}
 
 	const origin = $derived(toOrigin(server));
 	const ready = $derived(
@@ -139,6 +216,31 @@
 			required
 		/>
 	</label>
+
+	<!--
+		OR HAVE THE SERVER MAKE ONE. The password is never typed here: they log in on
+		their own server, with their own second factor, and press Grant — and what
+		arrives is an app password named for this app and revocable like any other.
+
+		Offered only in the relayed mode, and the note beside it says so rather than
+		leaving somebody wondering where the button went. See $lib/login.ts.
+	-->
+	{#if via === 'proxy'}
+		<div class="signin">
+			<button
+				type="button"
+				onclick={signIn}
+				disabled={!origin || waitingOnGrant || trying}
+			>
+				{waitingOnGrant ? 'Waiting for you to grant it…' : 'Sign in instead'}
+			</button>
+			<p>
+				{waitingOnGrant
+					? 'Finish signing in on the tab that opened, then press Grant.'
+					: 'Opens your server in a tab. It makes the app password for you.'}
+			</p>
+		</div>
+	{/if}
 
 	<label>
 		<span>Folder</span>
@@ -274,6 +376,44 @@
 		/* On its own line's centre, not on the paragraph's. */
 		margin-block-start: 0.15em;
 		flex: none;
+	}
+
+	/* Under the field it stands in for, and quieter than it: it is an alternative
+	 * to the thing above rather than a second thing to fill in. */
+	.signin {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2xs);
+	}
+
+	.signin button {
+		align-self: start;
+
+		block-size: var(--control-block-size);
+		padding-inline: var(--space-s);
+		border: 1px solid var(--edge);
+		border-radius: var(--radius-round);
+		background: none;
+		color: inherit;
+		font-size: var(--text-s);
+		cursor: pointer;
+	}
+
+	.signin button:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+
+	.signin button:focus-visible {
+		outline: 2px solid var(--fg);
+		outline-offset: 2px;
+	}
+
+	.signin p {
+		font-size: var(--text-s);
+		line-height: var(--leading-tight);
+		color: color-mix(in oklab, var(--fg) 60%, transparent);
+		text-wrap: pretty;
 	}
 
 	.said {

@@ -32,6 +32,34 @@
  * into the store that calls it.
  */
 
+/*
+ * WHO THIS SAYS IT IS, and it is not a courtesy — it is the NAME OF THE
+ * CREDENTIAL.
+ *
+ * Nextcloud names an app password after the `User-Agent` that asked for it, and
+ * that name is what a person reads in Devices & sessions. That list is the one
+ * real control anybody has over a token this app holds — $lib/drives.ts says so
+ * plainly, and calls everything it does itself a supporting act — so a name
+ * nobody recognises quietly takes away the only thing that was actually
+ * protecting them.
+ *
+ * Unset, the name was `node`: the browser's own agent never reaches the far end
+ * (see FORWARD_REQ), so what a server saw was whatever the runtime doing the
+ * fetch calls itself. Measured on the dev server, which is the literal string
+ * `node`; a Worker says something else again, which is the other half of the
+ * problem — the name changed with the machine.
+ *
+ * SET AND NEVER FORWARDED. `user-agent` is deliberately absent from FORWARD_REQ,
+ * and must stay absent: a relay that let a caller choose this header would let
+ * one person name a stranger's app password anything they liked, in the list that
+ * stranger is meant to be able to trust.
+ *
+ * Kept STABLE for the same reason it is set at all. Somebody who connected a
+ * drive last year should find the entry they made, so this must not carry a
+ * version or anything else that moves.
+ */
+export const USER_AGENT = 'Kashinoga Text Editor';
+
 /** How large a document this will carry. These are notes; a cap is not a hardship. */
 export const MAX_BODY = 4 * 1024 * 1024;
 
@@ -64,6 +92,10 @@ export const METHODS = new Set([
  * `authorization` is not in it because the credential does not travel under its
  * own name — see the route — and `cookie` is not in it for the reason you would
  * hope.
+ *
+ * `user-agent` is not in it either, and that one is worth saying out loud because
+ * the route DOES send one: it sets its own constant rather than passing on
+ * whatever arrived. See USER_AGENT for what that header ends up naming.
  */
 export const FORWARD_REQ = [
 	'depth',
