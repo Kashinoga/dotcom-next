@@ -16,6 +16,11 @@
 	// it on the real trip with the real passcode.
 	"preview_urls": false,
 
+	// THE SITE'S ADDRESS, which is www. The bare kashinoga.com is not served
+	// here: it has an originless proxied record, and the account's Bulk Redirect
+	// list "www" sends it on to www with its path and query.
+	"routes": [{ "pattern": "www.kashinoga.com", "custom_domain": true }],
+
 	// THE TRIP'S DATABASE. No `database_id`: `wrangler deploy` creates the
 	// database the first time and remembers it, and `vite dev` keeps a local one
 	// under .wrangler/. See src/lib/server/trip.ts for why D1 and not KV.
