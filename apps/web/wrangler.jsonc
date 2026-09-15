@@ -10,7 +10,9 @@
 		"binding": "ASSETS",
 		"directory": ".svelte-kit/cloudflare",
 	},
-	"workers_dev": true,
+	// ONE ADDRESS, www.kashinoga.com below. A workers.dev copy would be the same
+	// site, trip and all, somewhere nobody meant it to be.
+	"workers_dev": false,
 	// NO PREVIEW URLS. A preview runs with this Worker's secrets and its database,
 	// at a public address, so a version uploaded to try something would be trying
 	// it on the real trip with the real passcode.
