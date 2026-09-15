@@ -12,4 +12,30 @@
 	},
 	"workers_dev": true,
 	"preview_urls": true,
+
+	// THE TRIP'S DATABASE. No `database_id`: `wrangler deploy` creates the
+	// database the first time and remembers it, and `vite dev` keeps a local one
+	// under .wrangler/. See src/lib/server/trip.ts for why D1 and not KV.
+	"d1_databases": [
+		{
+			"binding": "TRIP_DB",
+			"database_name": "dotcom-trip",
+		},
+	],
+
+	// Five passcode guesses a minute per address. `namespace_id` is any number
+	// of this account's choosing; it names the counter, and nothing else uses it.
+	"ratelimits": [
+		{
+			"name": "TRIP_UNLOCK",
+			"namespace_id": "1001",
+			"simple": { "limit": 5, "period": 60 },
+		},
+	],
+
+	// THE TRIP'S ADDRESS AND PASSCODE are secrets and are not written here, because
+	// this repository is public. The page answers only at /shared/<TRIP_SLUG>.
+	// Set both with `pnpm --filter web exec wrangler secret put TRIP_SLUG` (and
+	// TRIP_PASSCODE), and for local work put `TRIP_SLUG=…` and `TRIP_PASSCODE=…`
+	// in apps/web/.dev.vars, which git ignores.
 }

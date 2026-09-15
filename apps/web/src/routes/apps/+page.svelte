@@ -36,8 +36,14 @@
 						reads its entire contents as the link text, so a screen reader
 						announces the name and the description as one long name. The card
 						still answers to a click through the ::after in the stylesheet.
+
+						AN UNBUILT CARD SAYS SO IN WORDS as well as in grey. The grey is for
+						the eye; a screen reader walking the headings would otherwise hear
+						nine apps and have no way to know that one of them can be opened.
 					-->
-					{#if app.href}<a href={app.href}>{app.name}</a>{:else}{app.name}{/if}
+					{#if app.href}<a href={app.href}>{app.name}</a>{:else}{app.name}<span
+							class="visually-hidden">, not built yet</span
+						>{/if}
 				</h2>
 				<p>{app.description}</p>
 			</li>
@@ -85,6 +91,27 @@
 
 	.app p {
 		font-size: var(--text-s);
+	}
+
+	/*
+	 * NOT BUILT YET, AND IT LOOKS IT. The words step back to the site's dimmed
+	 * text and the hairline to half of itself, so a card that leads nowhere reads
+	 * as a placeholder before anybody points at it — rather than looking exactly
+	 * like the card beside it and then failing to answer.
+	 *
+	 * NOTHING ANSWERS THE POINTER, and it is written down rather than left to the
+	 * absence of a rule: `cursor: default` so the text cursor does not suggest
+	 * there is something here to select into, and the selector names what this is
+	 * so a hover added to `.app` later cannot reach it by accident.
+	 */
+	.app:not(.built) {
+		color: color-mix(in oklab, var(--fg) 60%, transparent);
+		border-color: color-mix(in oklab, var(--fg) 8%, transparent);
+		cursor: default;
+	}
+
+	.app:not(.built):hover {
+		background-color: transparent;
 	}
 
 	/*

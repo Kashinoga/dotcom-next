@@ -16,16 +16,24 @@
 		title,
 		tagline,
 		optical = '0em',
+		wide = false,
 		children,
 	}: {
 		title: string;
 		tagline?: string;
 		optical?: string;
+		/*
+		 * A LETTER THAT IS NOT MOSTLY PROSE. The measure exists to keep a line of
+		 * reading short; a page laid out as a grid of short columns has no long
+		 * line to protect, and its name belongs at the grid's edge rather than
+		 * centred over a narrower column than the page actually uses.
+		 */
+		wide?: boolean;
 		children: Snippet;
 	} = $props();
 </script>
 
-<section class="hero" style="--title-optical: {optical}">
+<section class="hero" class:wide style="--title-optical: {optical}">
 	<!--
 		A <span> and NOT a <mark>, which is what this started as. <mark> means
 		"relevant to what the reader is doing right now" — a search hit, the
@@ -80,6 +88,12 @@
 		max-width: var(--measure);
 		margin-inline: auto;
 		padding: var(--space-2xl) var(--space-m);
+	}
+
+	/* Wide, but not without limit: past this a row of cards is too long a glance
+	 * from one end to the other. */
+	.hero.wide {
+		max-width: 90rem;
 	}
 
 	/* The name and the tagline are one unit, so they sit closer to each other than

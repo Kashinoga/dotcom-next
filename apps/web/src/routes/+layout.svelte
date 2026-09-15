@@ -27,9 +27,12 @@
 	 * white mark on a white bar. As a component it inherits `currentColor` and so
 	 * follows this site's display mode, which is the thing it sits on.
 	 */
+	import CloudCheck from '@lucide/svelte/icons/cloud-check';
+	import CloudOff from '@lucide/svelte/icons/cloud-off';
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import HeartHandshake from '@lucide/svelte/icons/heart-handshake';
 	import LayoutGrid from '@lucide/svelte/icons/layout-grid';
+	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import PanelLeftClose from '@lucide/svelte/icons/panel-left-close';
 	import PanelLeftOpen from '@lucide/svelte/icons/panel-left-open';
 	import PanelRightClose from '@lucide/svelte/icons/panel-right-close';
@@ -39,6 +42,7 @@
 	import { MediaQuery } from 'svelte/reactivity';
 
 	import { apps } from '$lib/apps';
+	import { bar } from '$lib/bar.svelte';
 	import DisplayModeButton from '$lib/components/DisplayModeButton.svelte';
 	import { outline, workspace } from '$lib/panel.svelte';
 	import { view, VIEWS } from '$lib/view.svelte';
@@ -95,8 +99,10 @@
 	let scrolledPast = $state(false);
 
 	$effect(() => {
-		// Named so the effect re-runs when a navigation changes the heading.
-		const current = here;
+		// Named so the effect re-runs when a navigation changes the heading. A
+		// page claiming a name in the bar — see $lib/bar.svelte — needs the same
+		// measurement an app does, to know when to show it.
+		const current = here ?? bar.title;
 		if (!current) {
 			scrolledPast = false;
 			return;
@@ -239,7 +245,7 @@
 	-->
 	<a
 		class="brand"
-		class:showing-page={scrolledPast}
+		class:showing-page={scrolledPast && !!here}
 		href="/"
 		aria-label={scrollsToTop ? 'Back to the top' : site.name}
 		aria-current={page.url.pathname === '/' ? 'page' : undefined}
@@ -259,6 +265,23 @@
 			{/if}
 		</span>
 	</a>
+
+	<!--
+		THE PAGE'S NAME, BESIDE THE SITE'S and not in place of it, for a page that
+		claimed one in $lib/bar.svelte. It arrives as the page's title goes under
+		the bar, the same moment and the same blur an app's name uses, and it is
+		there the whole time, only transparent — so nothing in the bar moves when it
+		appears.
+
+		Hidden from the reading, because it is the page's <h1> said a second time,
+		and a screen reader already has the <h1>.
+	-->
+	{#if bar.title}
+		<span class="crumb" class:shown={scrolledPast} aria-hidden="true">
+			<span class="separator"></span>
+			<span class="crumb-name">{bar.title}</span>
+		</span>
+	{/if}
 
 	<!--
 		THE PANEL'S SWITCH, and it stands at the START of the bar because that is
@@ -373,6 +396,34 @@
 				<PanelRightOpen />
 			{/if}
 		</button>
+	{/if}
+
+	<!--
+		WHAT THE PAGE HAS TO REPORT, at the head of the site's own controls and
+		parted from them by a line: the page's business on one side, the site's on
+		the other.
+
+		`role="status"`, so a change in it is read out politely. It is drawn only
+		while a page has claimed it, and a region that exists from the claim onward
+		announces every change after that.
+	-->
+	{#if bar.status}
+		<p
+			class="status"
+			role="status"
+			data-tone={bar.status.tone}
+			title={bar.status.text}
+		>
+			{#if bar.status.tone === 'busy'}
+				<LoaderCircle aria-hidden="true" />
+			{:else if bar.status.tone === 'alert'}
+				<CloudOff aria-hidden="true" />
+			{:else}
+				<CloudCheck aria-hidden="true" />
+			{/if}
+			<span class="status-text">{bar.status.text}</span>
+		</p>
+		<span class="separator status-separator" aria-hidden="true"></span>
 	{/if}
 
 	<nav aria-label="Site">
@@ -677,14 +728,175 @@
 	 * and nothing failed: the bar was still a valid bar, just wrong.
 	 */
 	.views,
-	.panel.end {
+	.panel.end,
+	.status {
 		margin-inline-start: auto;
 	}
 
 	.views ~ .panel.end,
 	.views ~ nav,
-	.panel.end ~ nav {
+	.panel.end ~ nav,
+	.status ~ nav {
 		margin-inline-start: 0;
+	}
+
+	/*
+	 * A HAIRLINE STOOD ON END, between two things in the bar that belong to
+	 * different owners. The height is the icon's, not the bar's, so it reads as
+	 * punctuation in the row rather than as a wall across it.
+	 */
+	.separator {
+		flex: none;
+		inline-size: 1px;
+		block-size: 1.25rem;
+		background-color: var(--edge);
+	}
+
+	/*
+	 * THE SAME AIR EITHER SIDE OF A LINE, measured from INK to line — the last
+	 * letter or mark on one side, the first on the other — because that is the
+	 * space an eye compares. Both lines get `--space-s` on both sides.
+	 *
+	 * The margins are therefore NOT equal, and each is that space minus whatever
+	 * already stands between the ink and the line:
+	 *
+	 *   · the header's own `gap`, which every item in the bar has;
+	 *   · on the crumb's start, the brand's pill padding, which runs past the
+	 *     word "Kashinoga" so its hover wash has room — the margin there comes to
+	 *     zero;
+	 *   · on the status's end, the Apps control's circle around its icon — half of
+	 *     what the control is wider than its mark, which is 7px for a pointer and
+	 *     13px for a finger, so the margin is written against the tokens and follows
+	 *     the control when a touchscreen makes it bigger.
+	 *
+	 * Measured in a browser at 12px on all four sides, where it had been 20 and 8
+	 * around the crumb and 12 and 19 around the status.
+	 */
+	.crumb .separator {
+		margin-inline-start: calc(
+			var(--space-s) - var(--space-2xs) - var(--space-xs)
+		);
+		margin-inline-end: var(--space-s);
+	}
+
+	.status-separator {
+		margin-inline-start: calc(var(--space-s) - var(--space-2xs));
+		margin-inline-end: calc(
+			var(--space-s) - var(--space-2xs) -
+				(var(--control-block-size) - 1.125rem) / 2
+		);
+	}
+
+	/*
+	 * THE CRUMB GIVES WAY FIRST. On a phone the bar holds the brand, this, the
+	 * status and two controls, and something has to be shorter; the page's name is
+	 * the one thing up here that is also written in full on the page. So it takes
+	 * all the shrinking — a flex-shrink far past everybody else's — and ends in an
+	 * ellipsis rather than pushing a control off the edge.
+	 */
+	.crumb {
+		display: inline-flex;
+		align-items: center;
+		flex: 0 1000 auto;
+		min-inline-size: 0;
+
+		font-size: var(--text-m);
+		font-weight: 600;
+		line-height: 1;
+
+		opacity: 0;
+		filter: blur(4px);
+		transition:
+			opacity var(--motion-morph),
+			filter var(--motion-morph);
+	}
+
+	.crumb.shown {
+		opacity: 1;
+		filter: blur(0);
+	}
+
+	.crumb-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.status {
+		flex: none;
+		/*
+		 * AIR ON THE START SIDE, as padding and not margin: the margin is `auto`,
+		 * which is what pushes this to the end, and on a phone `auto` comes to
+		 * nothing once the crumb has shrunk into every spare pixel — the ellipsis
+		 * then touched the cloud.
+		 */
+		padding-inline-start: var(--space-s);
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-xs);
+		font-size: var(--text-s);
+		line-height: 1;
+		color: color-mix(in oklab, var(--fg) 60%, transparent);
+	}
+
+	/* A change that did not go through is the one status that must be seen. */
+	.status[data-tone='alert'] {
+		color: var(--fg);
+		font-weight: 600;
+	}
+
+	.status :global(svg) {
+		inline-size: 1rem;
+		block-size: 1rem;
+		flex: none;
+	}
+
+	/*
+	 * A MARK ON A NARROW BAR, AND THE WORDS ON A WIDE ONE — the view keys' rule,
+	 * for the view keys' reason. The words are kept in the reading either way, so
+	 * `role="status"` still says them. An ALERT keeps its words at every width:
+	 * "offline" is not something to leave to a picture of a cloud.
+	 */
+	.status-text {
+		position: absolute;
+		inline-size: 1px;
+		block-size: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+
+	.status[data-tone='alert'] .status-text {
+		position: static;
+		inline-size: auto;
+		block-size: auto;
+		clip-path: none;
+	}
+
+	@media (min-width: 40rem) {
+		.status .status-text {
+			position: static;
+			inline-size: auto;
+			block-size: auto;
+			clip-path: none;
+		}
+	}
+
+	/* Saving turns, and stops turning for anyone who asked for less motion. */
+	.status[data-tone='busy'] :global(svg) {
+		animation: turn 900ms linear infinite;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.status[data-tone='busy'] :global(svg) {
+			animation: none;
+		}
+	}
+
+	@keyframes turn {
+		to {
+			rotate: 1turn;
+		}
 	}
 
 	/*

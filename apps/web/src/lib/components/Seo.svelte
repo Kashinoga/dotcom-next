@@ -10,8 +10,11 @@
 		description = site.description,
 		path = '/',
 		icon = '',
+		separator = ' — ',
 	}: {
 		title?: string;
+		/* What stands between the page's name and the site's. */
+		separator?: string;
 		description?: string;
 		path?: string;
 		/*
@@ -22,7 +25,9 @@
 		icon?: string;
 	} = $props();
 
-	const full = $derived(title ? `${title} — ${site.name}` : site.title);
+	const full = $derived(
+		title ? `${title}${separator}${site.name}` : site.title,
+	);
 	const url = $derived(new URL(path, site.url).href);
 </script>
 
