@@ -6,6 +6,7 @@
 	"scripts": {
 		"dev": "pnpm --filter web dev",
 		"build": "pnpm -r build",
+		"deploy": "pnpm --filter web run deploy",
 		"check": "pnpm -r check",
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",

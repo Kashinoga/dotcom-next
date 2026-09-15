@@ -6,6 +6,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
+		"deploy": "node -e \"require('node:fs').rmSync('.svelte-kit/cloudflare', { recursive: true, force: true, maxRetries: 10, retryDelay: 300 })\" && vite build && wrangler deploy",
 		"preview": "wrangler dev .svelte-kit/cloudflare/_worker.js --port 4173",
 		"prepare": "wrangler types && svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",

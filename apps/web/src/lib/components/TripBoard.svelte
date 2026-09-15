@@ -392,7 +392,16 @@
 	function onGripDown(event: PointerEvent, id: string) {
 		if (event.button !== 0) return;
 		event.preventDefault();
-		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+		/*
+		 * CAPTURE IF IT CAN BE HAD. Without it, a finger that slides off the grip
+		 * stops sending moves to it; but WebKit throws when the pointer is not one
+		 * it is tracking, and a throw here would lose the drag altogether.
+		 */
+		try {
+			(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+		} catch {
+			/* The drag goes ahead on the moves the grip does receive. */
+		}
 
 		scrollY = window.scrollY;
 		drag = {
@@ -1582,9 +1591,17 @@
 		box-shadow: 0 0 0 1px var(--edge);
 	}
 
+	/*
+	 * `touch-action: none` so a finger on the grip drags rather than scrolls, and
+	 * no selection or long-press menu, which iOS otherwise starts on a held press
+	 * and which takes the gesture away from the drag.
+	 */
 	.grip {
 		cursor: grab;
 		touch-action: none;
+		user-select: none;
+		-webkit-user-select: none;
+		-webkit-touch-callout: none;
 	}
 
 	.item[data-dragging] .grip {
