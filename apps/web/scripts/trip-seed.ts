@@ -73,7 +73,17 @@ function execute(sql: string) {
 			console.error(result.stderr || result.stdout);
 			process.exit(1);
 		}
-		return JSON.parse(result.stdout) as {
+		/*
+		 * FROM THE FIRST LINE THAT OPENS THE ARRAY. Against the deployed database,
+		 * `--file` narrates the upload ("├ Checking if file needs uploading") on
+		 * stdout before the JSON, `--json` or not; locally it prints the JSON alone.
+		 */
+		const start = result.stdout.search(/^\[/m);
+		if (start === -1) {
+			console.error(result.stdout);
+			process.exit(1);
+		}
+		return JSON.parse(result.stdout.slice(start)) as {
 			results: Record<string, unknown>[];
 		}[];
 	} finally {

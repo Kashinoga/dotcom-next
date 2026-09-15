@@ -11,7 +11,10 @@
 		"directory": ".svelte-kit/cloudflare",
 	},
 	"workers_dev": true,
-	"preview_urls": true,
+	// NO PREVIEW URLS. A preview runs with this Worker's secrets and its database,
+	// at a public address, so a version uploaded to try something would be trying
+	// it on the real trip with the real passcode.
+	"preview_urls": false,
 
 	// THE TRIP'S DATABASE. No `database_id`: `wrangler deploy` creates the
 	// database the first time and remembers it, and `vite dev` keeps a local one
