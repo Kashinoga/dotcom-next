@@ -7,8 +7,10 @@
 			THE COLOUR OF THE BROWSER'S OWN CHROME, so a dark page does not sit under
 			a white address bar on a phone.
 
-			These two hex values repeat `--bg` from app.css, which no other file is
-			allowed to do. A <meta> element cannot read a custom property, and there
+			These two hex values repeat `--shell` from app.css, which no other file is
+			allowed to do. The shell and not the page, because the first thing under
+			the address bar on every page is the bar, and the bar is made of the
+			shell. A <meta> element cannot read a custom property, and there
 			is no other way to tell a browser this. Change app.css and change these.
 
 			They answer the MACHINE and not the stored choice, because a media query
@@ -18,12 +20,12 @@
 		-->
 		<meta
 			name="theme-color"
-			content="#fff"
+			content="#fafafd"
 			media="(prefers-color-scheme: light)"
 		/>
 		<meta
 			name="theme-color"
-			content="#000"
+			content="#191a1b"
 			media="(prefers-color-scheme: dark)"
 		/>
 		<!--

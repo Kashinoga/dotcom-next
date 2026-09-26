@@ -314,17 +314,15 @@
 		position: absolute;
 		inset-block: 0;
 		inset-inline-start: 100%;
-		margin-inline-start: var(--space-l);
+		/* Past the sheet's padding and one panel gap: the list is a panel of its
+		 * own beside the document, as a side bar is in Modern UI. */
+		margin-inline-start: calc(var(--space-16) + var(--gap-panel));
 		inline-size: 11rem;
 
 		/*
-		 * HIDDEN UNTIL THERE IS A MARGIN TO STAND IN. The letter is 654px and
-		 * centred, so at 70rem the space either side is 233px and the rail plus its
-		 * gap wants 200 of them. Below that it would sit on top of the wall.
-		 *
-		 * The wall is still reachable without it: every group is a heading, so a
-		 * screen reader and a find-in-page both still work. Hiding this is losing a
-		 * shortcut, not losing the way through.
+		 * Hidden until the shell beside the sheet has room for it, or it would
+		 * sit on the wall. Every group is still a heading, so nothing is lost but
+		 * a shortcut.
 		 */
 		display: none;
 	}
@@ -336,37 +334,28 @@
 	}
 
 	/*
-	 * The list stops short of the bar rather than sliding under it, and it stops
-	 * at THE SAME PLACE THE SEARCH FIELD DOES. The expression is written the same
-	 * way in both rules on purpose: the step of air is what parts them from the
-	 * bar, and their top edges lining up across the page is what says they are
-	 * one row of furniture rather than two things that happened to stop nearby.
-	 *
-	 * NO FROST HERE, and that is measured rather than assumed: the rail starts at
-	 * the prose's end edge, so nothing passes behind it. Its left edge sits at
-	 * 966 against a prose ending at 942, and asking the document what is under
-	 * the rail's middle returns the rail and the page and nothing else. Blurring
-	 * one flat colour returns that colour, so the frost would cost a backdrop
-	 * region and buy no glass — and drew a faint seam where that region began.
-	 *
-	 * WORTH REVISITING the day this site has a background that is not one flat
-	 * colour, or the day the rail moves inside the prose. Then there is something
-	 * behind it, and `.frost` in src/app.css is the recipe waiting.
+	 * The list stops where the search field does, and the offset is written the
+	 * same way in both rules so their top edges stay level (a test holds this).
+	 * A side panel on the shell, framed like the sheet; no frost, because
+	 * nothing passes behind it.
 	 */
 	.toc {
 		position: sticky;
-		inset-block-start: calc(var(--bar-block-size) + var(--space-m));
+		inset-block-start: calc(var(--bar-block-size) + var(--space-16));
 
 		list-style: none;
-		padding: 0;
+		padding: var(--space-8);
 		display: flex;
 		flex-direction: column;
+		border-radius: var(--radius-l);
+		background-color: var(--rail);
+		box-shadow: inset 0 0 0 1px var(--frame);
 	}
 
 	.toc a {
 		display: block;
-		padding: var(--space-2xs) var(--space-xs);
-		font-size: var(--text-s);
+		padding: var(--space-4) var(--space-8);
+		font-size: var(--text-label1);
 		line-height: var(--leading-tight);
 		text-decoration: none;
 
@@ -401,7 +390,7 @@
 	 * THE FIELD STANDS STILL, a step below the bar.
 	 *
 	 * `--bar-block-size` and not a number: the bar publishes its height and this
-	 * reads it, so the two cannot drift apart. The `--space-m` on top of it is
+	 * reads it, so the two cannot drift apart. The `--space-16` on top of it is
 	 * air between the bar and the field, and THE LIST IN THE MARGIN ADDS THE SAME
 	 * — the two must be written identically, because their top edges lining up
 	 * across the page is the whole point of the step.
@@ -422,7 +411,7 @@
 	 */
 	.search {
 		position: sticky;
-		inset-block-start: calc(var(--bar-block-size) + var(--space-m));
+		inset-block-start: calc(var(--bar-block-size) + var(--space-16));
 
 		/*
 		 * THE GLASS IS CUT TO THE SHAPE OF THE CONTROL. `backdrop-filter` clips to
@@ -435,13 +424,13 @@
 		 * either moved. `.frost` does not carry this, because the bar wears the
 		 * same glass and is square.
 		 */
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-s);
 	}
 
 	.group {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-xs);
+		gap: var(--space-8);
 
 		/*
 		 * A HEADING HAS TWO THINGS TO CLEAR NOW, not one. The document's
@@ -453,11 +442,13 @@
 		 * document, because only THIS page has a field that stays. The two add up,
 		 * which is what makes them separable.
 		 */
-		scroll-margin-block-start: calc(var(--control-block-size) + var(--space-m));
+		scroll-margin-block-start: calc(
+			var(--control-block-size) + var(--space-16)
+		);
 	}
 
 	h2 {
-		font-size: var(--text-m);
+		font-size: var(--text-body1);
 		line-height: var(--leading-tight);
 	}
 
@@ -469,7 +460,7 @@
 	.wall {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(2.75rem, 1fr));
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 	}
 
 	.wall button {
@@ -483,11 +474,11 @@
 		background: none;
 		padding: 0;
 		cursor: pointer;
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-s);
 
 		/* The glyph is the content, so it is sized here rather than inherited from
 		 * the prose around it. */
-		font-size: var(--text-l);
+		font-size: var(--text-heading2);
 		/* Emoji are drawn by a font the page does not control, and some of them
 		 * sit on a taller line than others. Fixing the line box keeps the wall's
 		 * rows even whatever the platform hands over. */
@@ -507,7 +498,6 @@
 	 */
 	.wall button:hover {
 		background-color: var(--surface-hover);
-		box-shadow: inset 0 0 0 1px var(--edge);
 	}
 
 	.wall button:focus-visible {
@@ -533,7 +523,7 @@
 	}
 
 	.note {
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 		/* Held at one line, so the wall does not move when the words change. */
 		block-size: 1lh;
 
@@ -555,7 +545,7 @@
 	}
 
 	.note-char {
-		font-size: var(--text-m);
+		font-size: var(--text-body1);
 	}
 
 	.note-dim {

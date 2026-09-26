@@ -63,7 +63,7 @@
 
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
-		gap: var(--space-s);
+		gap: var(--space-12);
 	}
 
 	/*
@@ -78,19 +78,20 @@
 	.app {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 
-		padding: var(--space-m);
+		padding: var(--space-16);
 		border: 1px solid var(--edge);
+		border-radius: var(--radius-l);
 	}
 
 	.app h2 {
-		font-size: var(--text-m);
+		font-size: var(--text-body1);
 		line-height: var(--leading-tight);
 	}
 
 	.app p {
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 	}
 
 	/*

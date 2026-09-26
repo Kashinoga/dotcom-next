@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
@@ -12,15 +12,9 @@ import { expect, test, type Page } from '@playwright/test';
  */
 
 /*
- * The bar's height is a CONSEQUENCE of the control in it, not a number of its
- * own: a control between two --space-xs paddings. Asserting the relationship
- * rather than the figure is what lets the control be resized — as it was, from
- * 44px to 32px for a pointer — without a test having to be told.
- *
- * The padding IS asserted, because it is the one number here that was chosen
- * rather than derived, and because the lower of the two is also the space
- * between the bar and whatever is under it — on the editor, the app's top edge.
- * It went 16 to 8 to put that edge on the same step as the gaps inside the app.
+ * The bar's height is a CONSEQUENCE of the control in it: a control between two
+ * panel gaps. The padding is asserted because it is chosen, not derived — it is
+ * Modern UI's 4px panel gap, the same step as every gap under the bar.
  */
 test('the bar is exactly its control between two paddings', async ({
 	page,
@@ -33,7 +27,7 @@ test('the bar is exactly its control between two paddings', async ({
 	// The control is centred in the bar, so its top edge IS the padding.
 	const padding = control.y;
 	expect(header.height).toBe(control.height + padding * 2);
-	expect(padding).toBe(8);
+	expect(padding).toBe(4);
 });
 
 /*
@@ -141,8 +135,10 @@ test('the bar is never see-through without a blur behind it', async ({
 	if (result.supported) {
 		expect(result.hasBlur).toBe(true);
 	} else {
-		// No blur available, so the opaque floor has to be what is showing.
-		expect(result.barBackground).toBe(result.pageBackground);
+		// No blur available, so the opaque floor has to be what is showing. The
+		// floor is the bar's own shell now rather than the page, so what is
+		// asked is that it is OPAQUE — no alpha in the colour at all.
+		expect(result.barBackground).not.toMatch(/rgba|\/\s*0?\.\d/);
 	}
 });
 
@@ -217,12 +213,11 @@ test('the mark and the name are one link home, at the start of the bar', async (
 	expect(box.x).toBeLessThan(controls.x);
 
 	/*
-	 * The MARK is on the bar's 16px line, not the link's box. The link is padded
-	 * out and pulled back by the same amount so its hover wash has room without
-	 * the drawing moving off that line — so the box begins earlier, on purpose.
+	 * The link's BOX is on the bar's panel-gap edge, as far from the side as the
+	 * bar's controls are from its top; the mark sits inside its padding.
 	 */
 	const mark = (await page.locator('.brand .mark').boundingBox())!;
-	expect(Math.round(mark.x)).toBe(16);
+	expect(Math.round(box.x)).toBe(4);
 	expect(box.x).toBeLessThan(mark.x);
 
 	await brand.click();
@@ -427,17 +422,17 @@ test('the footer holds a copyright and the two ways out', async ({ page }) => {
 });
 
 /*
- * THE FOOTER IS A DIFFERENT SURFACE, in both modes, and this guards a bug that
- * was silent: `--surface` was first mixed `in oklab` like every other colour
- * here, and six percent of the way from black toward white — measured the way
- * the eye works — is still black. Light stepped 255 to 235 and dark stepped 0
- * to 1. The footer simply had no ground of its own in dark mode and nothing
- * said so.
+ * THE FOOTER IS THE SHELL, like the bar and the ground; the document is the
+ * one surface off it. The step is Modern UI's: a few values, with the sheet's
+ * frame doing the parting. It first guarded a silent bug — a mix in oklab left
+ * dark's step one value wide — so it is asked in both modes.
  *
  * A ratio and not a colour, so the two ends can be tuned without editing this.
  */
 for (const mode of ['light', 'dark'] as const) {
-	test(`the footer stands off the page in ${mode}`, async ({ browser }) => {
+	test(`the footer is the shell, a step off the document in ${mode}`, async ({
+		browser,
+	}) => {
 		const context = await browser.newContext({ colorScheme: mode });
 		const page = await context.newPage();
 		await page.goto('/');
@@ -461,14 +456,172 @@ for (const mode of ['light', 'dark'] as const) {
 			const root = getComputedStyle(document.documentElement);
 			const [hi, lo] = [
 				lum(read(root.getPropertyValue('--bg').trim())),
-				lum(read(root.getPropertyValue('--surface').trim())),
+				lum(read(root.getPropertyValue('--shell').trim())),
 			].sort((x, y) => y - x);
-			return (hi + 0.05) / (lo + 0.05);
+			return {
+				ratio: (hi + 0.05) / (lo + 0.05),
+				footer: getComputedStyle(document.querySelector('footer')!)
+					.backgroundColor,
+				ground: getComputedStyle(document.documentElement).backgroundColor,
+			};
 		});
 
-		// Enough to see. Not so much that the footer reads as a second page.
-		expect(contrast).toBeGreaterThan(1.1);
-		expect(contrast).toBeLessThan(1.6);
+		// Enough to be there. Not so much that the shell reads as a second page.
+		expect(contrast.ratio).toBeGreaterThan(1.02);
+		expect(contrast.ratio).toBeLessThan(1.3);
+		// The footer and the ground are one shell.
+		expect(contrast.footer).toBe(contrast.ground);
+
+		await context.close();
+	});
+}
+
+/*
+ * WHAT REACHES THE SCREEN, read back from a screenshot. `color-mix`, a tint
+ * laid over a frost and a blur all compute to strings that are not the pixel,
+ * so a claim about how things LOOK side by side is asked of the pixels.
+ */
+async function pixels(page: Page, points: Record<string, [number, number]>) {
+	const shot = (await page.screenshot()).toString('base64');
+	return page.evaluate(
+		async ({ shot, points }) => {
+			const img = new Image();
+			img.src = `data:image/png;base64,${shot}`;
+			await img.decode();
+			const c = document.createElement('canvas');
+			c.width = img.width;
+			c.height = img.height;
+			const ctx = c.getContext('2d')!;
+			ctx.drawImage(img, 0, 0);
+			return Object.fromEntries(
+				Object.entries(points).map(([name, [x, y]]) => [
+					name,
+					[...ctx.getImageData(x, y, 1, 1).data.slice(0, 3)],
+				]),
+			);
+		},
+		{ shot, points },
+	);
+}
+
+/*
+ * THE LETTER IS A DOCUMENT PANEL ON THE SHELL — VS Code's Modern UI
+ * arrangement. The sheet is the deepest surface (white in light, the darkest
+ * grey in dark) and is as wide as what it holds; the ground around it and the
+ * bar above are one shell, a small step out; a frame edges the sheet, because
+ * that step alone is not enough to part them.
+ *
+ * Relations and not values, so the palette can be tuned without this being
+ * told. The one thing pinned is the CAST: these greys lean a point or two
+ * toward blue, and never toward red — which is the warm look this palette was
+ * chosen to leave behind.
+ */
+for (const mode of ['light', 'dark'] as const) {
+	test(`the letter is a framed document on the shell in ${mode}`, async ({
+		browser,
+	}) => {
+		const context = await browser.newContext({
+			colorScheme: mode,
+			viewport: { width: 1280, height: 900 },
+		});
+		const page = await context.newPage();
+		await page.goto('/');
+
+		const box = (await page.locator('.sheet').boundingBox())!;
+		const midY = Math.floor(box.y + box.height / 2);
+		const seen = await pixels(page, {
+			page: [Math.floor(box.x / 2), 400],
+			sheet: [Math.floor(box.x) + 12, Math.floor(box.y) + 12],
+			// Either side of the box's edge: engines place a 1px inset ring on
+			// whichever pixel their rounding of a fractional edge lands on.
+			frame: [Math.floor(box.x), midY],
+			frameNext: [Math.floor(box.x) + 1, midY],
+			bar: [640, 4],
+		});
+		// Cool or neutral, never warm: blue at or above red, by a point or two.
+		for (const [r, , b] of Object.values(seen)) {
+			expect(b).toBeGreaterThanOrEqual(r);
+			expect(b - r).toBeLessThanOrEqual(4);
+		}
+		const [pageV, sheetV, barV] = [seen.page[0], seen.sheet[0], seen.bar[0]];
+		// Whichever of the two pixels the ring fell on is the one furthest out.
+		const frameV =
+			mode === 'light'
+				? Math.min(seen.frame[0], seen.frameNext[0])
+				: Math.max(seen.frame[0], seen.frameNext[0]);
+
+		// The ground and the bar are one shell, to within the frost's rounding.
+		expect(Math.abs(barV - pageV)).toBeLessThanOrEqual(2);
+
+		// The document is the DEEPEST surface — lighter in light, darker in dark —
+		// by a step that is there, and the frame stands out from both.
+		const deeper = mode === 'light' ? sheetV - pageV : pageV - sheetV;
+		expect(deeper).toBeGreaterThanOrEqual(4);
+		const off = (v: number) => (mode === 'light' ? pageV - v : v - pageV);
+		expect(off(frameV)).toBeGreaterThanOrEqual(10);
+
+		await context.close();
+	});
+}
+
+/*
+ * THE BAR IS THE FOOTER'S SHADE AT REST, on a letter whose page is the
+ * document. Both are the shell, but the bar's is frosted at 85% over whatever
+ * lies under it, so nothing but this notices the glass letting too much of the
+ * page through. Within two values, because the frost is composited and rounds
+ * where the footer's opaque fill does not.
+ */
+test('at rest the bar and the footer are one shade', async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await page.goto('/apps');
+	await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+
+	const footer = (await page.locator('footer').boundingBox())!;
+	// A point on the footer's own ground, clear of its links.
+	const seen = await pixels(page, {
+		bar: [640, 4],
+		footer: [640, Math.floor(footer.y + footer.height) - 3],
+	});
+
+	expect(Math.abs(seen.bar[0] - seen.footer[0])).toBeLessThanOrEqual(2);
+});
+
+/*
+ * THE ADDRESS BAR MATCHES THE BAR UNDER IT. The two `theme-color` tags in
+ * app.html repeat `--shell` because a <meta> cannot read a custom property,
+ * and app.html's own note says to change them together. This is what notices
+ * when they were not.
+ */
+for (const mode of ['light', 'dark'] as const) {
+	test(`theme-color is the shell in ${mode}`, async ({ browser }) => {
+		const context = await browser.newContext({ colorScheme: mode });
+		const page = await context.newPage();
+		await page.goto('/');
+
+		const seen = await page.evaluate((mode) => {
+			const meta = [
+				...document.querySelectorAll<HTMLMetaElement>(
+					'meta[name="theme-color"]',
+				),
+			].find((m) => m.media.includes(mode))!;
+			// Both through the same canvas, so "#191A1B" and "#191a1b" are
+			// compared as colours rather than as spellings.
+			const c = document.createElement('canvas').getContext('2d')!;
+			const norm = (css: string) => {
+				c.fillStyle = css;
+				return c.fillStyle;
+			};
+			return {
+				meta: norm(meta.content),
+				shell: norm(
+					getComputedStyle(document.documentElement)
+						.getPropertyValue('--shell')
+						.trim(),
+				),
+			};
+		}, mode);
+
+		expect(seen.meta).toBe(seen.shell);
 
 		await context.close();
 	});
@@ -762,6 +915,7 @@ for (const mode of ['light', 'dark'] as const) {
 			return {
 				desk: of('.app').backgroundColor,
 				bar: of('header').backgroundColor,
+				barFrame: of('header').boxShadow,
 				sheet: sheet.backgroundColor,
 				proof: of('.proof').backgroundColor,
 				page: of('body').color, // --fg, only to prove the scheme took
@@ -780,8 +934,11 @@ for (const mode of ['light', 'dark'] as const) {
 		// 2. Nothing is ruled. The step in colour is the whole of the parting.
 		expect(seen.borders).toEqual(['0px', '0px', '0px']);
 
-		// 3. The bar is the same field, so the app has no seam along its top.
+		// 3. The bar is the same field, so the app has no seam along its top —
+		// and the frame a letter's bar wears is OFF, or it would rule a line
+		// across the top of the app and draw that seam anyway.
 		expect(seen.bar).toBe(seen.desk);
+		expect(seen.barFrame).toBe('none');
 
 		await context.close();
 	});
@@ -803,8 +960,9 @@ test('a letter keeps a frosted bar, not the desk', async ({ page }) => {
 		};
 	});
 
-	// Translucent, and blurring what goes under it.
-	expect(seen.background).toContain('0.5');
+	// Translucent, and blurring what goes under it. The amount is the bar's own
+	// (85% of the shell), so this asks only that there IS an alpha below one.
+	expect(seen.background).toMatch(/\/\s*0?\.\d|rgba/);
 	expect(seen.blur).toContain('blur');
 });
 
@@ -1097,10 +1255,12 @@ test('a folder is walked, listed, and read onto the sheet', async ({
 	expect(seen.find((row) => row.name === 'crest.png')!.inert).toBe(true);
 	expect(seen.find((row) => row.name === 'Notes.txt')!.inert).toBe(false);
 
-	// The head of the tree names itself.
+	// The head of the tree names itself. `basename` and not a split on '/':
+	// on Windows the temp folder's path is written with backslashes, and a
+	// split on the wrong separator hands back the whole path.
 	await expect(
 		page.locator('.workspace .section').nth(1).locator('h2'),
-	).toContainText(root.split('/').pop()!);
+	).toContainText(basename(root));
 
 	// And a row puts its own words on the sheet.
 	await page.getByRole('button', { name: 'The Curriculum.md' }).click();
@@ -1720,14 +1880,12 @@ test('a rail scrolls; its panes keep the height of their content', async ({
 });
 
 /*
- * ONE SHADE FOR EVERY PANE IN A RAIL, and it is neither the desk's nor the
- * document's. Three layers: the sheet at the far end, the desk furthest in, the
- * lists between. A rail pane cut from the DESK would have nothing left to round
- * — its corners would dissolve into the gutter — and one cut from the SHEET
- * would stand the file names level with the document they only point at.
+ * EVERY PANE IN A RAIL IS A RAISED, FRAMED PANEL ON THE DESK: one shade for
+ * all of them, off both the desk and the document — the shell's own shade would
+ * leave a pane no different from the ground it stands on.
  */
 for (const mode of ['light', 'dark'] as const) {
-	test(`every rail pane is one shade, off both the desk and the sheet in ${mode}`, async ({
+	test(`every rail pane is a framed panel on the desk in ${mode}`, async ({
 		browser,
 	}) => {
 		const context = await browser.newContext({ colorScheme: mode });
@@ -1743,6 +1901,7 @@ for (const mode of ['light', 'dark'] as const) {
 				radii: [
 					...new Set(panes.map((p) => getComputedStyle(p).borderTopLeftRadius)),
 				],
+				frames: panes.map((p) => getComputedStyle(p).boxShadow),
 				desk: bg(document.querySelector('.app')!),
 				sheet: bg(document.querySelector('.sheet')!),
 			};
@@ -1753,10 +1912,12 @@ for (const mode of ['light', 'dark'] as const) {
 		expect(seen.radii).toHaveLength(1);
 		expect(seen.radii[0]).not.toBe('0px');
 
-		// All one shade, and that shade is a third one.
+		// All one raised shade, each framed, and off both the desk and the document.
 		expect(seen.shades).toHaveLength(1);
 		expect(seen.shades[0]).not.toBe(seen.desk);
 		expect(seen.shades[0]).not.toBe(seen.sheet);
+		expect(seen.sheet).not.toBe(seen.desk);
+		for (const frame of seen.frames) expect(frame).toContain('inset');
 
 		await context.close();
 	});

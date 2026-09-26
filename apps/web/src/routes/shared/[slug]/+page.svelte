@@ -203,7 +203,7 @@
 	.gate-fields {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
-		gap: var(--space-s) var(--space-m);
+		gap: var(--space-12) var(--space-16);
 		max-inline-size: 40rem;
 	}
 
@@ -211,11 +211,11 @@
 		min-inline-size: 0;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 	}
 
 	.gate-field label {
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 	}
 
 	/*
@@ -226,11 +226,11 @@
 	.gate {
 		display: flex;
 		align-items: center;
-		gap: var(--space-xs);
+		gap: var(--space-8);
 		block-size: var(--control-block-size);
-		padding-inline-start: var(--space-s);
+		padding-inline-start: var(--space-12);
 		border: 1px solid var(--edge);
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-s);
 	}
 
 	/*
@@ -238,7 +238,7 @@
 	 * the passcode's has its button.
 	 */
 	.gate:not(:has(.unlock)) {
-		padding-inline-end: var(--space-s);
+		padding-inline-end: var(--space-12);
 	}
 
 	.gate:focus-within {
@@ -264,13 +264,13 @@
 		appearance: none;
 		align-self: stretch;
 		margin: 2px;
-		padding-inline: var(--space-s);
+		padding-inline: var(--space-12);
 		border: none;
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-s);
 		background-color: var(--accent);
 		color: var(--accent-fg);
-		font-weight: 600;
-		font-size: var(--text-s);
+		font-weight: var(--weight-semibold);
+		font-size: var(--text-label1);
 		cursor: pointer;
 	}
 
@@ -280,8 +280,8 @@
 
 	.error {
 		block-size: 1lh;
-		margin-block-start: var(--space-xs);
-		font-size: var(--text-s);
-		font-weight: 600;
+		margin-block-start: var(--space-8);
+		font-size: var(--text-label1);
+		font-weight: var(--weight-semibold);
 	}
 </style>

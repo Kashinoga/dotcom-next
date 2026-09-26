@@ -35,11 +35,12 @@ test('the rail stands outside the letter, on the end side', async ({
 	await open(page);
 
 	const prose = (await page.locator('.prose').boundingBox())!;
+	const sheet = (await page.locator('.sheet').boundingBox())!;
 	const rail = (await page.locator('.rail').boundingBox())!;
 
-	// Just past the prose's end edge, by one --space-l, and spanning the whole
-	// column so the sticky list has its full height to travel in.
-	expect(Math.round(rail.x - (prose.x + prose.width))).toBe(24);
+	// A panel of its own, one panel gap past the sheet's end edge, and spanning
+	// the whole column so the sticky list has its full height to travel in.
+	expect(Math.round(rail.x - (sheet.x + sheet.width))).toBe(4);
 	expect(Math.round(rail.width)).toBe(176);
 	expect(Math.round(rail.height)).toBe(Math.round(prose.height));
 });

@@ -603,8 +603,8 @@
 <style>
 	/*
 	 * THE PADDING IS THE BAR'S OWN, so the workspace's first name begins on the
-	 * same line as the mark above it. `--space-m` and not the letter's
-	 * `--space-2xl` on the block edges: that space is what separates a title from
+	 * same line as the mark above it. `--space-16` and not the letter's
+	 * `--space-36` on the block edges: that space is what separates a title from
 	 * the text under it, and there is no title here to separate anything from.
 	 */
 	/*
@@ -632,17 +632,17 @@
 	.app {
 		/*
 		 * ONE STEP ON ALL FOUR SIDES, and the top one is the bar's to draw. The bar
-		 * is a control between two `--space-xs` paddings, so the lower of them is
+		 * is a control between two `--space-8` paddings, so the lower of them is
 		 * already this same step; a padding here would make two where the design
 		 * has one.
 		 *
-		 * `--space-xs` and not `--space-m`, so the frame round the regions is the
+		 * `--space-8` and not `--space-16`, so the frame round the regions is the
 		 * step that parts them from each other. An edge and a gap at different
 		 * sizes read as two ideas about one space — which is the answer the first
 		 * site's editor reached, where a single token is both the gutter between
 		 * the panes and the padding around them.
 		 */
-		padding: 0 var(--space-xs) var(--space-xs);
+		padding: 0 var(--gap-panel) var(--gap-panel);
 		block-size: calc(100dvh - var(--bar-block-size));
 
 		/*
@@ -695,7 +695,7 @@
 		min-block-size: 0;
 
 		display: grid;
-		gap: var(--space-xs);
+		gap: var(--gap-panel);
 	}
 
 	/*
@@ -730,24 +730,12 @@
 		min-block-size: 0;
 		overflow-y: auto;
 
-		padding: var(--space-s);
+		padding: var(--space-12);
 
-		/*
-		 * `--bg` AND NOT A THIRD COLOUR. The rule the whole site keeps is that the
-		 * content is `--bg` — white in light, black in dark, and never anything
-		 * else — and the furniture around it steps off that. A document is the
-		 * content here, so the sheet and the proof are the only two things in this
-		 * app wearing it.
-		 *
-		 * It puts the DOCUMENT at the far end in both modes and the desk a step in
-		 * from it, which is the arrangement every editor uses and is why it needs
-		 * no explaining to anybody who opens this. The first site's editor reads
-		 * the other way in dark — its sheet is the LIGHTEST thing, because there
-		 * the metaphor is paper on a desk and paper stays paper. Both are
-		 * coherent; this one is the one this site already committed to.
-		 */
+		/* The document: the deepest surface, framed, as the editor is in Modern UI. */
 		background-color: var(--bg);
-		border-radius: var(--space-2xs);
+		border-radius: var(--radius-l);
+		box-shadow: inset 0 0 0 1px var(--frame);
 	}
 
 	/*
@@ -797,7 +785,7 @@
 	.sheet textarea {
 		margin: 0;
 		font-family: ui-monospace, monospace;
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 		white-space: pre-wrap;
 	}
 
@@ -848,7 +836,7 @@
 	 */
 	.pending {
 		color: color-mix(in oklab, var(--fg) 60%, transparent);
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 	}
 
 	/*
@@ -860,10 +848,10 @@
 	 * always lands in.
 	 */
 	.note {
-		padding: var(--space-2xs);
+		padding: var(--space-4);
 
 		color: color-mix(in oklab, var(--fg) 60%, transparent);
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 		line-height: var(--leading-tight);
 		text-wrap: pretty;
 	}
@@ -906,24 +894,24 @@
 		/*
 		 * ONE STEP EVERYWHERE. The three regions, the keys against the panes, the
 		 * panes against each other and the two sections in the rail all keep the
-		 * same `--space-xs`, so nothing in the app is parted more than anything
+		 * same `--space-8`, so nothing in the app is parted more than anything
 		 * else and no gap reads as a division that is not one.
 		 *
-		 * It was `--space-m` throughout, which is the letter's step — right on a
+		 * It was `--space-16` throughout, which is the letter's step — right on a
 		 * page of prose, where space is what separates one thought from the next,
 		 * and too much on a working surface, where every step of it is window not
-		 * being worked in. The EDGES came to it afterwards: they were `--space-m`
+		 * being worked in. The EDGES came to it afterwards: they were `--space-16`
 		 * for one commit, on the argument that holding the app off the window is a
 		 * different job from parting its regions from each other, and the first
 		 * site had already tried that and written down what it read as.
 		 */
-		gap: var(--space-xs);
+		gap: var(--gap-panel);
 	}
 
 	.desk {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-xs);
+		gap: var(--gap-panel);
 		/* Both axes, and for the same reason: a long line must not widen the desk
 		 * and a long document must not lengthen it. */
 		min-inline-size: 0;
@@ -947,7 +935,7 @@
 	 * its contents and starts being sized by the window, which is the one thing
 	 * these are not.
 	 *
-	 * The rail is the only thing on this page with an `--space-xs` gap that is not
+	 * The rail is the only thing on this page with an `--space-8` gap that is not
 	 * the workbench's own: the panes in a rail are parted by exactly what parts
 	 * the rail from the desk.
 	 */
@@ -957,7 +945,7 @@
 		min-block-size: 0;
 		overflow-y: auto;
 		flex-direction: column;
-		gap: var(--space-xs);
+		gap: var(--gap-panel);
 	}
 
 	/*
@@ -1034,7 +1022,7 @@
 		display: flex;
 		flex-direction: column;
 
-		padding: var(--space-xs);
+		padding: var(--space-8);
 		/*
 		 * MORE AT THE FOOT THAN AT THE HEAD, and it is what makes the pane look
 		 * evenly filled rather than measured evenly. The heading above is a
@@ -1064,34 +1052,28 @@
 		 * edit and it has been made and undone once; what is being balanced is what
 		 * can be seen, and the two paddings are not made of the same parts.
 		 */
-		padding-block-end: var(--space-m);
-		border-radius: var(--space-2xs);
+		padding-block-end: var(--space-16);
+		border-radius: var(--radius-xl);
 		background-color: var(--rail);
+		box-shadow: inset 0 0 0 1px var(--frame);
 	}
 
 	/*
-	 * THE HEADING TAKES THE ROWS' OWN INSET, so its first letter stands on the
-	 * same line as theirs — and, through them, on the line the bar's own mark
-	 * stands on. The pane is inset from the app's edge and the row is inset from
-	 * the pane's, and the two together come to the bar's inline padding.
-	 *
-	 * EVERY HEADING IS A CONTROL TALL, and only one of them holds a control.
-	 * "Scratch" carries the button that opens a note, so its row came out taller
-	 * than "Files" and "Outline" by the difference between a control and a line of
-	 * text — three panes down one window, each with a differently sized head. The
-	 * minimum gives the other two the same room without giving them a control they
-	 * have no use for, and it is the rail's own control size rather than a figure,
-	 * so a heading cannot come to disagree with the button sitting in it.
+	 * The heading's text starts where a row's icon does (the row's own 4px
+	 * inset), and its button ends where a row's box does, so the pane has one
+	 * left line and one right line. Every heading is a control tall, button or
+	 * not, so the panes' heads match.
 	 */
 	.section h2 {
 		display: flex;
 		align-items: center;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 
-		min-block-size: calc(var(--rail-control-block-size) + var(--space-2xs) * 2);
-		padding: var(--space-2xs);
+		min-block-size: calc(var(--rail-control-block-size) + var(--space-4) * 2);
+		padding: var(--space-4);
+		padding-inline-end: 0;
 
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 		line-height: var(--leading-tight);
 		color: color-mix(in oklab, var(--fg) 60%, transparent);
 	}
@@ -1113,7 +1095,7 @@
 		block-size: var(--rail-control-block-size);
 		padding: 0;
 		border: none;
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-s);
 		background: none;
 		color: inherit;
 		cursor: pointer;
@@ -1128,7 +1110,6 @@
 	.add:hover,
 	.close:hover {
 		background-color: var(--surface-hover);
-		box-shadow: inset 0 0 0 1px var(--edge);
 	}
 
 	.add:focus-visible,
@@ -1211,7 +1192,7 @@
 		visibility: visible;
 
 		inline-size: var(--rail-control-block-size);
-		margin-inline-start: var(--space-2xs);
+		margin-inline-start: var(--space-4);
 		opacity: 1;
 	}
 
@@ -1247,7 +1228,7 @@
 			visibility: visible;
 
 			inline-size: var(--rail-control-block-size);
-			margin-inline-start: var(--space-2xs);
+			margin-inline-start: var(--space-4);
 			opacity: 1;
 		}
 	}
@@ -1264,10 +1245,10 @@
 	.rail ol {
 		list-style: none;
 		padding: 0;
-		margin-block-start: var(--space-2xs);
+		margin-block-start: var(--space-4);
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 	}
 
 	/* THE FILES. A button and not a link: opening one changes what this page is
@@ -1285,27 +1266,29 @@
 	 */
 	.file {
 		--depth: 0;
-		--indent: var(--space-m);
+		--indent: var(--space-16);
 
 		inline-size: 100%;
+		/* The rail's control height, so a row and its close button are one size. */
+		min-block-size: var(--rail-control-block-size);
 		display: flex;
 		align-items: center;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 
-		padding: var(--space-2xs);
+		padding: var(--space-4);
 		/*
 		 * AFTER THE SHORTHAND, and that is not a matter of tidiness. `padding` is a
 		 * shorthand: written below this longhand it resets it, so an indent declared
 		 * first and a `padding` declared second is no indent at all. It was, once,
 		 * and it failed silently — the tree drew as a flat list.
 		 */
-		padding-inline-start: calc(var(--space-2xs) + var(--depth) * var(--indent));
+		padding-inline-start: calc(var(--space-4) + var(--depth) * var(--indent));
 
 		border: none;
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-s);
 		background: none;
 		color: color-mix(in oklab, var(--fg) 60%, transparent);
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 		line-height: var(--leading-tight);
 		text-align: start;
 		cursor: pointer;
@@ -1328,7 +1311,6 @@
 	.file:hover:not(:disabled) {
 		color: var(--fg);
 		background-color: var(--surface-hover);
-		box-shadow: inset 0 0 0 1px var(--edge);
 	}
 
 	.file:focus-visible {
@@ -1338,7 +1320,7 @@
 
 	.file[aria-current='true'] {
 		color: var(--fg);
-		background-color: var(--surface);
+		background-color: var(--selected);
 	}
 
 	/*
@@ -1356,15 +1338,13 @@
 		inline-size: 100%;
 		/* The depth is a step of indent, and it comes from the heading level so a
 		 * document with no H1 does not start indented. */
-		padding: var(--space-2xs);
-		padding-inline-start: calc(
-			var(--space-2xs) + var(--depth) * var(--space-s)
-		);
+		padding: var(--space-4);
+		padding-inline-start: calc(var(--space-4) + var(--depth) * var(--space-12));
 
 		border: none;
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-s);
 		background: none;
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 		line-height: var(--leading-tight);
 		text-align: start;
 		color: color-mix(in oklab, var(--fg) 60%, transparent);
@@ -1374,7 +1354,6 @@
 	.heading:hover {
 		color: var(--fg);
 		background-color: var(--surface-hover);
-		box-shadow: inset 0 0 0 1px var(--edge);
 	}
 
 	.heading:focus-visible {

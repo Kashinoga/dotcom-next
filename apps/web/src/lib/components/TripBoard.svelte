@@ -1332,12 +1332,12 @@
 	/*
 	 * THE PAGE'S RHYTHM, one space per level of heading and nothing else:
 	 *
-	 *   · `--space-2xl` between one SECTION and the next — the widest step, so
+	 *   · `--space-36` between one SECTION and the next — the widest step, so
 	 *     "Schedule" reads as the start of something and not as one more card;
-	 *   · `--space-xl` between one CARD and the next, in either direction, in
+	 *   · `--space-32` between one CARD and the next, in either direction, in
 	 *     every section — a card is a card, so the air around it does not change;
-	 *   · `--space-m` from a section's name to its first row of cards;
-	 *   · `--space-xs` inside a card, from its header to its list and from its list
+	 *   · `--space-16` from a section's name to its first row of cards;
+	 *   · `--space-8` inside a card, from its header to its list and from its list
 	 *     to its button.
 	 *
 	 * Each step is larger than the one inside it, which is what lets proximity say
@@ -1346,8 +1346,8 @@
 	.board {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2xl);
-		margin-block-start: var(--space-l);
+		gap: var(--space-36);
+		margin-block-start: var(--space-24);
 	}
 
 	/*
@@ -1368,14 +1368,14 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(min(20rem, 100%), 1fr));
 		align-items: start;
-		gap: var(--space-xl) var(--space-l);
+		gap: var(--space-32) var(--space-24);
 	}
 
 	.card {
 		min-inline-size: 0;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-xs);
+		gap: var(--space-8);
 	}
 
 	/*
@@ -1388,7 +1388,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: var(--space-xs);
+		gap: var(--space-8);
 		min-block-size: var(--control-block-size);
 	}
 
@@ -1396,22 +1396,22 @@
 	.card-tools {
 		display: flex;
 		flex: none;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 	}
 
 	/* Every card's name, at one size: a day's, the checklist's, a kind of idea's. */
 	.card-title {
 		display: flex;
 		align-items: center;
-		gap: var(--space-xs);
+		gap: var(--space-8);
 		min-inline-size: 0;
-		font-size: var(--text-l);
+		font-size: var(--text-heading2);
 		line-height: var(--leading-tight);
 		letter-spacing: var(--tracking-tight);
 	}
 
 	.card-title .dim {
-		font-weight: 400;
+		font-weight: var(--weight-regular);
 	}
 
 	.card-title :global(svg) {
@@ -1425,11 +1425,11 @@
 	.section {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-m);
+		gap: var(--space-16);
 	}
 
 	.section-title {
-		font-size: var(--text-xl);
+		font-size: var(--text-heading1);
 		line-height: var(--leading-tight);
 		letter-spacing: var(--tracking-tight);
 	}
@@ -1445,7 +1445,7 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 	}
 
 	/*
@@ -1458,8 +1458,8 @@
 	.checklist label {
 		display: grid;
 		grid-template-columns: var(--control-block-size) minmax(0, 1fr);
-		column-gap: var(--space-xs);
-		padding-block: var(--space-2xs);
+		column-gap: var(--space-8);
+		padding-block: var(--space-4);
 		cursor: pointer;
 	}
 
@@ -1477,7 +1477,7 @@
 	.check {
 		display: flex;
 		align-items: center;
-		gap: var(--space-xs);
+		gap: var(--space-8);
 		cursor: pointer;
 	}
 
@@ -1491,7 +1491,7 @@
 
 	summary {
 		cursor: pointer;
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 	}
 
 	.done summary {
@@ -1505,7 +1505,7 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 	}
 
 	/*
@@ -1519,8 +1519,8 @@
 		display: grid;
 		grid-template-columns: var(--control-block-size) minmax(0, 1fr);
 		align-items: start;
-		column-gap: var(--space-xs);
-		padding-block: var(--space-2xs);
+		column-gap: var(--space-8);
+		padding-block: var(--space-4);
 	}
 
 	/*
@@ -1535,8 +1535,8 @@
 		block-size: var(--control-block-size);
 		border-radius: var(--radius-round);
 		box-shadow: inset 0 0 0 1px var(--edge);
-		font-size: var(--text-s);
-		font-weight: 600;
+		font-size: var(--text-label1);
+		font-weight: var(--weight-semibold);
 		line-height: 1;
 	}
 
@@ -1548,7 +1548,7 @@
 	 */
 	.who::after {
 		content: '·';
-		margin-inline-start: var(--space-s);
+		margin-inline-start: var(--space-12);
 	}
 
 	/* ─── The rows ─── */
@@ -1558,7 +1558,7 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 	}
 
 	/*
@@ -1571,9 +1571,9 @@
 		display: grid;
 		grid-template-columns: auto minmax(0, 1fr) auto;
 		align-items: start;
-		gap: 0 var(--space-xs);
-		padding-block: var(--space-2xs);
-		border-radius: calc(var(--control-block-size) / 2);
+		gap: 0 var(--space-8);
+		padding-block: var(--space-4);
+		border-radius: var(--radius-s);
 	}
 
 	/*
@@ -1641,7 +1641,7 @@
 	.body {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 		/* The first line sits level with the middle of the controls beside it. */
 		padding-block-start: calc((var(--control-block-size) - 1lh) / 2);
 	}
@@ -1653,16 +1653,16 @@
 
 	.time {
 		font-variant-numeric: tabular-nums;
-		font-weight: 600;
-		margin-inline-end: var(--space-2xs);
+		font-weight: var(--weight-semibold);
+		margin-inline-end: var(--space-4);
 	}
 
 	.meta {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
-		gap: var(--space-2xs) var(--space-s);
-		font-size: var(--text-s);
+		gap: var(--space-4) var(--space-12);
+		font-size: var(--text-label1);
 		line-height: var(--leading-tight);
 		color: color-mix(in oklab, var(--fg) 60%, transparent);
 	}
@@ -1671,7 +1671,7 @@
 	.map {
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 	}
 
 	.meta :global(svg) {
@@ -1698,19 +1698,19 @@
 	.prep {
 		background-color: var(--accent);
 		color: var(--accent-fg);
-		padding-inline: var(--space-2xs);
+		padding-inline: var(--space-4);
 	}
 
 	.notes {
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 		white-space: pre-line;
 	}
 
 	.empty {
-		padding: var(--space-s);
-		border-radius: calc(var(--control-block-size) / 2);
+		padding: var(--space-12);
+		border-radius: var(--radius-l);
 		box-shadow: inset 0 0 0 1px var(--edge);
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 		color: color-mix(in oklab, var(--fg) 60%, transparent);
 		text-align: center;
 	}
@@ -1724,7 +1724,7 @@
 	/* The whole section is one drop zone; see the markup. */
 	/* The whole unscheduled section is one drop zone; the rounding is for its highlight. */
 	.ideas {
-		border-radius: calc(var(--control-block-size) / 2);
+		border-radius: var(--radius-l);
 	}
 
 	/*
@@ -1753,10 +1753,10 @@
 		grid-column: 1 / -1;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-s);
-		margin-block: var(--space-m);
-		padding: var(--space-m);
-		border-radius: calc(var(--control-block-size) / 2 + var(--space-m));
+		gap: var(--space-12);
+		margin-block: var(--space-16);
+		padding: var(--space-16);
+		border-radius: var(--radius-l);
 		box-shadow: inset 0 0 0 1px var(--edge);
 	}
 
@@ -1764,11 +1764,11 @@
 	.fields {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-s);
+		gap: var(--space-12);
 	}
 
 	.note {
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 		color: color-mix(in oklab, var(--fg) 60%, transparent);
 	}
 
@@ -1776,14 +1776,14 @@
 		display: flex;
 		flex-wrap: wrap;
 		align-items: end;
-		gap: var(--space-s);
+		gap: var(--space-12);
 	}
 
 	.field {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2xs);
-		font-size: var(--text-s);
+		gap: var(--space-4);
+		font-size: var(--text-label1);
 		min-inline-size: 0;
 	}
 
@@ -1798,12 +1798,12 @@
 	 */
 	.input {
 		block-size: var(--control-block-size);
-		padding-inline: var(--space-s);
+		padding-inline: var(--space-12);
 		border: 1px solid var(--edge);
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-s);
 		background: none;
 		color: inherit;
-		font-size: var(--text-m);
+		font-size: var(--text-body1);
 		min-inline-size: 0;
 		max-inline-size: 100%;
 	}
@@ -1826,8 +1826,8 @@
 
 	textarea.input {
 		block-size: auto;
-		padding-block: var(--space-xs);
-		border-radius: calc(var(--control-block-size) / 2);
+		padding-block: var(--space-8);
+		border-radius: var(--radius-s);
 		line-height: var(--leading-prose);
 		resize: vertical;
 	}
@@ -1846,7 +1846,7 @@
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
-		gap: var(--space-xs);
+		gap: var(--space-8);
 	}
 
 	.spacer {
@@ -1862,15 +1862,15 @@
 		appearance: none;
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-xs);
+		gap: var(--space-8);
 		block-size: var(--control-block-size);
-		padding-inline: var(--space-s);
+		padding-inline: var(--space-12);
 		border: none;
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-s);
 		background: none;
 		box-shadow: inset 0 0 0 1px var(--edge);
 		color: inherit;
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 		cursor: pointer;
 	}
 
@@ -1897,7 +1897,7 @@
 		background-color: var(--accent);
 		color: var(--accent-fg);
 		box-shadow: none;
-		font-weight: 600;
+		font-weight: var(--weight-semibold);
 	}
 
 	/*
@@ -1905,6 +1905,6 @@
 	 * button is told apart by its weight and its words, and by asking twice.
 	 */
 	.pill.danger {
-		font-weight: 600;
+		font-weight: var(--weight-semibold);
 	}
 </style>

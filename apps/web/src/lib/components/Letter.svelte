@@ -33,8 +33,14 @@
 	} = $props();
 </script>
 
-<section class="hero" class:wide style="--title-optical: {optical}">
-	<!--
+<!--
+	THE SHEET: the document panel, as in VS Code's Modern UI. As wide as what
+	it holds — the reading measure, or a wide page's grid — and centred on the
+	shell, a panel gap clear of the window's edges.
+-->
+<div class="sheet" class:wide>
+	<section class="hero" style="--title-optical: {optical}">
+		<!--
 		A <span> and NOT a <mark>, which is what this started as. <mark> means
 		"relevant to what the reader is doing right now" — a search hit, the
 		passage under discussion — and a name is not that. Some screen readers
@@ -42,7 +48,7 @@
 		into the reading of the title. The highlight here is decoration, and
 		decoration belongs in an element that claims nothing.
 	-->
-	<!--
+		<!--
 		`data-page-title` IS A CONTRACT WITH THE BAR. The bar wears a page's name
 		once the page has stopped saying it, and it needs to know which element is
 		the page saying it — which is this one, and not any <h1>.
@@ -53,23 +59,24 @@
 		h1 in it — a rendered document in a preview, say — must not have that
 		mistaken for its masthead. Marking the real one answers both.
 	-->
-	<div class="masthead">
-		<h1 data-page-title><span class="highlight">{title}</span></h1>
-		{#if tagline}
-			<!--
+		<div class="masthead">
+			<h1 data-page-title><span class="highlight">{title}</span></h1>
+			{#if tagline}
+				<!--
 				A <p> and not an <h2>. A heading opens a SECTION, and this opens
 				nothing: a visitor moving through the page by heading would be sent
 				into a section that does not exist. It reads as a heading because of
 				its size, which is a matter for the stylesheet and not for the markup.
 			-->
-			<p class="tagline">{tagline}</p>
-		{/if}
-	</div>
+				<p class="tagline">{tagline}</p>
+			{/if}
+		</div>
 
-	<div class="prose">
-		{@render children()}
-	</div>
-</section>
+		<div class="prose">
+			{@render children()}
+		</div>
+	</section>
+</div>
 
 <style>
 	/*
@@ -81,19 +88,28 @@
 	.hero {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-xl);
+		gap: var(--space-32);
 
-		/* `--measure` caps the LINE, and the padding keeps the text off the edge of
-		 * a phone. `margin-inline: auto` then centres the column in a wide window. */
-		max-width: var(--measure);
-		margin-inline: auto;
-		padding: var(--space-2xl) var(--space-m);
+		padding: var(--space-36) var(--space-16);
 	}
 
-	/* Wide, but not without limit: past this a row of cards is too long a glance
-	 * from one end to the other. */
-	.hero.wide {
-		max-width: 90rem;
+	/*
+	 * A frame and not a border: a border is a pixel of the box. The height fills
+	 * the window under the bar, so the footer waits below the fold.
+	 */
+	.sheet.wide {
+		inline-size: min(90rem, 100% - var(--gap-panel) * 2);
+	}
+
+	.sheet {
+		min-block-size: calc(100dvh - var(--bar-block-size) - var(--gap-panel) * 2);
+		/* The measure caps the line; a wide page's grid stops at 90rem, past
+		 * which a row of cards is too long a glance. */
+		inline-size: min(var(--measure), 100% - var(--gap-panel) * 2);
+		margin: var(--gap-panel) auto;
+		border-radius: var(--radius-l);
+		background-color: var(--bg);
+		box-shadow: inset 0 0 0 1px var(--frame);
 	}
 
 	/* The name and the tagline are one unit, so they sit closer to each other than
@@ -102,11 +118,11 @@
 	.masthead {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 	}
 
 	h1 {
-		font-size: var(--text-display);
+		font-size: var(--text-heading1);
 		line-height: var(--leading-tight);
 		letter-spacing: var(--tracking-tight);
 
@@ -150,7 +166,7 @@
 	 * 0.11em of padding and not 0.08em. The border it replaces was 0.03em, and
 	 * the yellow has to reach as far past the first letter as it did before —
 	 * that overhang IS the stroke. In `em`, so it holds its proportion to the
-	 * letters as --text-display moves between 40px and 72px.
+	 * letters as --text-heading1 moves between 40px and 56px.
 	 *
 	 * The padding is declared on the h1 above rather than here, because the
 	 * alignment of the title has to subtract it and a value that two rules depend
@@ -178,7 +194,7 @@
 	}
 
 	.tagline {
-		font-size: var(--text-tagline);
+		font-size: var(--text-heading2);
 		font-style: italic;
 		line-height: var(--leading-tight);
 	}
@@ -186,7 +202,7 @@
 	.prose {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-m);
+		gap: var(--space-16);
 
 		/*
 		 * NOT DECORATION, and not spare. A page can hang something in the margin

@@ -499,16 +499,11 @@
 	header {
 		display: flex;
 		align-items: center;
-		gap: var(--space-2xs);
-		/*
-		 * TIGHT ON THE BLOCK EDGES, ordinary on the inline ones, and they are two
-		 * different jobs. The block padding is what the bar is MADE of — a control
-		 * between two of them — and the lower one is also the space between the bar
-		 * and the first thing under it, which is why it is the small rung. The
-		 * inline padding is where the site's column starts, and the footer answers
-		 * it; that line does not move.
-		 */
-		padding: var(--space-xs) var(--space-m);
+		gap: var(--space-4);
+		/* One panel gap on every side, as Modern UI keeps every edge: the first
+		 * control sits as far from the window's side as from its top, level with
+		 * the panels below. */
+		padding: var(--gap-panel);
 
 		/* Asserted, not left to add up. --bar-block-size is this same sum, and the
 		 * page and the emoji TOC both measure themselves against it — so the bar
@@ -541,6 +536,20 @@
 		position: sticky;
 		inset-block-start: 0;
 		z-index: 1;
+
+		/*
+		 * MADE OF THE SHELL, AND STILL GLASS. The bar is furniture like the
+		 * footer, so it is the same shell — frosted rather than opaque, so a
+		 * letter still goes soft under it.
+		 *
+		 * 85% and not the frost's usual 50%. Over the document the shell is one
+		 * small step from, half would land halfway and the bar would be neither;
+		 * at 85% it rests within a value of the footer, and 15% of whatever
+		 * passes underneath still shows through the blur.
+		 *
+		 */
+		--frost-base: var(--shell);
+		--frost-alpha: 85%;
 	}
 
 	/*
@@ -558,28 +567,19 @@
 	.brand {
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-xs);
+		gap: var(--space-8);
 
 		block-size: var(--control-block-size);
-		font-size: var(--text-m);
-		font-weight: 600;
+		font-size: var(--text-body1);
+		font-weight: var(--weight-semibold);
 		line-height: 1;
 		color: inherit;
 		text-decoration: none;
 
-		/*
-		 * THE WASH NEEDS ROOM, and the mark must not move to give it any. The
-		 * padding opens the box out; the negative margin takes exactly that back
-		 * off the start edge, so the drawing still begins on the bar's own 16px
-		 * line and only the highlight reaches further out.
-		 *
-		 * `--radius-round` draws a PILL here and a circle on the controls, from
-		 * one value — see the note beside the token. That is the shape a wash
-		 * around a word wants.
-		 */
-		padding-inline: var(--space-xs);
-		margin-inline-start: calc(-1 * var(--space-xs));
-		border-radius: var(--radius-round);
+		/* A control like the others: its box, not its mark, sits on the bar's
+		 * panel-gap edge, and the padding is the room its hover wash needs. */
+		padding-inline: var(--space-8);
+		border-radius: var(--radius-s);
 	}
 
 	/*
@@ -603,7 +603,7 @@
 
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-xs);
+		gap: var(--space-8);
 
 		/*
 		 * AS TALL AS THE LINK IT FILLS, and therefore as tall as every other
@@ -621,9 +621,9 @@
 		 * background reach the same 8px either side it always did without moving
 		 * the drawing off the bar's 16px line.
 		 */
-		padding-inline: var(--space-xs);
-		margin-inline: calc(-1 * var(--space-xs));
-		border-radius: var(--radius-round);
+		padding-inline: var(--space-8);
+		margin-inline: calc(-1 * var(--space-8));
+		border-radius: var(--radius-s);
 
 		transition:
 			opacity var(--motion-morph),
@@ -675,7 +675,6 @@
 	 * a pointer the same way. */
 	.brand:hover .brand-state {
 		background-color: var(--surface-hover);
-		box-shadow: inset 0 0 0 1px var(--edge);
 	}
 
 	.brand:focus-visible {
@@ -755,7 +754,7 @@
 	/*
 	 * THE SAME AIR EITHER SIDE OF A LINE, measured from INK to line — the last
 	 * letter or mark on one side, the first on the other — because that is the
-	 * space an eye compares. Both lines get `--space-s` on both sides.
+	 * space an eye compares. Both lines get `--space-12` on both sides.
 	 *
 	 * The margins are therefore NOT equal, and each is that space minus whatever
 	 * already stands between the ink and the line:
@@ -774,15 +773,15 @@
 	 */
 	.crumb .separator {
 		margin-inline-start: calc(
-			var(--space-s) - var(--space-2xs) - var(--space-xs)
+			var(--space-12) - var(--space-4) - var(--space-8)
 		);
-		margin-inline-end: var(--space-s);
+		margin-inline-end: var(--space-12);
 	}
 
 	.status-separator {
-		margin-inline-start: calc(var(--space-s) - var(--space-2xs));
+		margin-inline-start: calc(var(--space-12) - var(--space-4));
 		margin-inline-end: calc(
-			var(--space-s) - var(--space-2xs) -
+			var(--space-12) - var(--space-4) -
 				(var(--control-block-size) - 1.125rem) / 2
 		);
 	}
@@ -800,8 +799,8 @@
 		flex: 0 1000 auto;
 		min-inline-size: 0;
 
-		font-size: var(--text-m);
-		font-weight: 600;
+		font-size: var(--text-body1);
+		font-weight: var(--weight-semibold);
 		line-height: 1;
 
 		opacity: 0;
@@ -830,11 +829,11 @@
 		 * nothing once the crumb has shrunk into every spare pixel — the ellipsis
 		 * then touched the cloud.
 		 */
-		padding-inline-start: var(--space-s);
+		padding-inline-start: var(--space-12);
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-xs);
-		font-size: var(--text-s);
+		gap: var(--space-8);
+		font-size: var(--text-label1);
 		line-height: 1;
 		color: color-mix(in oklab, var(--fg) 60%, transparent);
 	}
@@ -842,7 +841,7 @@
 	/* A change that did not go through is the one status that must be seen. */
 	.status[data-tone='alert'] {
 		color: var(--fg);
-		font-weight: 600;
+		font-weight: var(--weight-semibold);
 	}
 
 	.status :global(svg) {
@@ -930,10 +929,10 @@
 		display: grid;
 		grid-auto-flow: column;
 		grid-auto-columns: 1fr;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 
-		padding-inline: var(--space-2xs);
-		border-radius: var(--radius-round);
+		padding-inline: var(--space-4);
+		border-radius: var(--radius-l);
 		background-color: var(--rail);
 	}
 
@@ -960,15 +959,15 @@
 	 */
 	.thumb {
 		position: absolute;
-		inset-block: var(--space-2xs);
-		inset-inline-start: var(--space-2xs);
+		inset-block: var(--space-4);
+		inset-inline-start: var(--space-4);
 		inline-size: calc(
-			(100% - var(--space-2xs) * 2 - var(--space-2xs) * (var(--count) - 1)) /
+			(100% - var(--space-4) * 2 - var(--space-4) * (var(--count) - 1)) /
 				var(--count)
 		);
-		translate: calc(var(--slot) * (100% + var(--space-2xs)));
+		translate: calc(var(--slot) * (100% + var(--space-4)));
 
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-s);
 		background-color: var(--accent);
 
 		transition: translate var(--motion-morph);
@@ -981,7 +980,7 @@
 	 * A ground that filled the key was flush with the island's top and bottom
 	 * while standing a step in from its ends — one shape inside another on two
 	 * sides and level with it on the other two, which reads as a mistake rather
-	 * than as a decision. The step is `--space-2xs` on all four now: at the ends
+	 * than as a decision. The step is `--space-4` on all four now: at the ends
 	 * it is the island's own padding, between the keys it is the gap, and above
 	 * and below it is the inset on `::before`.
 	 *
@@ -1014,14 +1013,14 @@
 		 * keys hold nothing but a mark.
 		 */
 		justify-content: center;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 
 		block-size: var(--control-block-size);
-		padding-inline: var(--space-xs);
+		padding-inline: var(--space-8);
 		border: none;
 		background: none;
 		color: inherit;
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 		cursor: pointer;
 
 		/* WITH THE GROUND AND NOT AHEAD OF IT. The label flips to `--accent-fg` as
@@ -1036,10 +1035,10 @@
 		content: '';
 		position: absolute;
 		z-index: -1;
-		inset-block: var(--space-2xs);
+		inset-block: var(--space-4);
 		inset-inline: 0;
 
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-s);
 	}
 
 	.view :global(svg) {
@@ -1085,7 +1084,6 @@
 
 	.view:hover::before {
 		background-color: var(--surface-hover);
-		box-shadow: inset 0 0 0 1px var(--edge);
 	}
 
 	/* ON THE GROUND AND NOT ON THE KEY, so the ring follows the shape a reader can
@@ -1170,26 +1168,17 @@
 	footer {
 		display: flex;
 		align-items: center;
-		gap: var(--space-m);
-		padding: var(--space-m);
+		gap: var(--space-16);
+		padding: var(--space-16);
 
-		/*
-		 * A SURFACE AND NOT A LINE. There was a hairline here, and a line drawn
-		 * between two identical grounds is the weaker of the two ways to say the
-		 * same thing: this says the footer is a different KIND of place, rather
-		 * than the same place with a rule across it.
-		 *
-		 * The content above keeps `--bg` and is never anything else. That is the
-		 * arrangement — the thing being read is white or black, and everything
-		 * supporting it steps off that.
-		 */
-		background-color: var(--surface);
-		font-size: var(--text-s);
+		/* On the shell, like the bar: furniture, where the document is a panel. */
+		background-color: var(--shell);
+		font-size: var(--text-label1);
 	}
 
 	footer nav {
 		display: flex;
-		gap: var(--space-m);
+		gap: var(--space-16);
 		margin-inline-start: auto;
 	}
 
@@ -1231,7 +1220,7 @@
 	.external {
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 	}
 
 	.external :global(svg) {

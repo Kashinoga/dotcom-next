@@ -95,10 +95,11 @@ h6 {
  */
 :root {
 	--bg: #fff;
-	--fg: #000;
+	--fg: #202020;
 
 	color-scheme: light;
-	background-color: var(--bg);
+	/* The ground is the shell; every page lays a framed document on it. */
+	background-color: var(--shell);
 	color: var(--fg);
 
 	/*
@@ -154,38 +155,6 @@ h6 {
  */
 :root:has(main[data-fullscreen]) {
 	scrollbar-gutter: auto;
-
-	/*
-	 * THE STOCK EVERY OBJECT IN AN APP IS CUT FROM — the panes in a rail, and the
-	 * island of view keys in the bar. It is a THIRD shade because an object the
-	 * colour of the desk has nothing left to round: its corners dissolve into the
-	 * field and it stops being an object laid on anything.
-	 *
-	 * BETWEEN THE SHEET AND THE DESK, at half `--surface`'s own step — light 245
-	 * against a 255 sheet and a 235 desk, dark 10 against 0 and 20. So it reads as
-	 * behind the document in both, which is the whole of the arrangement: the
-	 * thing you are writing is at the far end, the desk is furthest in, and what
-	 * only says where things are sits between.
-	 *
-	 * HERE AND NOT IN THE PAGE, because two components read it now: the editor
-	 * draws the rails and the layout draws the bar's island. It was in the page
-	 * while the page was the only reader, and a second copy in the layout would be
-	 * two values that must agree and cannot check each other.
-	 *
-	 * NOT ON BARE `:root`, because it is not true of the whole site — a letter has
-	 * no objects to cut from it. It belongs to a fullscreen app, which is exactly
-	 * what this selector says.
-	 *
-	 * ONE ARM AND NOT TWO. The first site needs a pair here, because it mixes
-	 * toward an ink that flips while its desk does not, so one percentage moves
-	 * its two schemes in opposite directions. This mixes `--fg` into `--bg` and
-	 * both of those flip together — the same reason `--surface` needs only one,
-	 * measured in its own note.
-	 *
-	 * `srgb` for that note's reason too: in oklab, four percent of the way from
-	 * black toward white is still black, and this would do nothing at all in dark.
-	 */
-	--rail: color-mix(in srgb, var(--fg) 4%, var(--bg));
 }
 
 /*
@@ -236,8 +205,17 @@ h6 {
 	--font-ui: 'Inter Variable', system-ui, sans-serif;
 }
 
+/* Modern UI sets its headings semi-bold; the browser's default is bold. */
+h1,
+h2,
+h3,
+h4 {
+	font-weight: var(--weight-semibold);
+}
+
 body {
 	font-family: var(--font-ui);
+	font-size: var(--text-body1);
 
 	/*
 	 * The OPTICAL SIZE axis. Inter carries two drawings of its letters — one for
@@ -254,120 +232,62 @@ body {
 }
 
 /* ─── The scales ─────────────────────────────────────────────────────────────
- * The reset above set every margin to zero, so each piece of space on this site
- * is now chosen. These are the values it may be chosen from. A scale is worth
- * more than a set of free numbers: two things one step apart look related, and
- * a page built from seven values looks deliberate where a page built from forty
- * looks accidental.
- *
- * Everything here is in `rem`, which answers the text size the VISITOR set in
- * their browser. A scale in `px` ignores them.
+ * VS Code's Modern UI scale, the base of the Kashinoga Design Language. Each
+ * name is the pixel size at the default text size; the values are `rem` so a
+ * visitor's own text size still scales them.
  */
 :root {
-	/* SPACE. Each step is about 1.5 times the one before — far enough apart to
-	 * be told apart, and few enough to hold in your head. */
-	--space-2xs: 0.25rem;
-	--space-xs: 0.5rem;
-	--space-s: 0.75rem;
-	--space-m: 1rem;
-	--space-l: 1.5rem;
-	--space-xl: 2.5rem;
-	--space-2xl: 4rem;
+	/* SPACE, on Modern UI's 2px grid. */
+	--space-2: 0.125rem;
+	--space-4: 0.25rem;
+	--space-6: 0.375rem;
+	--space-8: 0.5rem;
+	--space-10: 0.625rem;
+	--space-12: 0.75rem;
+	--space-16: 1rem;
+	--space-20: 1.25rem;
+	--space-24: 1.5rem;
+	--space-32: 2rem;
+	--space-36: 2.25rem;
 
-	/* TYPE. A major third (1.25) from 1rem. */
-	--text-s: 0.875rem;
-	--text-m: 1rem;
-	--text-l: 1.25rem;
-	--text-xl: 1.5rem;
-	--text-2xl: 2rem;
+	/* The gap between two panels, and between a panel and the window edge. */
+	--gap-panel: var(--space-4);
 
-	/* The two sizes that answer the WIDTH OF THE WINDOW rather than the scale.
-	 * `clamp` gives a floor, a rate of change, and a ceiling: the name fills a
-	 * phone, grows with the window, and stops before it runs off a desktop. No
-	 * media query, and no size between the two ends that was never looked at. */
-	--text-display: clamp(2.5rem, 9vw, 4.5rem);
-	--text-tagline: clamp(1.25rem, 4vw, 2rem);
+	/* TYPE: Modern UI's ramp. Headings take the semi-bold weight. */
+	--text-heading1: 1.625rem;
+	--text-heading2: 1.125rem;
+	--text-heading3: 0.8125rem;
+	--text-body1: 0.8125rem;
+	--text-body2: 0.6875rem;
+	--text-label1: 0.75rem;
+	--text-label2: 0.6875rem;
+	--text-label3: 0.625rem;
 
-	/* A line longer than about 65 characters is hard to come back from at the
-	 * end of it: the eye loses which line it was on. `ch` is the width of a '0'
-	 * in the current font, so this measure follows the font and the text size. */
+	--weight-regular: 400;
+	--weight-semibold: 600;
+
+	/* 65 characters: past that the eye loses the line it was on. `ch` follows
+	 * the font and its size. */
 	--measure: 65ch;
 
-	/*
-	 * LEADING AND TRACKING, and both belong to INTER.
-	 *
-	 * These were 1.5 and -0.02em while the site used the system font, which here
-	 * was Noto Sans. Inter has a LARGER X-HEIGHT: its letters fill more of the
-	 * line, so the same ratio leaves less white between one line and the next,
-	 * and the same tracking closes a gap that was already smaller. Rendered side
-	 * by side at 16px and 72px, both read tight. This is the same lesson as the
-	 * side bearing on the title — a number tuned to one typeface is not a number,
-	 * it is a measurement of that typeface.
-	 *
-	 * 1.6 for prose, at a measure of 65 characters. The longer the line, the more
-	 * white the eye needs to find the start of the next one.
-	 *
-	 * A heading needs less: the words are larger, so the leading of body text
-	 * would leave a title floating apart.
-	 */
+	/* Measured for Inter, which fills more of the line than most faces. */
 	--leading-prose: 1.6;
 	--leading-tight: 1.1;
-
-	/*
-	 * Large type looks loose at the spacing that suits body text, so it is pulled
-	 * together. Inter needs LESS of this than most: it is closely fitted already,
-	 * and `font-optical-sizing` tightens the display cut further, so the two
-	 * corrections stack.
-	 */
 	--tracking-tight: -0.015em;
 
 	/*
-	 * THE SIZE OF A THING YOU PRESS, and it answers WHAT IS DOING THE PRESSING
-	 * rather than how wide the window is. A phone in landscape is a wide screen
-	 * and still a finger; a small desktop window is narrow and still a mouse.
-	 *
-	 * 2rem is 32px, for a pointer. WCAG 2.2 puts the floor at 24x24 (2.5.8, AA)
-	 * and 32 sits clear of it with room to spare — 24 is a minimum to pass, not a
-	 * size to aim at, and at 24 the 18px icon inside would have three pixels of
-	 * air on each side and look wedged in.
-	 *
-	 * Everything that takes a press is this tall: the two header controls, the
-	 * brand beside them, the Emoji Viewer's search field, and the bar they all
-	 * sit in. Written once because six rules read it, and a number six rules work
-	 * out separately is a number they can disagree about.
+	 * THE SIZE OF A THING YOU PRESS. 28px is Modern UI's pane header, and it
+	 * stays over WCAG 2.2's 24px floor (2.5.8), which VS Code's own 22px
+	 * action buttons do not. A finger gets more; see below.
 	 */
-	--control-block-size: 2rem;
+	--control-block-size: 1.75rem;
 
-	/*
-	 * THE BAR'S HEIGHT, PUBLISHED. A control between two paddings, which is what
-	 * the header would come to anyway — but the header asserts it rather than
-	 * emerging at it, the page uses it to know how far under the bar an anchor
-	 * would land, and the things that stick use it to stop short of the bar
-	 * instead of sliding beneath it.
-	 *
-	 * `--space-xs` and not `--space-m` on the block edges, which is what makes it
-	 * 48px rather than 64. The lower one of those two paddings is not the bar's
-	 * private air: on every page it is also the space between the bar and the
-	 * first thing under it, and on the editor it was the app's top edge. 16px
-	 * there against the 8px parting the editor's own regions read as two
-	 * different ideas about the same space — which is the answer the first site's
-	 * editor reached, where one token is both the gutter between panes and the
-	 * padding around them.
-	 *
-	 * SITE-WIDE and not on the app alone. A bar that is 48px in the editor and
-	 * 64px on a letter is the site's most persistent element changing size as you
-	 * move through it. One height everywhere costs a letter 16px it was not using
-	 * for anything.
-	 */
-	--bar-block-size: calc(var(--control-block-size) + var(--space-xs) * 2);
+	/* The bar: a control and a 4px gap each side, 36px — VS Code's title bar
+	 * is 35. The page, and the things that stick, measure from this. */
+	--bar-block-size: calc(var(--control-block-size) + var(--space-4) * 2);
 
-	/*
-	 * How far a jump to a `#name` should stop short. Without this the browser puts
-	 * the target's top at the top of the window, which on this site is behind a
-	 * sticky bar — the heading a reader asked for would be the one thing they
-	 * could not see.
-	 */
-	scroll-padding-block-start: calc(var(--bar-block-size) + var(--space-m));
+	/* A jump to `#name` stops short of the sticky bar. */
+	scroll-padding-block-start: calc(var(--bar-block-size) + var(--space-16));
 }
 
 /*
@@ -393,12 +313,19 @@ body {
 
 :root {
 	/*
-	 * FULLY ROUND. 9999px and not 50%, and the difference matters the moment a
-	 * thing stops being square: 50% is half of each side, so it draws an ellipse
-	 * on a wide box, while a radius larger than the box can use is clamped to a
-	 * half-circle at each end. One value therefore gives a circle on a square and
-	 * a pill on a bar, which is what "round" means in both cases.
+	 * CORNERS, Modern UI's scale. `s` for a control, an input or a row; `l` for
+	 * a panel or a card. `round` is for badges only — 9999px and not 50%, so a
+	 * wide box gets a pill and not an ellipse.
+	 *
+	 * NESTED CORNERS ARE CONCENTRIC: an outer radius is the inner one plus the
+	 * inset between them (4px keys, 4px apart from their island's edge: 8px), so
+	 * the two curves run parallel instead of pinching at the corner.
 	 */
+	--radius-xs: 2px;
+	--radius-s: 4px;
+	--radius-m: 6px;
+	--radius-l: 8px;
+	--radius-xl: 12px;
 	--radius-round: 9999px;
 
 	/*
@@ -434,22 +361,13 @@ body {
 	--accent: #ffd60a;
 	--accent-fg: #000;
 
-	/*
-	 * A HAIRLINE. One value for every thin line this site draws that is not text:
-	 * the search field's border, an app card's border, and the edge around a
-	 * hovered thing. Mixed from `--fg`, so it flips with the display mode by
-	 * itself and there is no second value to keep in agreement with the first.
-	 *
-	 * It was three copies of this expression before, and the app card's own note
-	 * said to promote it the moment a second rule wanted the same value. Two
-	 * more did.
-	 */
-	--edge: color-mix(in oklab, var(--fg) 16%, transparent);
+	/* The outline of an input, a card or a panel: Modern UI's border. */
+	--edge: var(--frame);
 
 	/*
-	 * A SURFACE THAT IS NOT THE PAGE. The content keeps `--bg` — white in light,
-	 * black in dark, and never anything else — and the furniture around it sits
-	 * on this instead. It is what tells a supporting area from the thing it
+	 * A SURFACE THAT IS NOT THE PAGE: a fullscreen app's desk, which the document
+	 * lies on. The site's own furniture — bar, footer, the ground under a sheet —
+	 * is `--shell` now, below; this stays the app's, and sits It is what tells a supporting area from the thing it
 	 * supports without drawing a line between them.
 	 *
 	 * Mixed INTO `--bg` rather than laid over it as a wash, so it is an opaque
@@ -469,36 +387,49 @@ body {
 	 *
 	 * 8% then gives light 235 and dark 20, at 1.19:1 and 1.14:1 — the same step
 	 * either side, and the light end is exactly where the first attempt put it.
+	 * (Measured when dark was #000 and both sides took 8%. Dark's `--bg` and
+	 * `--fg` are Dark 2026's now, and it takes a 12% step — see `--surface-step`.)
 	 *
 	 * (`--surface-hover`'s note calls #141414 too dim to find in a bright room.
 	 * That is about a WASH, which has to be spotted on a control the size of a
 	 * thumbnail. This is a band across the whole window, and a step you notice
 	 * without looking for it would be a second page rather than a footer.)
 	 */
-	--surface: color-mix(in srgb, var(--fg) 8%, var(--bg));
+	--surface: var(--shell);
+
+	/* A selected row: Modern UI's `list.inactiveSelectionBackground`. */
+	--selected: rgb(218 218 218 / 60%);
 
 	/*
-	 * The wash under a control the pointer is over.
+	 * THE SHELL AND ITS FRAME, taken from VS Code's Modern UI and the 2026
+	 * themes it ships with. That design separates things the other way round
+	 * from a card on a page: the DOCUMENT is the deepest surface (`--bg`), and
+	 * everything that holds it — the bar, the footer, the ground a letter lies
+	 * on — is the shell, one small step out. The step alone is too small to
+	 * carry the separation, and is not meant to: a 1px frame does that.
 	 *
-	 * 4%, AND THE HAIRLINE IS WHY. This read 16% and carried an argument against
-	 * 8% — that white at 8% over black lands on #141414, which a bright room does
-	 * not show. That was true while the FILL WAS THE ONLY SIGNAL. It is not now:
-	 * everything wearing this wash also draws `--edge` around it, and the ring is
-	 * what makes a hovered thing findable. The fill is free to stop being a grey
-	 * block and become a breath of tint, which is what it looks like.
+	 *     light   document #FFFFFF   shell #FAFAFD   frame #E4E5E6
+	 *     dark    document #121314   shell #191A1B   frame #2A2B2C
 	 *
-	 * A thing that ever takes this wash WITHOUT the hairline is back to the old
-	 * problem, and 4% will not be enough on its own. Give it the edge too.
-	 *
-	 * It is NOT `backdrop-filter`, and that was measured rather than assumed: a
-	 * wall cell's own emoji is its CONTENT, not its backdrop, and the wall sits
-	 * on one flat colour — a blur there is byte-for-byte inert. On a bar control
-	 * the blur does change pixels, but invisibly, because the bar has already
-	 * blurred that same content and a blur of a blur adds nothing. Real glass
-	 * needs something moving behind it; these have nothing, so the shape and the
-	 * edge are what carry the impression.
+	 * LITERALS AND NOT MIXES, unlike every other colour here. These lean a
+	 * point or two toward blue, and a mix of a neutral `--fg` into a neutral
+	 * `--bg` cannot lean anywhere. The dark rules below restate all three.
 	 */
-	--surface-hover: color-mix(in oklab, var(--fg) 4%, transparent);
+	--shell: #fafafd;
+	--frame: #e4e5e6;
+
+	/*
+	 * RAISED: a panel standing on the shell — a side bar, a list beside the
+	 * document, the bar's island of view keys — where the shell's own shade would
+	 * leave it no different from the ground. Modern UI's quote and code block
+	 * surface (`textBlockQuote.background`).
+	 */
+	--raised: #eaeaea;
+	--rail: var(--raised);
+
+	/* The wash under a hovered control or row, and no ring: Modern UI's
+	 * `list.hoverBackground`, 8% black in light and 8% white in dark. */
+	--surface-hover: rgb(0 0 0 / 8%);
 }
 
 /*
@@ -519,18 +450,45 @@ body {
 
 /* `System`: follow the machine. `:not([data-mode='light'])` is what lets an
  * explicit choice of light win here. */
+/*
+ * DARK IS DARK 2026's EDITOR, #121314, AND NOT #000. Pure black under white
+ * text is the harshest pairing a screen can draw — the letters bloom at the
+ * edges, and on an OLED panel black pixels are OFF and smear as they switch
+ * back on during a scroll.
+ *
+ * THE TEXT IS SOFTER TOO, for the same reason: `--fg` is the colour VS Code
+ * gives plain text in an open file, #BBBEBF on this ground (about 10:1, still
+ * past AAA's 7:1), and #202020 in light (about 16:1). Neither end is the pure
+ * black or white a screen can make, and neither needs to be to be read.
+ *
+ * `--surface-step` is 12% here and not light's 8%, so a fullscreen app's desk
+ * stands as far off its document in dark as it does in light.
+ *
+ * Change `--shell` here and change the dark `theme-color` in src/app.html
+ * with it: the bar is the shell, and the address bar above it should match.
+ */
 @media (prefers-color-scheme: dark) {
 	:root:not([data-mode='light']) {
-		--bg: #000;
-		--fg: #fff;
+		--bg: #121314;
+		--fg: #bbbebf;
+		--shell: #191a1b;
+		--frame: #2a2b2c;
+		--raised: #242526;
+		--surface-hover: rgb(255 255 255 / 8%);
+		--selected: #2c2d2e;
 
 		color-scheme: dark;
 	}
 }
 
 :root[data-mode='dark'] {
-	--bg: #000;
-	--fg: #fff;
+	--bg: #121314;
+	--fg: #bbbebf;
+	--shell: #191a1b;
+	--frame: #2a2b2c;
+	--raised: #242526;
+	--surface-hover: rgb(255 255 255 / 8%);
+	--selected: #2c2d2e;
 
 	color-scheme: dark;
 }
@@ -588,7 +546,7 @@ body {
 	/* Square, so the radius draws a circle and not an egg. */
 	inline-size: var(--control-block-size);
 	block-size: var(--control-block-size);
-	border-radius: var(--radius-round);
+	border-radius: var(--radius-s);
 
 	/* Centre the icon. Without this it sits on the baseline of a line box with no
 	 * text in it. */
@@ -602,7 +560,6 @@ body {
  * control already had. */
 .control:hover {
 	background-color: var(--surface-hover);
-	box-shadow: inset 0 0 0 1px var(--edge);
 }
 
 /* The browser's focus ring left with `appearance`, so draw one. The offset keeps
@@ -654,8 +611,14 @@ body {
  * The wearer still owns its own POSITION and z-index. This says what a thing is
  * made of, not where it stands.
  */
+/*
+ * WHAT THE GLASS IS TINTED WITH, and how much of it, are the wearer's to say:
+ * `--frost-base` and `--frost-alpha`, defaulting to the page and to 50%. The
+ * search field takes the defaults. The bar is furniture and is made of the
+ * shell — see its rule in the layout.
+ */
 .frost {
-	background-color: var(--bg);
+	background-color: var(--frost-base, var(--bg));
 }
 
 /*
@@ -681,7 +644,11 @@ body {
 
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
 	.frost {
-		background-color: color-mix(in oklab, var(--bg) 50%, transparent);
+		background-color: color-mix(
+			in oklab,
+			var(--frost-base, var(--bg)) var(--frost-alpha, 50%),
+			transparent
+		);
 		-webkit-backdrop-filter: blur(8px);
 		backdrop-filter: blur(8px);
 	}

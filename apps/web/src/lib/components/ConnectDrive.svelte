@@ -343,25 +343,25 @@
 	.connect {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-s);
+		gap: var(--space-12);
 
 		max-inline-size: 28rem;
-		padding: var(--space-m);
-		border-radius: var(--space-2xs);
+		padding: var(--space-16);
+		border-radius: var(--radius-l);
 		background-color: var(--bg);
 	}
 
 	h3 {
-		font-size: var(--text-m);
+		font-size: var(--text-body1);
 		line-height: var(--leading-tight);
 	}
 
 	label {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 		line-height: var(--leading-tight);
 	}
 
@@ -372,12 +372,12 @@
 	input[type='text'],
 	input[type='password'] {
 		block-size: var(--control-block-size);
-		padding-inline: var(--space-xs);
+		padding-inline: var(--space-8);
 		border: 1px solid var(--edge);
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-s);
 		background: none;
 		color: inherit;
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 	}
 
 	input:focus-visible {
@@ -388,16 +388,16 @@
 	fieldset {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-xs);
+		gap: var(--space-8);
 
-		padding: var(--space-s);
+		padding: var(--space-12);
 		border: 1px solid var(--edge);
-		border-radius: var(--space-2xs);
+		border-radius: var(--radius-l);
 	}
 
 	legend {
-		padding-inline: var(--space-2xs);
-		font-size: var(--text-s);
+		padding-inline: var(--space-4);
+		font-size: var(--text-label1);
 		color: color-mix(in oklab, var(--fg) 60%, transparent);
 	}
 
@@ -406,7 +406,7 @@
 	.choice {
 		flex-direction: row;
 		align-items: start;
-		gap: var(--space-xs);
+		gap: var(--space-8);
 	}
 
 	.choice input {
@@ -420,19 +420,19 @@
 	.signin {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 	}
 
 	.signin button {
 		align-self: start;
 
 		block-size: var(--control-block-size);
-		padding-inline: var(--space-s);
+		padding-inline: var(--space-12);
 		border: 1px solid var(--edge);
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-s);
 		background: none;
 		color: inherit;
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 		cursor: pointer;
 	}
 
@@ -447,31 +447,31 @@
 	}
 
 	.signin p {
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 		line-height: var(--leading-tight);
 		color: color-mix(in oklab, var(--fg) 60%, transparent);
 		text-wrap: pretty;
 	}
 
 	.said {
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 		line-height: var(--leading-tight);
 		text-wrap: pretty;
 	}
 
 	.keys {
 		display: flex;
-		gap: var(--space-2xs);
+		gap: var(--space-4);
 	}
 
 	.keys button {
 		block-size: var(--control-block-size);
-		padding-inline: var(--space-s);
+		padding-inline: var(--space-12);
 		border: 1px solid var(--edge);
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-s);
 		background: none;
 		color: inherit;
-		font-size: var(--text-s);
+		font-size: var(--text-label1);
 		cursor: pointer;
 	}
 

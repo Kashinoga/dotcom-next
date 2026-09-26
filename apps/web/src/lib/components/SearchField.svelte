@@ -81,16 +81,16 @@
 	.field {
 		display: flex;
 		align-items: center;
-		gap: var(--space-xs);
+		gap: var(--space-8);
 
-		padding-inline: var(--space-s);
+		padding-inline: var(--space-12);
 		/* The same height as everything else that takes a press. */
 		block-size: var(--control-block-size);
 		border: 1px solid var(--edge);
 		/* The token, not the figure. 9999px is what it holds, and the note beside
 		 * it says why that number and not 50% — which is the argument this rule
 		 * would otherwise have to make again. */
-		border-radius: var(--radius-round);
+		border-radius: var(--radius-s);
 	}
 
 	/* The ring goes on the BOX, because the box is what reads as the control. The
