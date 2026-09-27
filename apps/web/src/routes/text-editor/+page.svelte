@@ -853,15 +853,11 @@
 		line-height: var(--leading-prose);
 	}
 
-	/* INSIDE THE PANE, by the ring's whole width. It was -1px, which put it over
-	 * the hairline that used to be there; with the hairline gone the ring has
-	 * nothing to sit on and would hang half of itself in the gutter, where the
-	 * pane beside it is 8px away. */
+	/* NO RING: the caret is where the focus is, as in VS Code's editor. A text
+	 * field counts as `:focus-visible` after a click too, so a ring here framed
+	 * the whole sheet every time somebody clicked in to type. */
 	.sheet textarea:focus-visible {
-		outline: 2px solid var(--fg);
-		/* Inside the column, which is inside the pane's padding, so the ring is not
-		 * drawn under the pane's own rounded edge. */
-		outline-offset: 0;
+		outline: none;
 	}
 
 	/*
