@@ -25,6 +25,7 @@
 	import Plus from '@lucide/svelte/icons/plus';
 	import X from '@lucide/svelte/icons/x';
 
+	import { bar, type BarStatus } from '$lib/bar.svelte';
 	import ConnectDrive from '$lib/components/ConnectDrive.svelte';
 	import Placeholder from '$lib/components/Placeholder.svelte';
 	import Seo from '$lib/components/Seo.svelte';
@@ -78,6 +79,52 @@
 	$effect(() => outlinePanel.claim());
 	$effect(() => view.claim());
 
+	/*
+	 * WHERE THE WORDS STAND, IN THE BAR, so it can be seen in every view. It was
+	 * in the proof, which Edit hides — and a save that failed leaves the sheet
+	 * looking exactly like one that worked. Typing and waiting to go out are one
+	 * "Saving…", or the line would flicker between two words on every keystroke.
+	 * The trip board's words, where the two say the same thing.
+	 */
+	function saveStatus(): BarStatus {
+		if (folder.save === 'trouble') {
+			return {
+				text:
+					folder.saveWhy === 'denied'
+						? 'This folder can’t be written to.'
+						: folder.saveWhy === 'gone'
+							? 'That document is gone.'
+							: 'Couldn’t save that.',
+				tone: 'alert',
+			};
+		}
+		if (folder.save === 'clean') {
+			return { text: 'All changes saved.', tone: 'quiet' };
+		}
+		return { text: 'Saving…', tone: 'busy' };
+	}
+
+	// Only for a document that can be written to. A snapshot has nothing to save,
+	// and a scratch note is kept in this browser as it is typed.
+	$effect(() => {
+		if (open.kind !== 'file' || !folder.writable) return;
+		return bar.report(saveStatus());
+	});
+
+	/*
+	 * ON THE WAY OUT. Hidden is the last moment a page can count on — a phone
+	 * backgrounds a tab and may never tell it again — so the words go out then.
+	 * A page that is closing gets the browser's own "leave?" while anything is
+	 * unsaved, because a write started during unload is not sure to finish.
+	 */
+	function onHidden() {
+		if (document.visibilityState === 'hidden') void folder.flush();
+	}
+
+	function onLeave(event: BeforeUnloadEvent) {
+		if (folder.save !== 'clean') event.preventDefault();
+	}
+
 	/* Ask whether a folder was remembered. It does not open one — a browser will
 	 * not grant permission except in answer to a click — so what this can produce
 	 * is an offer, and the offer is a button. See `look` and `resume`. */
@@ -120,6 +167,9 @@
 	path="/text-editor"
 	icon="/favicon-text-editor.svg"
 />
+
+<svelte:document onvisibilitychange={onHidden} />
+<svelte:window onbeforeunload={onLeave} />
 
 <!--
 	NO LETTER HERE, AND NO MASTHEAD. Every other page on this site is a letter —
@@ -569,30 +619,12 @@
 									kept.
 								</p>
 							{:else}
-								<!--
-								WHERE THE WORDS STAND, and this is the one place it can be said.
-								A save that failed leaves the sheet looking exactly like a save
-								that worked, so a document that is not on the disk has to say so
-								somewhere or nobody will ever know.
-							-->
-								{#if folder.save === 'trouble'}
-									<p class="pending" role="status">
-										{folder.saveWhy === 'denied'
-											? 'This folder cannot be written to.'
-											: folder.saveWhy === 'gone'
-												? 'That document is no longer there.'
-												: 'Those words are not saved.'}
-									</p>
-								{:else if folder.save === 'saving'}
-									<p class="pending" role="status">Saving.</p>
-								{:else if folder.save === 'dirty'}
-									<p class="pending" role="status">Not saved yet.</p>
-								{:else}
-									<p class="pending">
-										There is no setting yet. What is on the sheet is the
-										document as it is written.
-									</p>
-								{/if}
+								<!-- Where the words stand with the disk is in the bar, where
+								every view can see it. -->
+								<p class="pending">
+									There is no setting yet. What is on the sheet is the document
+									as it is written.
+								</p>
 							{/if}
 						</div>
 					{/if}

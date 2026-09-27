@@ -541,7 +541,17 @@ export const folder = {
 	flush,
 
 	/* Put the folder away. The scratch notes are untouched: they were never in it. */
-	close() {
+	async close() {
+		/*
+		 * THE LAST WORDS GO OUT FIRST. They were dropped here, which lost anything
+		 * typed in the 600ms before the press. A save that fails keeps the folder
+		 * open, once, so the bar can say so; a second press closes it anyway,
+		 * because by then losing them is a choice.
+		 */
+		const unsaved = pending !== null;
+		await flush();
+		if (unsaved && save === 'trouble') return;
+
 		/* Closing is a decision about this folder and not about the browser, so it
 		 * is forgotten as well as put away — otherwise the next visit would open on
 		 * the folder somebody just closed. */

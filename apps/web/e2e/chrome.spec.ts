@@ -1432,6 +1432,131 @@ test('a folder that cannot be written to offers no typing', async ({
 });
 
 /*
+ * A FOLDER THAT CAN BE WRITTEN TO, without the operating system's dialog: the
+ * picker is answered with a folder in the origin's private file system, which
+ * is a real writable handle. Chromium only — that is where the picker is.
+ *
+ * The clock is paused once the folder is open, so the 600ms settle never fires
+ * on its own and any word that reaches the disk got there by the path under
+ * test. `install` alone lets time run.
+ */
+async function writableFolder(page: Page, files: Record<string, string>) {
+	await page.clock.install();
+	await page.addInitScript(() => {
+		window.showDirectoryPicker = async () =>
+			(await navigator.storage.getDirectory()).getDirectoryHandle('Notes', {
+				create: true,
+			});
+	});
+	await editor(page);
+	await page.evaluate(async (files) => {
+		const root = await (
+			await navigator.storage.getDirectory()
+		).getDirectoryHandle('Notes', { create: true });
+		for (const [name, body] of Object.entries(files)) {
+			const writable = await (
+				await root.getFileHandle(name, { create: true })
+			).createWritable();
+			await writable.write(body);
+			await writable.close();
+		}
+	}, files);
+	await page
+		.getByRole('button', { name: 'Open a folder from this device' })
+		.click();
+	await page.getByRole('button', { name: 'Put Notes away' }).waitFor();
+	await page.clock.pauseAt(Date.now() + 60_000);
+}
+
+function onDisk(page: Page, name: string) {
+	return page.evaluate(async (name) => {
+		const root = await (
+			await navigator.storage.getDirectory()
+		).getDirectoryHandle('Notes');
+		return (await (await root.getFileHandle(name)).getFile()).text();
+	}, name);
+}
+
+test('the bar says where the words stand, in Edit too', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await writableFolder(page, { 'one.md': 'first' });
+	await page.getByRole('button', { name: 'one.md' }).click();
+	await page.getByRole('button', { name: 'Edit', exact: true }).click();
+
+	const status = page.locator('.status');
+	await expect(status).toHaveText('All changes saved.');
+
+	await page.locator('.sheet textarea').fill('second');
+	await expect(status).toHaveText('Saving…');
+
+	await page.clock.runFor(600);
+	await expect(status).toHaveText('All changes saved.');
+	expect(await onDisk(page, 'one.md')).toBe('second');
+});
+
+test('putting a folder away saves what was just typed', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await writableFolder(page, { 'one.md': 'first' });
+	await page.getByRole('button', { name: 'one.md' }).click();
+	await page.locator('.sheet textarea').fill('second');
+
+	await page.getByRole('button', { name: 'Put Notes away' }).click();
+	await expect(page.getByRole('button', { name: 'one.md' })).toHaveCount(0);
+	expect(await onDisk(page, 'one.md')).toBe('second');
+});
+
+test('a hidden page saves what was just typed', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await writableFolder(page, { 'one.md': 'first' });
+	await page.getByRole('button', { name: 'one.md' }).click();
+	await page.locator('.sheet textarea').fill('second');
+
+	await page.evaluate(() => {
+		Object.defineProperty(document, 'visibilityState', { value: 'hidden' });
+		document.dispatchEvent(new Event('visibilitychange'));
+	});
+	await expect.poll(() => onDisk(page, 'one.md')).toBe('second');
+});
+
+test('a folder whose save failed is not put away on the first press', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await writableFolder(page, { 'one.md': 'first' });
+	await page.getByRole('button', { name: 'one.md' }).click();
+
+	// The grant withdrawn from under the editor, so the write is refused.
+	await page.evaluate(() => {
+		FileSystemFileHandle.prototype.createWritable = () =>
+			Promise.reject(new DOMException('withdrawn', 'NotAllowedError'));
+	});
+	await page.locator('.sheet textarea').fill('second');
+
+	const away = page.getByRole('button', { name: 'Put Notes away' });
+	await away.click();
+	await expect(page.locator('.status')).toHaveAttribute('data-tone', 'alert');
+	await expect(page.getByRole('button', { name: 'one.md' })).toHaveCount(1);
+
+	// The second press is a choice, and it is honoured.
+	await away.click();
+	await expect(page.getByRole('button', { name: 'one.md' })).toHaveCount(0);
+});
+
+/*
  * ONE WAY IN PER BROWSER, and the right one. `showDirectoryPicker` hands over a
  * folder this app could write through and remember; the input hands over a
  * snapshot that is read-only and gone at the end of the session. Where the first
