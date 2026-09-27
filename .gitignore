@@ -29,6 +29,7 @@ blob-report/
 # A name with no extension is caught by `*` above and matches none of the
 # extension rules below, so each one has to be listed here by name.
 !.gitignore
+!.gitattributes
 !.prettierignore
 !.npmrc
 !.node-version
