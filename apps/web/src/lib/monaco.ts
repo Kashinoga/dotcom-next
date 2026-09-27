@@ -26,14 +26,10 @@ const models = new Map<string, monaco.editor.ITextModel>();
 export function modelFor(key: string, value: string, language: string) {
 	let model = models.get(key);
 	if (!model || model.isDisposed()) {
+		/* Line endings as VS Code's \`files.eol: auto\` has them: a document keeps
+		 * the ones it has, and one that has none yet takes the machine's. A phone
+		 * is never Windows, so its textarea's LF agrees. */
 		model = monaco.editor.createModel(value, language);
-		/* LF for a document that has not chosen, where Monaco would take the
-		 * machine's — CRLF on Windows. The phone's textarea writes LF, and a note
-		 * should not change its line endings with the device it was typed on. A
-		 * file already in CRLF keeps it; Monaco reads that off the words. */
-		if (!value.includes('\r\n')) {
-			model.setEOL(monaco.editor.EndOfLineSequence.LF);
-		}
 		models.set(key, model);
 	}
 	if (model.getLanguageId() !== language) {
