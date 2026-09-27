@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test';
 
-import { hrefSegments, parseMultistatus } from '../src/lib/dav';
+import {
+	davStore,
+	hrefSegments,
+	parseMultistatus,
+	type DavConfig,
+} from '../src/lib/dav';
 
 /*
  * THE MULTISTATUS READER, asked directly.
@@ -189,4 +194,62 @@ test('a href the server encoded badly costs one name, not the listing', () => {
 	const entries = parseMultistatus(xml, ROOT);
 	expect(entries).toHaveLength(2);
 	expect(entries.map((e) => e.name)).toContain('fine.md');
+});
+
+/*
+ * A FOLDER IS RENAMED AND MOVED BY THE SERVER, in one MOVE that refuses a
+ * destination already taken. Asked of the store directly, with `fetch` standing
+ * in for the server, so what is checked is the request and not a Nextcloud.
+ */
+test('a folder is moved in one step, and never into itself', async () => {
+	const cfg: DavConfig = {
+		connection: 'c',
+		base: 'https://cloud.example.com',
+		user: 'someone',
+		token: 't',
+		via: 'direct',
+		root: 'Notes',
+		name: 'Notes',
+	};
+	const sent: {
+		method: string;
+		url: string;
+		headers: Record<string, string>;
+	}[] = [];
+	const real = globalThis.fetch;
+	globalThis.fetch = (async (url: string, init: RequestInit) => {
+		sent.push({
+			method: String(init.method),
+			url,
+			headers: init.headers as Record<string, string>,
+		});
+		return new Response(null, { status: 201 });
+	}) as typeof fetch;
+
+	try {
+		const store = davStore(cfg, () => true);
+		const files =
+			'https://cloud.example.com/remote.php/dav/files/someone/Notes';
+
+		expect(await store.renameDir!('Old Name', 'New')).toBe('New');
+		expect(sent[0]).toMatchObject({
+			method: 'MOVE',
+			url: `${files}/Old%20Name`,
+			headers: { destination: `${files}/New`, overwrite: 'F' },
+		});
+
+		expect(await store.moveDir!('New', 'Elsewhere/Deeper')).toBe(
+			'Elsewhere/Deeper/New',
+		);
+		expect(sent[1].headers.destination).toBe(`${files}/Elsewhere/Deeper/New`);
+
+		// Into itself, into its own child, or where it already is: not asked.
+		expect(await store.moveDir!('A', 'A')).toBe(null);
+		expect(await store.moveDir!('A', 'A/B')).toBe(null);
+		expect(await store.moveDir!('A/B', 'A')).toBe(null);
+		expect(await store.renameDir!('A', 'x/y')).toBe(null);
+		expect(sent).toHaveLength(2);
+	} finally {
+		globalThis.fetch = real;
+	}
 });

@@ -244,7 +244,7 @@ function merge(into: Listing, extra: Listing, at: string): Listing {
  * `slash` is ours, because VS Code makes the folders a slash names and the
  * stores here do not.
  */
-export type Refusal = 'empty' | 'slash' | 'taken' | 'failed';
+export type Refusal = 'empty' | 'slash' | 'taken' | 'into' | 'failed';
 
 /* A path, or why not — never one string that could be either. */
 export type Made = { path: string } | { refusal: Refusal };
@@ -270,6 +270,30 @@ function refuse(name: string): Refusal | null {
 /* A folder and everything under it, or a document on its own. */
 const within = (path: string, root: string) =>
 	path === root || path.startsWith(`${root}/`);
+
+/* A document as the rail lists it, at a path. */
+function entryAt(path: string): FolderEntry {
+	const name = path.slice(path.lastIndexOf('/') + 1);
+	return isOpenable(name) ? { name, path } : { name, path, openable: false };
+}
+
+/*
+ * EVERYTHING AT `from` IS AT `to` NOW — a document, or a folder and all it
+ * holds — so the rail, the folds and the open document follow it there.
+ */
+function remap(from: string, to: string) {
+	const swap = (path: string) =>
+		within(path, from) ? to + path.slice(from.length) : path;
+	listing = {
+		files: listing.files.map((file) =>
+			within(file.path, from) ? entryAt(swap(file.path)) : file,
+		),
+		dirs: listing.dirs.map(swap),
+	};
+	closed = new Set([...closed].map(swap));
+	loaded = new Set([...loaded].map(swap));
+	if (openPath !== null) openPath = swap(openPath);
+}
 
 /* Open every folder above a path, so what was just made is in view. */
 function reveal(path: string) {
@@ -634,10 +658,15 @@ export const folder = {
 		return { path };
 	},
 
+	/* Folders can be renamed and moved only where the store does it in one step
+	 * — see `renameDir` in $lib/workspace. The rail offers it only here. */
+	get relocatesDirs() {
+		return Boolean(store?.renameDir && store.moveDir);
+	},
+
 	/*
-	 * A DOCUMENT UNDER A NEW NAME. Documents only: a folder on this device
-	 * cannot be renamed through the handle it was reached by. The words on the
-	 * sheet go out first, under the name they were typed under.
+	 * A NEW NAME. The words on the sheet go out first, under the name they were
+	 * typed under, if the open document is the one being renamed or is inside it.
 	 */
 	async rename(path: string, to: string): Promise<Made> {
 		to = to.trim();
@@ -646,19 +675,43 @@ export const folder = {
 		if (!store?.writable) return { refusal: 'failed' };
 		if (to === path.slice(path.lastIndexOf('/') + 1)) return { path };
 
-		if (openPath === path) await flush();
-		const moved = await store.rename(path, to);
+		const isDir = listing.dirs.includes(path);
+		if (isDir && !store.renameDir) return { refusal: 'failed' };
+		if (openPath !== null && within(openPath, path)) await flush();
+
+		const moved = isDir
+			? await store.renameDir!(path, to)
+			: ((await store.rename(path, to))?.path ?? null);
 		if (!moved) return { refusal: 'failed' };
 
-		const entry: FolderEntry = isOpenable(moved.name)
-			? moved
-			: { ...moved, openable: false };
-		listing = {
-			files: listing.files.map((file) => (file.path === path ? entry : file)),
-			dirs: listing.dirs,
-		};
-		if (openPath === path) openPath = moved.path;
-		return { path: moved.path };
+		remap(path, moved);
+		return { path: moved };
+	},
+
+	/*
+	 * INTO ANOTHER FOLDER, from a drag or a cut and paste. A taken name is
+	 * refused rather than replaced, and a folder is not put inside itself.
+	 */
+	async move(path: string, dir: string): Promise<Made> {
+		if (!store?.writable) return { refusal: 'failed' };
+		if (dirOf(path) === dir) return { path };
+		if (within(dir, path)) return { refusal: 'into' };
+		if (taken(dir, path.slice(path.lastIndexOf('/') + 1))) {
+			return { refusal: 'taken' };
+		}
+
+		const isDir = listing.dirs.includes(path);
+		if (isDir && !store.moveDir) return { refusal: 'failed' };
+		if (openPath !== null && within(openPath, path)) await flush();
+
+		const moved = isDir
+			? await store.moveDir!(path, dir)
+			: ((await store.move(path, dir))?.path ?? null);
+		if (!moved) return { refusal: 'failed' };
+
+		remap(path, moved);
+		reveal(moved);
+		return { path: moved };
 	},
 
 	/*

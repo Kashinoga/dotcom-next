@@ -141,6 +141,15 @@ export type Store = {
 	 * this app can do and it is recursive. The caller confirms by NAME.
 	 */
 	removeDir(path: string): Promise<boolean>;
+	/*
+	 * A FOLDER UNDER A NEW NAME, or in another folder. Present only where the
+	 * store can do it in one step: a WebDAV MOVE can, and a folder on this device
+	 * cannot — vscode.dev refuses it there too ("Rename is only supported for
+	 * files"), since copying a tree and deleting the old one loses files if it
+	 * stops halfway. Answers with the folder's new path.
+	 */
+	renameDir?(path: string, to: string): Promise<string | null>;
+	moveDir?(path: string, dir: string): Promise<string | null>;
 };
 
 /*

@@ -34,6 +34,7 @@
  */
 
 import {
+	dirOf,
 	join,
 	notWritten,
 	WROTE,
@@ -588,5 +589,34 @@ export function davStore(cfg: DavConfig, openable: Openable): Store {
 			}
 			return true;
 		},
+
+		renameDir: (path, to) =>
+			/[/\\]/.test(to) || !to
+				? Promise.resolve(null)
+				: relocate(path, join(dirOf(path), to)),
+
+		moveDir: (path, dir) =>
+			/* Not into itself, which a server may refuse or may not. */
+			dir === path || dir.startsWith(`${path}/`) || dirOf(path) === dir
+				? Promise.resolve(null)
+				: relocate(path, join(dir, path.slice(path.lastIndexOf('/') + 1))),
 	};
+
+	/* A folder, moved in one step by the server; `Overwrite: F` refuses a
+	 * destination already taken rather than replacing it. The etags known for
+	 * what is inside go with it. */
+	async function relocate(path: string, to: string) {
+		const answer = await dav(cfg, 'MOVE', target(cfg, path), {
+			headers: { destination: target(cfg, to), overwrite: 'F' },
+		});
+		if (!answer || !answer.ok) return null;
+
+		for (const [key, tag] of [...etags]) {
+			if (key === path || key.startsWith(`${path}/`)) {
+				etags.delete(key);
+				etags.set(to + key.slice(path.length), tag);
+			}
+		}
+		return to;
+	}
 }

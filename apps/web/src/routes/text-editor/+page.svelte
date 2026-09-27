@@ -280,6 +280,8 @@
 				return 'A name cannot hold a / or a \\ here.';
 			case 'taken':
 				return `A file or folder ${name.trim()} already exists at this location. Please choose a different name.`;
+			case 'into':
+				return 'A folder cannot be moved into itself.';
 			case 'failed':
 				return kind === 'rename'
 					? `Unable to rename to ${name.trim()}.`
@@ -288,6 +290,7 @@
 	}
 
 	function startNew(kind: 'file' | 'dir') {
+		notice = null;
 		const dir = !chosen
 			? ''
 			: chosen.kind === 'dir'
@@ -298,18 +301,24 @@
 		naming = { kind, dir, refusal: null };
 	}
 
+	/* A folder moves or takes a new name only where the store can do it in one
+	 * step — see `relocatesDirs`. A document always can. */
+	const movable = (row: Row) => row.kind === 'file' || folder.relocatesDirs;
+
 	function startRename(row: Row) {
-		if (row.kind !== 'file') return;
+		if (!movable(row)) return;
+		notice = null;
 		chosen = row;
 		typed = row.name;
 		naming = { kind: 'rename', path: row.path, refusal: null };
 	}
 
 	/* The name box takes the focus, with the name selected up to its extension,
-	 * so typing replaces the name and keeps the kind of file it is. */
+	 * so typing replaces the name and keeps the kind of file it is. A folder's
+	 * name is chosen whole, as VS Code chooses it: a dot in it is not a kind. */
 	function takeName(input: HTMLInputElement) {
 		input.focus();
-		const dot = input.value.lastIndexOf('.');
+		const dot = input.dataset.whole ? -1 : input.value.lastIndexOf('.');
 		input.setSelectionRange(0, dot > 0 ? dot : input.value.length);
 	}
 
@@ -392,9 +401,10 @@
 		}
 	}
 
-	/* F2 and Delete on a row, VS Code's keys; ⌘⌫ too, which is its key on a Mac. */
+	/* VS Code's keys on a row: F2, Delete (⌘⌫ on a Mac), and cut and paste. */
 	function rowKeys(event: KeyboardEvent, row: Row) {
 		if (!folder.writable) return;
+		const mod = event.ctrlKey || event.metaKey;
 		if (event.key === 'F2') {
 			event.preventDefault();
 			startRename(row);
@@ -404,6 +414,120 @@
 		) {
 			event.preventDefault();
 			askDelete(row);
+		} else if (mod && event.key.toLowerCase() === 'x' && movable(row)) {
+			event.preventDefault();
+			cut = row;
+		} else if (mod && event.key.toLowerCase() === 'v' && cut) {
+			event.preventDefault();
+			paste(row);
+		} else if (event.key === 'Escape' && cut) {
+			cut = null;
+		}
+	}
+
+	/*
+	 * MOVING, by a drag or by cut and paste — VS Code's two ways, and the second
+	 * is the one a keyboard has. A move that cannot be done says why above the
+	 * rows, as VS Code says it in a notification.
+	 */
+	let notice = $state<string | null>(null);
+	let cut = $state<Row | null>(null);
+	let dragging = $state<Row | null>(null);
+	let dropDir = $state<string | null>(null);
+
+	const inside = (path: string, root: string) =>
+		path === root || path.startsWith(`${root}/`);
+
+	/* A drop on a folder goes into it; on a document, beside it, as in VS Code. */
+	const destination = (row: Row | null) =>
+		!row ? '' : row.kind === 'dir' ? row.path : dirOf(row.path);
+
+	const dirName = (dir: string) =>
+		dir ? dir.slice(dir.lastIndexOf('/') + 1) : (folder.name ?? '');
+
+	function paste(onto: Row | null) {
+		const what = cut;
+		cut = null;
+		if (what) void moveNow(what, destination(onto));
+	}
+
+	async function moveNow(row: Row, dir: string) {
+		notice = null;
+		const made = await folder.move(row.path, dir);
+		if ('refusal' in made) {
+			notice =
+				made.refusal === 'taken'
+					? `A file or folder ${row.name} already exists in the destination folder.`
+					: made.refusal === 'into'
+						? 'A folder cannot be moved into itself.'
+						: `Unable to move ${row.name}.`;
+			return false;
+		}
+		followMove(row.path, made.path);
+		return true;
+	}
+
+	/* The open document, and the focus, go where the row went. */
+	function followMove(from: string, to: string) {
+		if (open.kind === 'file' && inside(open.path, from)) {
+			open = { kind: 'file', path: to + open.path.slice(from.length) };
+		}
+		void focusRow(to);
+	}
+
+	function dragStart(event: DragEvent, row: Row) {
+		if (!folder.writable || !movable(row) || !event.dataTransfer) {
+			event.preventDefault();
+			return;
+		}
+		notice = null;
+		dragging = row;
+		event.dataTransfer.effectAllowed = 'move';
+		event.dataTransfer.setData('text/plain', row.name);
+	}
+
+	/* Only a drop that would move something is offered: not into where it
+	 * already is, and not a folder into itself. */
+	function dragOver(event: DragEvent, row: Row | null) {
+		if (!dragging) return;
+		event.stopPropagation();
+		const dir = destination(row);
+		if (dir === dirOf(dragging.path) || inside(dir, dragging.path)) {
+			dropDir = null;
+			return;
+		}
+		event.preventDefault();
+		if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+		dropDir = dir;
+	}
+
+	function drop(event: DragEvent, row: Row | null) {
+		const what = dragging;
+		dragging = null;
+		dropDir = null;
+		if (!what) return;
+		event.preventDefault();
+		event.stopPropagation();
+
+		const dir = destination(row);
+		if (asksBeforeDrop()) void ask({ kind: 'move', row: what, dir });
+		else void moveNow(what, dir);
+	}
+
+	function dragEnd() {
+		dragging = null;
+		dropDir = null;
+	}
+
+	/* VS Code's `explorer.confirmDragAndDrop`, on until "Do not ask me again".
+	 * Kept in this browser, which is where VS Code for the web keeps it too. */
+	const CONFIRM_DROPS = 'explorer.confirmDragAndDrop';
+
+	function asksBeforeDrop() {
+		try {
+			return localStorage.getItem(CONFIRM_DROPS) !== 'false';
+		} catch {
+			return true;
 		}
 	}
 
@@ -469,46 +593,73 @@
 	}
 
 	/*
-	 * DELETING, which a web page cannot undo — there is no bin to put it in. So
-	 * it asks first, in VS Code's words for exactly this case.
+	 * THE QUESTION BEFORE A DELETE OR A DROP, in VS Code's words for each. A
+	 * delete cannot be undone from a web page — there is no bin to put it in —
+	 * and a drop is easy to make by accident.
 	 */
-	let doomed = $state<Row | null>(null);
-	let deleteFailed = $state(false);
+	type Asking =
+		{ kind: 'delete'; row: Row } | { kind: 'move'; row: Row; dir: string };
+
+	let asking = $state<Asking | null>(null);
+	let askFailed = $state<string | null>(null);
+	let dontAsk = $state(false);
 	let confirmEl = $state<HTMLDialogElement | null>(null);
 
-	async function askDelete(row: Row) {
-		chosen = row;
-		doomed = row;
-		deleteFailed = false;
+	async function ask(next: Asking) {
+		chosen = next.row;
+		asking = next;
+		askFailed = null;
+		dontAsk = false;
 		await tick();
 		confirmEl?.showModal();
 		// The primary button, where VS Code puts the focus.
 		confirmEl?.querySelector<HTMLElement>('.primary')?.focus();
 	}
 
-	async function confirmDelete() {
-		const row = doomed;
-		if (!row) return;
-		if (!(await folder.remove(row))) {
-			deleteFailed = true;
+	function askDelete(row: Row) {
+		notice = null;
+		void ask({ kind: 'delete', row });
+	}
+
+	async function confirmAsk() {
+		const now = asking;
+		if (!now) return;
+
+		if (now.kind === 'move') {
+			if (dontAsk) {
+				try {
+					localStorage.setItem(CONFIRM_DROPS, 'false');
+				} catch {
+					// Asked again next time, which is the safe way to be wrong.
+				}
+			}
+			// Said, so closing does not hand the focus back to where the row was.
+			if (await moveNow(now.row, now.dir)) confirmEl?.close('done');
+			else askFailed = notice;
 			return;
 		}
-		// Said, so closing does not hand the focus back to a row that is gone.
-		confirmEl?.close('deleted');
+
+		if (!(await folder.remove(now.row))) {
+			askFailed = 'It could not be deleted.';
+			return;
+		}
+		confirmEl?.close('done');
 		// What was on the sheet went with it, as its tab goes in VS Code.
-		if (
-			open.kind === 'file' &&
-			(open.path === row.path || open.path.startsWith(`${row.path}/`))
-		) {
+		if (open.kind === 'file' && inside(open.path, now.row.path)) {
 			open = { kind: 'scratch', id: PERMANENT };
 		}
 		chosen = null;
 	}
 </script>
 
-{#snippet nameBox(kind: Naming['kind'], depth: number, initial: string)}
+{#snippet nameBox(
+	kind: Naming['kind'],
+	depth: number,
+	initial: string,
+	mark: 'dir' | 'file' = kind === 'dir' ? 'dir' : 'file',
+)}
 	<div class="naming" style="--depth: {depth}">
-		{#if kind === 'dir'}
+		{#if mark === 'dir'}
 			<ChevronRight aria-hidden="true" />
 		{:else}
 			<FileText aria-hidden="true" />
@@ -525,6 +676,7 @@
 			aria-describedby={naming?.refusal ? 'name-refusal' : undefined}
 			autocomplete="off"
 			spellcheck="false"
+			data-whole={mark === 'dir' || undefined}
 			{@attach takeName}
 			oninput={(event) => {
 				typed = event.currentTarget.value;
@@ -659,8 +811,18 @@
 				are none. The heading carries the folder's name once there is one, so
 				the rail says WHICH workspace rather than just "Files" — a person with
 				two of them open across two tabs should not have to guess.
+
+				A drop anywhere in it that is not on a row goes to the top of the folder,
+				as a drop on the empty part of VS Code's explorer does.
 			-->
-			<section class="section">
+			<section
+				class="section"
+				class:drop={dropDir === ''}
+				role="group"
+				aria-label="Files"
+				ondragover={(event) => dragOver(event, null)}
+				ondrop={(event) => drop(event, null)}
+			>
 				<h2>
 					{folder.name ?? 'Files'}
 
@@ -749,6 +911,10 @@
 					{/if}
 				</h2>
 
+				{#if notice}
+					<p class="refusal notice" role="alert">{notice}</p>
+				{/if}
+
 				{#if folder.reading}
 					<Placeholder
 						shape="rows"
@@ -809,26 +975,37 @@
 										is drawn from it, so the announcement and the drawing are
 										one attribute read twice.
 									-->
-									<button
-										type="button"
-										class="file folder"
-										style="--depth: {row.depth}"
-										aria-expanded={!folder.isClosed(row.path)}
-										title={row.path}
-										onclick={() => {
-											chosen = row;
-											void folder.fold(row.path);
-										}}
-										oncontextmenu={(event) => openMenu(event, row)}
-										onkeydown={(event) => rowKeys(event, row)}
-									>
-										{#if folder.isClosed(row.path)}
-											<ChevronRight aria-hidden="true" />
-										{:else}
-											<ChevronDown aria-hidden="true" />
-										{/if}
-										<span class="name">{row.name}</span>
-									</button>
+									{#if naming?.kind === 'rename' && naming.path === row.path}
+										{@render nameBox('rename', row.depth, row.name, 'dir')}
+									{:else}
+										<button
+											type="button"
+											class="file folder"
+											class:drop={dropDir === row.path}
+											class:cut={cut?.path === row.path}
+											style="--depth: {row.depth}"
+											aria-expanded={!folder.isClosed(row.path)}
+											title={row.path}
+											draggable={folder.writable && movable(row)}
+											onclick={() => {
+												chosen = row;
+												void folder.fold(row.path);
+											}}
+											oncontextmenu={(event) => openMenu(event, row)}
+											onkeydown={(event) => rowKeys(event, row)}
+											ondragstart={(event) => dragStart(event, row)}
+											ondragover={(event) => dragOver(event, row)}
+											ondrop={(event) => drop(event, row)}
+											ondragend={dragEnd}
+										>
+											{#if folder.isClosed(row.path)}
+												<ChevronRight aria-hidden="true" />
+											{:else}
+												<ChevronDown aria-hidden="true" />
+											{/if}
+											<span class="name">{row.name}</span>
+										</button>
+									{/if}
 
 									{#if folder.isOpening(row.path) && !folder.isClosed(row.path)}
 										<Placeholder
@@ -850,6 +1027,7 @@
 										type="button"
 										class="file"
 										class:inert={!row.openable}
+										class:cut={cut?.path === row.path}
 										style="--depth: {row.depth}"
 										aria-current={open.kind === 'file' && open.path === row.path
 											? 'true'
@@ -862,6 +1040,11 @@
 										}}
 										oncontextmenu={(event) => openMenu(event, row)}
 										onkeydown={(event) => rowKeys(event, row)}
+										draggable={folder.writable}
+										ondragstart={(event) => dragStart(event, row)}
+										ondragover={(event) => dragOver(event, row)}
+										ondrop={(event) => drop(event, row)}
+										ondragend={dragEnd}
 									>
 										<!--
 											A PAGE WITH WRITING ON IT, or a page without. What these
@@ -924,7 +1107,26 @@
 							New Folder…
 						</button>
 						<hr />
-						{#if row.kind === 'file'}
+						{#if movable(row)}
+							<button
+								type="button"
+								role="menuitem"
+								onclick={() => fromMenu(() => (cut = row))}
+							>
+								Cut <kbd>Ctrl+X</kbd>
+							</button>
+						{/if}
+						{#if cut}
+							<button
+								type="button"
+								role="menuitem"
+								onclick={() => fromMenu(() => paste(row))}
+							>
+								Paste <kbd>Ctrl+V</kbd>
+							</button>
+						{/if}
+						<hr />
+						{#if movable(row)}
 							<button
 								type="button"
 								role="menuitem"
@@ -948,32 +1150,41 @@
 					class="confirm"
 					aria-labelledby="confirm-question"
 					onclose={() => {
-						const was = doomed;
-						doomed = null;
-						if (was && confirmEl?.returnValue !== 'deleted')
-							void focusRow(was.path);
+						const was = asking;
+						asking = null;
+						if (was && confirmEl?.returnValue !== 'done') {
+							void focusRow(was.row.path);
+						}
 					}}
 				>
-					{#if doomed}
+					{#if asking?.kind === 'delete'}
 						<p id="confirm-question">
-							Are you sure you want to permanently delete ‘{doomed.name}’{doomed.kind ===
-							'dir'
-								? ' and its contents'
-								: ''}?
+							Are you sure you want to permanently delete ‘{asking.row
+								.name}’{asking.row.kind === 'dir' ? ' and its contents' : ''}?
 						</p>
 						<p class="detail">This action is irreversible.</p>
-						{#if deleteFailed}
-							<p class="detail" role="alert">It could not be deleted.</p>
-						{/if}
-						<div class="choices">
-							<button type="button" onclick={() => confirmEl?.close()}
-								>Cancel</button
-							>
-							<button type="button" class="primary" onclick={confirmDelete}
-								>Delete</button
-							>
-						</div>
+					{:else if asking}
+						<p id="confirm-question">
+							Are you sure you want to move ‘{asking.row.name}’ into ‘{dirName(
+								asking.dir,
+							)}’?
+						</p>
+						<label class="detail dont-ask">
+							<input type="checkbox" bind:checked={dontAsk} />
+							Do not ask me again
+						</label>
 					{/if}
+					{#if askFailed}
+						<p class="detail" role="alert">{askFailed}</p>
+					{/if}
+					<div class="choices">
+						<button type="button" onclick={() => confirmEl?.close()}>
+							Cancel
+						</button>
+						<button type="button" class="primary" onclick={confirmAsk}>
+							{asking?.kind === 'move' ? 'Move' : 'Delete'}
+						</button>
+					</div>
 				</dialog>
 			</section>
 
@@ -2034,6 +2245,31 @@
 	.file.inert {
 		color: color-mix(in oklab, var(--fg) 35%, transparent);
 		cursor: default;
+	}
+
+	/*
+	 * WHERE A DRAG WILL LAND: the folder it goes into, washed as a selected row
+	 * is, or the whole pane when it goes to the top. A row that has been cut is
+	 * faded until it is pasted, as VS Code fades it.
+	 */
+	.file.drop,
+	.section.drop {
+		background-color: var(--selected);
+	}
+
+	.file.cut {
+		opacity: 0.5;
+	}
+
+	.notice {
+		margin-inline: var(--space-4);
+	}
+
+	.dont-ask {
+		display: flex;
+		align-items: center;
+		gap: var(--space-8);
+		margin-block-start: var(--space-8);
 	}
 
 	/* THE HEADING'S CONTROLS, together at its end. One auto margin on the group,

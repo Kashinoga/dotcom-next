@@ -2757,6 +2757,7 @@ test('the context menu offers the verbs, and gives the focus back', async ({
 	await expect(menu.getByRole('menuitem')).toHaveText([
 		'New File…',
 		'New Folder…',
+		'Cut Ctrl+X',
 		'Rename… F2',
 		'Delete Delete',
 	]);
@@ -2796,4 +2797,111 @@ test('a folder that cannot be written to offers none of the verbs', async ({
 	await expect(page.getByRole('menu')).toHaveCount(0);
 	await row.press('F2');
 	await expect(page.locator('.naming input')).toHaveCount(0);
+});
+
+/*
+ * MOVING, VS Code's two ways: a drag, which asks first until told not to, and
+ * cut and paste, which is the keyboard's way and does not ask.
+ */
+async function withSub(page: Page) {
+	await writableFolder(page, { 'one.md': 'first' });
+	await page.evaluate(async () => {
+		const root = await (
+			await navigator.storage.getDirectory()
+		).getDirectoryHandle('Notes');
+		await root.getDirectoryHandle('Sub', { create: true });
+	});
+	// Handed over again, so the rail reads the folder made behind its back.
+	await page.getByRole('button', { name: 'Put Notes away' }).click();
+	await page
+		.getByRole('button', { name: 'Open a folder from this device' })
+		.click();
+	await expect(page.getByRole('button', { name: 'Sub' })).toBeVisible();
+}
+
+test('a document dragged onto a folder moves into it, once asked', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await withSub(page);
+	const one = page.getByRole('button', { name: 'one.md' });
+	await one.click();
+	await one.dragTo(page.getByRole('button', { name: 'Sub' }));
+
+	const dialog = page.getByRole('dialog');
+	await expect(dialog).toContainText(
+		'Are you sure you want to move ‘one.md’ into ‘Sub’?',
+	);
+	await dialog.getByRole('checkbox', { name: 'Do not ask me again' }).check();
+	await dialog.getByRole('button', { name: 'Move' }).click();
+
+	// Moved on the disk, and the open document went with it.
+	expect(await atPath(page, 'Sub/one.md')).toBe('first');
+	expect(await atPath(page, 'one.md')).toBe(null);
+	await expect(page.getByRole('button', { name: 'one.md' })).toHaveAttribute(
+		'aria-current',
+		'true',
+	);
+	await expect(page.locator('.sheet textarea')).toHaveValue('first');
+
+	// Told not to ask, it does not: back out to the top, at once.
+	await page
+		.getByRole('button', { name: 'one.md' })
+		.dragTo(page.getByRole('button', { name: 'New file' }));
+	await expect(dialog).toBeHidden();
+	await expect.poll(() => atPath(page, 'one.md')).toBe('first');
+});
+
+test('cut and paste moves without asking, and a taken name is refused', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await withSub(page);
+	const one = page.getByRole('button', { name: 'one.md' });
+	await one.focus();
+	await page.keyboard.press('Control+x');
+	await expect(one).toHaveClass(/cut/);
+
+	const sub = page.getByRole('button', { name: 'Sub' });
+	await sub.focus();
+	await page.keyboard.press('Control+v');
+	await expect(page.getByRole('dialog')).toBeHidden();
+	await expect.poll(() => atPath(page, 'Sub/one.md')).toBe('first');
+
+	// A second one.md cannot go where the first now is.
+	await page.getByRole('button', { name: 'New file' }).click();
+	const box = page.getByRole('textbox', { name: 'Name of the new file' });
+	await box.fill('one.md');
+	await box.press('Enter');
+	const top = page.locator('button[title="one.md"]');
+	await top.focus();
+	await page.keyboard.press('Control+x');
+	await page.locator('button[title="Sub/one.md"]').focus();
+	await page.keyboard.press('Control+v');
+	await expect(page.getByRole('alert')).toHaveText(
+		'A file or folder one.md already exists in the destination folder.',
+	);
+	expect(await atPath(page, 'one.md')).toBe('');
+});
+
+test('a folder on this device is not offered a rename or a move', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await withSub(page);
+	const sub = page.getByRole('button', { name: 'Sub' });
+	await sub.click({ button: 'right' });
+	await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText([
+		'New File…',
+		'New Folder…',
+		'Delete Delete',
+	]);
+	await page.keyboard.press('Escape');
+	await expect(sub).not.toHaveAttribute('draggable', 'true');
 });
