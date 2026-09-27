@@ -606,6 +606,11 @@ export const folder = {
 	 * page, and for anything that has to know the disk is current. */
 	flush,
 
+	/* A file's bytes, for a picture in the proof. */
+	picture(path: string) {
+		return store ? store.picture(path) : Promise.resolve(null);
+	},
+
 	/* The refusal a name would meet, asked as it is typed, as VS Code asks. */
 	check(dir: string, name: string, except?: string): Refusal | null {
 		return refuse(name) ?? (taken(dir, name.trim(), except) ? 'taken' : null);

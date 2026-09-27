@@ -102,6 +102,17 @@ function clean(html: string) {
  */
 if (typeof window !== 'undefined') {
 	DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+		/*
+		 * A PICTURE IN THE FOLDER is held back as `data-src`, so the browser does
+		 * not ask this site for a file only the folder has. The page reads it from
+		 * the folder and gives it a `src` of its own — see the proof.
+		 */
+		const src = node.tagName === 'IMG' ? node.getAttribute('src') : null;
+		if (src && !/^([a-z][a-z\d+.-]*:|\/\/)/i.test(src)) {
+			node.setAttribute('data-src', src);
+			node.removeAttribute('src');
+		}
+
 		if (
 			node.tagName === 'A' &&
 			/^https?:/i.test(node.getAttribute('href') ?? '')

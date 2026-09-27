@@ -248,10 +248,57 @@
 		}
 
 		if (open.kind !== 'file') return;
-		const dir = open.path.slice(0, open.path.lastIndexOf('/') + 1);
-		const url = new URL(href, `file:///${encodeURI(dir)}`);
-		void openFile(decodeURIComponent(url.pathname.slice(1)));
+		void openFile(resolveFrom(open.path, href));
 	}
+
+	/* A path written in a document, as a path in the folder: relative to the
+	 * document, or to the top of the folder when it starts with `/` — VS Code's
+	 * reading of both. A URL does the resolving, since dot segments are its job. */
+	function resolveFrom(document: string, href: string) {
+		const dir = document.slice(0, document.lastIndexOf('/') + 1);
+		const url = new URL(href, `file:///${encodeURI(dir)}`);
+		return decodeURIComponent(url.pathname.slice(1));
+	}
+
+	/*
+	 * PICTURES IN A DOCUMENT, read from the folder it is in and given a URL of
+	 * their own. Each is read once per folder, and the URLs go when the folder
+	 * does, or the page. A scratch note is in no folder and has none to show.
+	 */
+	const pictures = new Map<string, Promise<string | null>>();
+
+	$effect(() => {
+		void setting?.html;
+		if (!proof || open.kind !== 'file') return;
+		const from = open.path;
+
+		for (const img of proof.querySelectorAll<HTMLImageElement>(
+			'img[data-src]',
+		)) {
+			const path = resolveFrom(from, img.dataset.src ?? '');
+			if (!pictures.has(path)) {
+				pictures.set(
+					path,
+					folder
+						.picture(path)
+						.then((blob) => (blob ? URL.createObjectURL(blob) : null)),
+				);
+			}
+			void pictures.get(path)?.then((url) => {
+				if (url && img.isConnected) img.src = url;
+			});
+		}
+	});
+
+	$effect(() => {
+		void folder.name;
+		return () => {
+			for (const url of pictures.values()) {
+				void url.then((made) => made && URL.revokeObjectURL(made));
+			}
+			pictures.clear();
+		};
+	});
 
 	/*
 	 * THE EXPLORER'S VERBS, as VS Code's explorer has them: New File and New

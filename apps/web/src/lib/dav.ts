@@ -450,6 +450,16 @@ export function davStore(cfg: DavConfig, openable: Openable): Store {
 		list: () => level(''),
 		listDir: (path) => level(path),
 
+		async picture(path) {
+			const answer = await dav(cfg, 'GET', target(cfg, path));
+			if (!answer || !answer.ok) return null;
+			try {
+				return await answer.blob();
+			} catch {
+				return null;
+			}
+		},
+
 		async read(path) {
 			const answer = await dav(cfg, 'GET', target(cfg, path));
 			if (!answer || !answer.ok) return null;

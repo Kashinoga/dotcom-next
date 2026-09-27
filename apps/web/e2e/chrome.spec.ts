@@ -2905,3 +2905,75 @@ test('a folder on this device is not offered a rename or a move', async ({
 	await page.keyboard.press('Escape');
 	await expect(sub).not.toHaveAttribute('draggable', 'true');
 });
+
+/*
+ * A PICTURE IN THE FOLDER, shown in the proof from the folder's own bytes, and
+ * never asked of this site, which does not have it. A one-pixel PNG, written
+ * alongside the documents.
+ */
+const PIXEL =
+	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+async function withPicture(page: Page, doc: string) {
+	await writableFolder(page, { 'doc.md': doc });
+	await page.evaluate(async (pixel) => {
+		const root = await (
+			await navigator.storage.getDirectory()
+		).getDirectoryHandle('Notes');
+		const bytes = Uint8Array.from(atob(pixel), (c) => c.charCodeAt(0));
+		const writable = await (
+			await root.getFileHandle('pic.png', { create: true })
+		).createWritable();
+		await writable.write(bytes);
+		await writable.close();
+	}, PIXEL);
+	await page.getByRole('button', { name: 'Put Notes away' }).click();
+	await page
+		.getByRole('button', { name: 'Open a folder from this device' })
+		.click();
+}
+
+test('a picture beside a document is shown from the folder', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	const asked: string[] = [];
+	page.on('request', (request) => {
+		if (request.url().includes('pic.png')) asked.push(request.url());
+	});
+
+	await withPicture(page, '![here](pic.png)\n\n![top](/pic.png)');
+	await page.getByRole('button', { name: 'doc.md' }).click();
+
+	const pictures = page.locator('.proof img');
+	await expect(pictures).toHaveCount(2);
+	for (const picture of await pictures.all()) {
+		await expect(picture).toHaveAttribute('src', /^blob:/);
+		await expect
+			.poll(() => picture.evaluate((img: HTMLImageElement) => img.naturalWidth))
+			.toBe(1);
+	}
+	expect(asked).toEqual([]);
+});
+
+test('a file this editor cannot open can still be deleted', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await withPicture(page, '');
+	const row = page.getByRole('button', { name: 'pic.png' });
+	await expect(row).toHaveAttribute('aria-disabled', 'true');
+	await row.focus();
+	await page.keyboard.press('Delete');
+	await page
+		.getByRole('dialog')
+		.getByRole('button', { name: 'Delete' })
+		.click();
+
+	await expect(row).toHaveCount(0);
+	expect(await atPath(page, 'pic.png')).toBe(null);
+});

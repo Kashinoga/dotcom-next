@@ -110,6 +110,8 @@ export type Store = {
 	listDir?(path: string): Promise<Listing | null>;
 	/** A document's words, or null if they cannot be got at. */
 	read(path: string): Promise<string | null>;
+	/** A file's bytes, for a picture a document shows. Null if they cannot be got at. */
+	picture(path: string): Promise<Blob | null>;
 	/** Write a document back — and say why not, where it did not. See `WriteError`. */
 	write(path: string, body: string): Promise<WriteResult>;
 	/*
@@ -357,10 +359,11 @@ export function localStore(
 				continue;
 			}
 
-			/* No handle is kept: the row cannot be opened, so nothing above needs a
-			 * way to read it. */
+			/* A handle is kept all the same: the row cannot be opened, but it can be
+			 * renamed and deleted, and a picture is read for the proof. */
 			if (inert >= MAX_INERT) continue;
 			inert += 1;
+			files.set(path, entry as FileSystemFileHandle);
 			out.push({ name, path, openable: false });
 		}
 	}
@@ -439,6 +442,14 @@ export function localStore(
 			if (!handle) return null;
 			try {
 				return await (await handle.getFile()).text();
+			} catch {
+				return null;
+			}
+		},
+
+		async picture(path) {
+			try {
+				return (await files.get(path)?.getFile()) ?? null;
 			} catch {
 				return null;
 			}
@@ -639,6 +650,8 @@ export function snapshotStore(
 		if (!openable(file.name)) {
 			if (inert >= MAX_INERT) continue;
 			inert += 1;
+			// Kept, so a picture can be shown in the proof.
+			files.set(path, file);
 			out.push({ name: file.name, path, openable: false });
 			continue;
 		}
@@ -664,6 +677,8 @@ export function snapshotStore(
 				return null;
 			}
 		},
+
+		picture: async (path) => files.get(path) ?? null,
 
 		/*
 		 * NOTHING HERE CAN BE WRITTEN, and the type is what says so. `writable` is
