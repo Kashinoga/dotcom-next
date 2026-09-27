@@ -1045,6 +1045,9 @@ test('tabbing off a note name reaches its close, with no pause', async ({
 test('a heading starts where its own rows start', async ({ page }) => {
 	await page.goto('/text-editor');
 	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+	// The outline lists what the document holds, so it is given a heading to list.
+	await page.locator('.sheet textarea').fill('# A heading');
+	await expect(page.locator('#outline li button')).toHaveCount(1);
 
 	const seen = await page.evaluate(() => {
 		const text = (node: Node) => {
@@ -1075,8 +1078,8 @@ test('a heading starts where its own rows start', async ({ page }) => {
 	 * pane there is, and how many there are is a different fact. */
 	expect(seen.length).toBeGreaterThan(2);
 
-	/* Scratch and the outline have rows on a first visit; Files and Drives do not
-	 * until something is handed over. Every pane that HAS rows keeps the line. */
+	/* Scratch and the outline have rows here; Files and Drives do not until
+	 * something is handed over. Every pane that HAS rows keeps the line. */
 	const withRows = seen.filter((pane) => pane.row !== null);
 	expect(withRows.length).toBeGreaterThan(1);
 	for (const pane of withRows) expect(pane.heading).toBe(pane.row);
@@ -2452,4 +2455,132 @@ test('every built app is reachable from its card, and only those', async ({
 
 		await page.goBack();
 	}
+});
+
+/*
+ * THE PROOF AND THE OUTLINE ARE ONE PARSE of what is on the sheet: markdown-it,
+ * set as VS Code sets it. These hold the parts a reader would notice going
+ * wrong, and the one part nobody would notice until it mattered.
+ */
+test('a note is set in the proof, and its headings are the outline', async ({
+	page,
+}) => {
+	await editor(page);
+	await page
+		.locator('.sheet textarea')
+		.fill('---\ntitle: kept out\n---\n# One\n\nSome **words**.\n\n## Two');
+
+	const proof = page.locator('.proof');
+	await expect(proof.locator('h1')).toHaveText('One');
+	await expect(proof.locator('strong')).toHaveText('words');
+	await expect(proof.locator('h2')).toHaveText('Two');
+
+	// Front matter is hidden, as VS Code hides it — not set as a rule and a line.
+	await expect(proof).not.toContainText('kept out');
+	await expect(proof.locator('hr')).toHaveCount(0);
+
+	await expect(page.locator('#outline li button')).toHaveText(['One', 'Two']);
+});
+
+test('a script in a document is not run', async ({ page }) => {
+	await editor(page);
+	await page
+		.locator('.sheet textarea')
+		.fill(
+			[
+				'<img src="x" onerror="window.ran = 1">',
+				'<script>window.ran = 2</script>',
+				'<a href="javascript:window.ran = 3">raw</a>',
+				'[written](javascript:window.ran=4)',
+			].join('\n\n'),
+		);
+	await expect(page.locator('.proof img')).toHaveCount(1);
+	await expect(page.locator('.proof img')).not.toHaveAttribute('onerror');
+
+	// Raw HTML keeps its link and loses the script; markdown-it will not make one.
+	await expect(page.locator('.proof a')).toHaveCount(1);
+	await expect(page.locator('.proof a')).not.toHaveAttribute('href');
+	await page.locator('.proof a').click();
+
+	expect(await page.evaluate(() => (window as { ran?: number }).ran)).toBe(
+		undefined,
+	);
+});
+
+test('a heading in the outline brings both panes to it', async ({ page }) => {
+	await editor(page);
+	const filler = Array.from({ length: 120 }, (_, i) => `Line ${i}.\n`);
+	const doc = ['# Top', '', ...filler, '## Middle', '', ...filler].join('\n');
+	const sheet = page.locator('.sheet textarea');
+	await sheet.fill(doc);
+
+	await page.getByRole('button', { name: 'Middle' }).click();
+
+	// The caret is on the heading's line, and that line is in view.
+	const seen = await sheet.evaluate((area: HTMLTextAreaElement) => ({
+		caret: area.selectionStart,
+		line: area.value.indexOf('## Middle'),
+		top: area.scrollTop,
+		height: area.scrollHeight,
+	}));
+	expect(seen.caret).toBe(seen.line);
+	expect(seen.top).toBeGreaterThan(seen.height / 3);
+	expect(seen.top).toBeLessThan((seen.height * 2) / 3);
+
+	const heading = page.locator('.proof h2');
+	await expect(heading).toBeInViewport();
+
+	// And back up, which is the direction Chromium would not scroll on its own.
+	await page.getByRole('button', { name: 'Top' }).click();
+	expect(await sheet.evaluate((area) => area.scrollTop)).toBe(0);
+	await expect(page.locator('.proof h1')).toBeInViewport();
+});
+
+test('a link to a heading goes to it', async ({ page }) => {
+	await editor(page);
+	const filler = Array.from({ length: 120 }, (_, i) => `Line ${i}.\n`);
+	await page
+		.locator('.sheet textarea')
+		.fill(['[down](#the-far-end)', '', ...filler, '## The Far End'].join('\n'));
+
+	await page.locator('.proof a').click();
+	await expect(page.locator('.proof h2')).toBeInViewport();
+	// The page's own address is left alone: this is a jump, not a navigation.
+	expect(new URL(page.url()).hash).toBe('');
+});
+
+test('a link to a document in the folder opens it there', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(
+		browserName !== 'firefox',
+		'the input is the only way in from here',
+	);
+
+	const root = mkdtempSync(join(tmpdir(), 'linked-'));
+	writeFileSync(
+		join(root, 'start.md'),
+		'# Start\n\n[on](Deeper/next%20one.md)',
+	);
+	mkdirSync(join(root, 'Deeper'));
+	writeFileSync(join(root, 'Deeper', 'next one.md'), '# Next');
+	writeFileSync(join(root, 'plain.txt'), '# not a heading');
+
+	await editor(page);
+	await page.locator('input[webkitdirectory]').setInputFiles(root);
+	await page.getByRole('button', { name: 'start.md' }).click();
+	await page.locator('.proof a').click();
+
+	await expect(page.locator('.sheet pre')).toHaveText('# Next');
+	await expect(page.locator('.proof h1')).toHaveText('Next');
+
+	// Not Markdown, so nothing is set and nothing is outlined.
+	await page.getByRole('button', { name: 'plain.txt' }).click();
+	await expect(page.locator('.proof')).toContainText(
+		'Only a Markdown document',
+	);
+	await expect(page.locator('#outline')).toContainText(
+		'Only a Markdown document has an outline.',
+	);
 });

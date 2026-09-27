@@ -1,14 +1,9 @@
 <script lang="ts">
 	/*
-	 * THE TEXT EDITOR, and this is its FURNITURE and nothing else yet. Every
-	 * thing in the three regions below is standing in for something real: the
-	 * workspace lists names that are not files, the sheet holds text nobody
-	 * typed, and the outline points at headings it did not find.
-	 *
-	 * It is built in this order on purpose. The hard parts — an editor, a
-	 * backing store, a renderer — each want to know where they will live before
-	 * they are written, and a shape agreed on with real furniture in it is a
-	 * cheaper thing to change than one agreed on after an editor is in it.
+	 * THE TEXT EDITOR, with vscode.dev as the reference for what is underneath,
+	 * so it behaves as somebody who knows VS Code expects. The workspace, the
+	 * proof and the outline are real; the sheet is still a textarea, standing in
+	 * for Monaco, which is VS Code's own editor and the one planned for it.
 	 *
 	 * Nothing here is imported from the first site's editor. That one is worth
 	 * reading and is not worth copying: its answers were reached against a
@@ -32,6 +27,7 @@
 	import { canPickFolder, folder } from '$lib/folder.svelte';
 	import { outline as outlinePanel, workspace } from '$lib/panel.svelte';
 	import { view } from '$lib/view.svelte';
+	import { isMarkdown, set } from '$lib/markdown';
 	import { name as scratchName, PERMANENT, scratch } from '$lib/scratch.svelte';
 
 	/*
@@ -150,15 +146,103 @@
 		}
 	}
 
-	// Standing in for the outline a parser will find. Depth is here from the
-	// start because a flat list of headings is a different component.
-	const OUTLINE = [
-		{ text: 'The Curriculum', depth: 1 },
-		{ text: 'A Foreword', depth: 2 },
-		{ text: 'The Year is 2172', depth: 2 },
-		{ text: 'The Wand is It', depth: 3 },
-		{ text: 'The Path You Choose', depth: 2 },
-	];
+	/* The words on the desk, whichever kind of thing is open, or null for none. */
+	const source = $derived(
+		openScratch !== null
+			? scratch.text(openScratch)
+			: folder.fetching
+				? null
+				: folder.openText,
+	);
+
+	/* A scratch note is taken as Markdown, since this is a Markdown editor; a
+	 * file only if its name says so, as VS Code decides. */
+	const markdown = $derived(
+		openScratch !== null || (open.kind === 'file' && isMarkdown(open.path)),
+	);
+
+	const setting = $derived(source !== null && markdown ? set(source) : null);
+
+	/* The shallowest heading stands at the edge, so a document with no H1 does
+	 * not open indented. */
+	const shallowest = $derived(
+		Math.min(...(setting?.headings.map((heading) => heading.depth) ?? [1])),
+	);
+
+	let sheetText = $state<HTMLTextAreaElement | null>(null);
+	let proof = $state<HTMLElement | null>(null);
+
+	/*
+	 * GO TO A LINE: the caret to it on the sheet and the proof scrolled to it,
+	 * whichever of the two is showing. The offset is counted in the textarea's
+	 * own value and not the source, because a textarea turns CRLF into LF and
+	 * the file may not have.
+	 */
+	function goTo(line: number) {
+		if (sheetText) {
+			const offset = sheetText.value
+				.split('\n')
+				.slice(0, line)
+				.reduce((sum, text) => sum + text.length + 1, 0);
+			sheetText.focus();
+			sheetText.setSelectionRange(offset, offset);
+			sheetText.scrollTop = lineTop(sheetText, offset);
+		}
+		proof
+			?.querySelector(`[data-line="${line}"]`)
+			?.scrollIntoView({ block: 'start' });
+	}
+
+	/*
+	 * HOW FAR DOWN A TEXTAREA A LINE BEGINS, wrapping and all. Firefox scrolls
+	 * to a caret it was handed and Chromium does not, so this asks a copy of the
+	 * same width holding only the lines above, and reads its height.
+	 */
+	function lineTop(area: HTMLTextAreaElement, offset: number) {
+		if (offset === 0) return 0;
+		const copy = area.cloneNode() as HTMLTextAreaElement;
+		copy.value = area.value.slice(0, offset - 1);
+		Object.assign(copy.style, {
+			position: 'absolute',
+			visibility: 'hidden',
+			inlineSize: `${area.clientWidth}px`,
+			blockSize: '0',
+			minBlockSize: '0',
+			paddingBlock: '0',
+			// No scrollbar of its own, which would narrow the lines it is measuring.
+			overflow: 'hidden',
+		});
+		// Not `after`, which the Worker's HTMLRewriter types claim for themselves.
+		area.parentNode?.insertBefore(copy, area.nextSibling);
+		const top = copy.scrollHeight;
+		copy.remove();
+		return top;
+	}
+
+	/*
+	 * A LINK IN THE PROOF. Out of the site it opens beside the editor — see
+	 * $lib/markdown. Within the document it goes to the heading. Anything else is
+	 * a path in this workspace, and opens here as it would in VS Code; a scratch
+	 * note is in no folder, so its relative links have nowhere to go.
+	 */
+	function follow(event: MouseEvent) {
+		const link = (event.target as Element).closest('a');
+		const href = link?.getAttribute('href');
+		if (!href || /^[a-z][a-z\d+.-]*:/i.test(href)) return;
+		event.preventDefault();
+
+		if (href.startsWith('#')) {
+			const id = decodeURIComponent(href.slice(1)).toLowerCase();
+			const heading = setting?.headings.find((one) => one.id === id);
+			if (heading) goTo(heading.line);
+			return;
+		}
+
+		if (open.kind !== 'file') return;
+		const dir = open.path.slice(0, open.path.lastIndexOf('/') + 1);
+		const url = new URL(href, `file:///${encodeURI(dir)}`);
+		void openFile(decodeURIComponent(url.pathname.slice(1)));
+	}
 </script>
 
 <Seo
@@ -547,6 +631,7 @@
 						{#if openScratch !== null}
 							<div class="sheet">
 								<textarea
+									bind:this={sheetText}
 									class="column"
 									aria-label="{scratchName(openScratch)}, the document"
 									placeholder="Type something."
@@ -578,6 +663,7 @@
 						-->
 							<div class="sheet">
 								<textarea
+									bind:this={sheetText}
 									class="column"
 									aria-label="{open.kind === 'file'
 										? open.path
@@ -606,25 +692,34 @@
 					{/if}
 
 					{#if view.current !== 'edit'}
-						<div class="proof" aria-label="The document, set">
-							{#if openScratch !== null}
-								<!--
-								NOTHING SETS A DOCUMENT YET. The proof says so rather than
-								showing the source in prose type, which is what a broken
-								renderer looks like — and a placeholder that looks like a
-								bug is worse than one that says what it is.
-							-->
+						<!--
+						The clicks listened for are the links' own, and Enter on a focused
+						link already fires one; there is no key handling to add.
+					-->
+						<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+						<div
+							bind:this={proof}
+							class="proof"
+							aria-label="The document, set"
+							onclick={follow}
+						>
+							{#if openScratch === null && folder.fetching}
+								<Placeholder
+									shape="lines"
+									label="Reading the document."
+									widths={[40, 0, 92, 88, 95, 60, 0, 85, 90]}
+								/>
+							{:else if setting && source?.trim()}
+								<!-- Sanitised in $lib/markdown before it gets here. -->
+								<div class="markdown">{@html setting.html}</div>
+							{:else if setting}
+								<p class="pending">Nothing is written yet.</p>
+							{:else if source !== null}
 								<p class="pending">
-									There is no setting yet. What you type is on the sheet, and
-									kept.
+									Only a Markdown document is set here, and this one is not.
 								</p>
 							{:else}
-								<!-- Where the words stand with the disk is in the bar, where
-								every view can see it. -->
-								<p class="pending">
-									There is no setting yet. What is on the sheet is the document
-									as it is written.
-								</p>
+								<p class="pending">Nothing is open.</p>
 							{/if}
 						</div>
 					{/if}
@@ -651,17 +746,28 @@
 			-->
 			<section class="section">
 				<h2>Outline</h2>
-				<ol>
-					{#each OUTLINE as heading (heading.text)}
-						<li>
-							<button
-								type="button"
-								class="heading"
-								style="--depth: {heading.depth - 1}">{heading.text}</button
-							>
-						</li>
-					{/each}
-				</ol>
+				{#if setting?.headings.length}
+					<ol>
+						{#each setting.headings as heading (heading.id)}
+							<li>
+								<button
+									type="button"
+									class="heading"
+									style="--depth: {heading.depth - shallowest}"
+									onclick={() => goTo(heading.line)}>{heading.text}</button
+								>
+							</li>
+						{/each}
+					</ol>
+				{:else}
+					<p class="note">
+						{source === null
+							? 'Nothing is open.'
+							: markdown
+								? 'No headings in this document.'
+								: 'Only a Markdown document has an outline.'}
+					</p>
+				{/if}
 			</section>
 		</nav>
 	</div>
@@ -900,6 +1006,104 @@
 	.pending {
 		color: color-mix(in oklab, var(--fg) 60%, transparent);
 		font-size: var(--text-label1);
+	}
+
+	/*
+	 * THE DOCUMENT, SET. The elements come from markdown-it and not from this
+	 * file, so every rule reaches them through `:global` — scoped under
+	 * `.markdown`, which is. The site's own type and steps, so a document set
+	 * here reads as a page of this site and not as a second one inside it.
+	 */
+	.markdown {
+		font-size: var(--text-body1);
+		line-height: var(--leading-prose);
+		overflow-wrap: break-word;
+	}
+
+	.markdown > :global(* + *) {
+		margin-block-start: var(--space-12);
+	}
+
+	.markdown > :global(* + :is(h1, h2, h3, h4, h5, h6)) {
+		margin-block-start: var(--space-24);
+	}
+
+	.markdown :global(:is(h1, h2, h3, h4, h5, h6)) {
+		line-height: var(--leading-tight);
+		scroll-margin-block-start: var(--space-12);
+	}
+
+	.markdown :global(h1) {
+		font-size: var(--text-heading1);
+	}
+
+	.markdown :global(h2) {
+		font-size: var(--text-heading2);
+	}
+
+	.markdown :global(:is(h3, h4, h5, h6)) {
+		font-size: var(--text-body1);
+	}
+
+	.markdown :global(:is(ul, ol)) {
+		padding-inline-start: 1.5em;
+	}
+
+	.markdown :global(li + li),
+	.markdown :global(li > :is(ul, ol)) {
+		margin-block-start: var(--space-4);
+	}
+
+	.markdown :global(a) {
+		color: inherit;
+		text-underline-offset: 0.15em;
+	}
+
+	.markdown :global(blockquote) {
+		padding-inline-start: var(--space-12);
+		border-inline-start: 2px solid var(--frame);
+		color: color-mix(in oklab, var(--fg) 70%, transparent);
+	}
+
+	.markdown :global(hr) {
+		border: none;
+		border-block-start: 1px solid var(--frame);
+	}
+
+	.markdown :global(:is(code, pre)) {
+		font-family: ui-monospace, monospace;
+		font-size: 0.9em;
+	}
+
+	.markdown :global(:not(pre) > code) {
+		padding: 0.1em 0.3em;
+		border-radius: var(--radius-s);
+		background-color: var(--surface-hover);
+	}
+
+	/* A code block scrolls on its own rather than widening the column. */
+	.markdown :global(pre) {
+		overflow-x: auto;
+		padding: var(--space-12);
+		border-radius: var(--radius-m);
+		background-color: var(--surface-hover);
+		line-height: var(--leading-prose);
+	}
+
+	.markdown :global(table) {
+		display: block;
+		overflow-x: auto;
+		border-collapse: collapse;
+	}
+
+	.markdown :global(:is(th, td)) {
+		padding: var(--space-4) var(--space-8);
+		border: 1px solid var(--frame);
+		text-align: start;
+	}
+
+	.markdown :global(img) {
+		border-radius: var(--radius-m);
 	}
 
 	/*
