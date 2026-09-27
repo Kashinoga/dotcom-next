@@ -12,6 +12,7 @@
 import GithubSlugger from 'github-slugger';
 import DOMPurify from 'dompurify';
 import markdownit, { type StateBlock, type Token } from 'markdown-it';
+import type { HLJSApi } from 'highlight.js';
 
 export type Heading = {
 	text: string;
@@ -24,12 +25,27 @@ export type Heading = {
 
 export type Rendered = { html: string; headings: Heading[] };
 
+/*
+ * CODE IS COLOURED BY highlight.js, as VS Code's preview colours it. It is
+ * loaded only when a document has a fence that names a language — see the page
+ * — and handed in with each render; until then, and for a language it does not
+ * know, markdown-it escapes the code as it always does.
+ */
+let hljs: HLJSApi | null = null;
+
 const md = markdownit({
 	html: true,
 	linkify: true,
 	breaks: false,
 	typographer: false,
+	highlight: (code, lang) =>
+		lang && hljs?.getLanguage(lang)
+			? hljs.highlight(code, { language: lang, ignoreIllegals: true }).value
+			: '',
 });
+
+/* A fence that names a language: what makes highlight.js worth loading. */
+export const NAMED_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*[\w+#-]/m;
 
 // VS Code's own setting: `example.com` stays text, `https://example.com` links.
 md.linkify.set({ fuzzyLink: false });
@@ -123,7 +139,11 @@ if (typeof window !== 'undefined') {
 	});
 }
 
-export function set(source: string): Rendered {
+export function set(
+	source: string,
+	highlighter: HLJSApi | null = null,
+): Rendered {
+	hljs = highlighter;
 	const env = {};
 	const tokens = md.parse(source, env);
 	const slugger = new GithubSlugger();

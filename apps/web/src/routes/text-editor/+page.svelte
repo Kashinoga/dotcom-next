@@ -34,7 +34,8 @@
 	} from '$lib/folder.svelte';
 	import { outline as outlinePanel, workspace } from '$lib/panel.svelte';
 	import { view } from '$lib/view.svelte';
-	import { isMarkdown, set } from '$lib/markdown';
+	import { isMarkdown, NAMED_FENCE, set } from '$lib/markdown';
+	import type { HLJSApi } from 'highlight.js';
 	import { name as scratchName, PERMANENT, scratch } from '$lib/scratch.svelte';
 	import { dirOf, type Row } from '$lib/workspace';
 	import { tick } from 'svelte';
@@ -170,7 +171,26 @@
 		openScratch !== null || (open.kind === 'file' && isMarkdown(open.path)),
 	);
 
-	const setting = $derived(source !== null && markdown ? set(source) : null);
+	/*
+	 * highlight.js, fetched the first time a document names a language on a
+	 * fence and kept after. `common` and not every language: the forty or so
+	 * people write, at a fraction of the weight. Its arrival sets the document
+	 * again, coloured.
+	 */
+	let highlighter = $state.raw<HLJSApi | null>(null);
+
+	$effect(() => {
+		if (highlighter || !markdown || !source || !NAMED_FENCE.test(source)) {
+			return;
+		}
+		void import('highlight.js/lib/common').then(
+			(loaded) => (highlighter = loaded.default),
+		);
+	});
+
+	const setting = $derived(
+		source !== null && markdown ? set(source, highlighter) : null,
+	);
 
 	/* The shallowest heading stands at the edge, so a document with no H1 does
 	 * not open indented. */
@@ -1797,6 +1817,192 @@
 
 	.markdown :global(img) {
 		border-radius: var(--radius-m);
+	}
+
+	/*
+	 * CODE IN COLOUR, VS Code's own: the preview's highlight.css, which is
+	 * highlight.js's `vs` in light and `vs2015` in dark. The only colour on the
+	 * site besides the accent, and only inside a fence that asked for it.
+	 *
+	 * One custom property per class, so dark is a second set of values and not
+	 * a second set of rules; the two selectors for dark are the ones app.css
+	 * uses, since this page follows the display mode and not only the machine.
+	 */
+	.markdown {
+		--hl-keyword: #00f;
+		--hl-literal: #a31515;
+		--hl-symbol: #00b0e8;
+		--hl-built-in: #007acc;
+		--hl-type: #a31515;
+		--hl-number: #008000;
+		--hl-string: #a31515;
+		--hl-regexp: inherit;
+		--hl-template-tag: #a31515;
+		--hl-subst: #2b91af;
+		--hl-function: inherit;
+		--hl-title: #808080;
+		--hl-comment: #008000;
+		--hl-doctag: #808080;
+		--hl-meta: #2b91af;
+		--hl-tag: #00f;
+		--hl-variable: #008000;
+		--hl-template-variable: #a31515;
+		--hl-attr: #f00;
+		--hl-attribute: #a31515;
+		--hl-section: #a31515;
+		--hl-bullet: #00b0e8;
+		--hl-selector-tag: #00f;
+		--hl-selector: inherit;
+		--hl-selector-attr: #2b91af;
+	}
+
+	@media (prefers-color-scheme: dark) {
+		:global(:root:not([data-mode='light'])) .markdown {
+			--hl-keyword: #569cd6;
+			--hl-literal: #569cd6;
+			--hl-symbol: #569cd6;
+			--hl-built-in: #4ec9b0;
+			--hl-type: #4ec9b0;
+			--hl-number: #b8d7a3;
+			--hl-string: #d69d85;
+			--hl-regexp: #9a5334;
+			--hl-template-tag: #9a5334;
+			--hl-subst: #dcdcdc;
+			--hl-function: #dcdcdc;
+			--hl-title: #dcdcdc;
+			--hl-comment: #57a64a;
+			--hl-doctag: #608b4e;
+			--hl-meta: #9b9b9b;
+			--hl-tag: #9b9b9b;
+			--hl-variable: #bd63c5;
+			--hl-template-variable: #bd63c5;
+			--hl-attr: #9cdcfe;
+			--hl-attribute: #9cdcfe;
+			--hl-section: gold;
+			--hl-bullet: #d7ba7d;
+			--hl-selector-tag: #d7ba7d;
+			--hl-selector: #d7ba7d;
+			--hl-selector-attr: #d7ba7d;
+		}
+	}
+
+	:global(:root[data-mode='dark']) .markdown {
+		--hl-keyword: #569cd6;
+		--hl-literal: #569cd6;
+		--hl-symbol: #569cd6;
+		--hl-built-in: #4ec9b0;
+		--hl-type: #4ec9b0;
+		--hl-number: #b8d7a3;
+		--hl-string: #d69d85;
+		--hl-regexp: #9a5334;
+		--hl-template-tag: #9a5334;
+		--hl-subst: #dcdcdc;
+		--hl-function: #dcdcdc;
+		--hl-title: #dcdcdc;
+		--hl-comment: #57a64a;
+		--hl-doctag: #608b4e;
+		--hl-meta: #9b9b9b;
+		--hl-tag: #9b9b9b;
+		--hl-variable: #bd63c5;
+		--hl-template-variable: #bd63c5;
+		--hl-attr: #9cdcfe;
+		--hl-attribute: #9cdcfe;
+		--hl-section: gold;
+		--hl-bullet: #d7ba7d;
+		--hl-selector-tag: #d7ba7d;
+		--hl-selector: #d7ba7d;
+		--hl-selector-attr: #d7ba7d;
+	}
+
+	.markdown :global(:is(.hljs-keyword, .hljs-name)) {
+		color: var(--hl-keyword);
+	}
+	.markdown :global(.hljs-literal) {
+		color: var(--hl-literal);
+	}
+	.markdown :global(:is(.hljs-symbol, .hljs-link)) {
+		color: var(--hl-symbol);
+	}
+	.markdown :global(.hljs-built_in) {
+		color: var(--hl-built-in);
+	}
+	.markdown :global(.hljs-type) {
+		color: var(--hl-type);
+	}
+	.markdown :global(:is(.hljs-number, .hljs-class)) {
+		color: var(--hl-number);
+	}
+	.markdown :global(.hljs-string) {
+		color: var(--hl-string);
+	}
+	.markdown :global(.hljs-regexp) {
+		color: var(--hl-regexp);
+	}
+	.markdown :global(.hljs-template-tag) {
+		color: var(--hl-template-tag);
+	}
+	.markdown :global(.hljs-subst) {
+		color: var(--hl-subst);
+	}
+	.markdown :global(:is(.hljs-function, .hljs-params, .hljs-formula)) {
+		color: var(--hl-function);
+	}
+	.markdown :global(.hljs-title) {
+		color: var(--hl-title);
+	}
+	.markdown :global(:is(.hljs-comment, .hljs-quote)) {
+		color: var(--hl-comment);
+		font-style: italic;
+	}
+	.markdown :global(.hljs-doctag) {
+		color: var(--hl-doctag);
+	}
+	.markdown :global(.hljs-meta) {
+		color: var(--hl-meta);
+	}
+	.markdown :global(.hljs-tag) {
+		color: var(--hl-tag);
+	}
+	.markdown :global(.hljs-variable) {
+		color: var(--hl-variable);
+	}
+	.markdown :global(.hljs-template-variable) {
+		color: var(--hl-template-variable);
+	}
+	.markdown :global(.hljs-attr) {
+		color: var(--hl-attr);
+	}
+	.markdown :global(.hljs-attribute) {
+		color: var(--hl-attribute);
+	}
+	.markdown :global(.hljs-section) {
+		color: var(--hl-section);
+	}
+	.markdown :global(.hljs-bullet) {
+		color: var(--hl-bullet);
+	}
+	.markdown :global(.hljs-selector-tag) {
+		color: var(--hl-selector-tag);
+	}
+	.markdown :global(:is(.hljs-selector-id, .hljs-selector-class)) {
+		color: var(--hl-selector);
+	}
+	.markdown :global(:is(.hljs-selector-attr, .hljs-selector-pseudo)) {
+		color: var(--hl-selector-attr);
+	}
+	.markdown :global(.hljs-emphasis) {
+		font-style: italic;
+	}
+	.markdown :global(.hljs-strong) {
+		font-weight: bold;
+	}
+	.markdown :global(.hljs-addition) {
+		color: rgb(155 185 85);
+		background-color: rgb(155 185 85 / 20%);
+	}
+	.markdown :global(.hljs-deletion) {
+		color: rgb(255 0 0);
+		background-color: rgb(255 0 0 / 20%);
 	}
 
 	/*

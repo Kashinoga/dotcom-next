@@ -2977,3 +2977,35 @@ test('a file this editor cannot open can still be deleted', async ({
 	await expect(row).toHaveCount(0);
 	expect(await atPath(page, 'pic.png')).toBe(null);
 });
+
+/*
+ * CODE IN COLOUR, VS Code's own, and only once a fence names a language: a
+ * document without one never fetches highlight.js at all.
+ */
+test('a fence that names a language is coloured as VS Code colours it', async ({
+	page,
+}) => {
+	const fetched: string[] = [];
+	page.on('request', (request) => {
+		if (request.url().includes('highlight')) fetched.push(request.url());
+	});
+
+	await editor(page);
+	const sheet = page.locator('.sheet textarea');
+	await sheet.fill('```\nplain\n```');
+	await expect(page.locator('.proof pre')).toHaveText('plain');
+	expect(fetched).toEqual([]);
+
+	await sheet.fill('```js\nconst wand = "it"; // kept\n```');
+	const keyword = page.locator('.proof .hljs-keyword');
+	await expect(keyword).toHaveText('const');
+	// The light theme's keyword, #00f, from VS Code's highlight.css.
+	await expect(keyword).toHaveCSS('color', 'rgb(0, 0, 255)');
+	await expect(page.locator('.proof .hljs-comment')).toHaveCSS(
+		'font-style',
+		'italic',
+	);
+	// And vs2015's in dark.
+	await page.emulateMedia({ colorScheme: 'dark' });
+	await expect(keyword).toHaveCSS('color', 'rgb(86, 156, 214)');
+});
