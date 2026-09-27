@@ -7,6 +7,7 @@
 	import { onMount } from 'svelte';
 
 	import { displayMode } from '$lib/display-mode.svelte';
+	import type { Keys } from '$lib/shortcuts';
 	import Placeholder from './Placeholder.svelte';
 
 	type Loaded = typeof import('$lib/monaco');
@@ -19,6 +20,8 @@
 		label,
 		readOnly = false,
 		placeholder = '',
+		wrap = true,
+		actions = [],
 		oninput,
 	}: {
 		/* Which document: a model is kept per key, and its undo history with it. */
@@ -28,6 +31,14 @@
 		label: string;
 		readOnly?: boolean;
 		placeholder?: string;
+		/* Soft wrap, which Alt+Z turns off and on. */
+		wrap?: boolean;
+		/*
+		 * THE WINDOW'S KEYS, given to Monaco as its own actions: its keys would
+		 * otherwise take them first while the caret is in it, and this way they
+		 * are listed in its F1 palette with their keys, as VS Code lists them.
+		 */
+		actions?: { id: string; label: string; keys: Keys; run: () => void }[];
 		oninput?: (value: string) => void;
 	} = $props();
 
@@ -60,9 +71,17 @@
 					Number.parseFloat(style.lineHeight) /
 					Number.parseFloat(style.fontSize),
 				// VS Code's own defaults for Markdown: wrapped, and no suggestions.
-				wordWrap: 'on',
+				wordWrap: wrap ? 'on' : 'off',
 				quickSuggestions: false,
 			});
+			for (const action of actions) {
+				made.addAction({
+					id: action.id,
+					label: action.label,
+					keybindings: module.keybindings(action.keys),
+					run: action.run,
+				});
+			}
 			made.onDidChangeModelContent(() => {
 				if (!quiet) oninput?.(made.getValue());
 			});
@@ -91,7 +110,12 @@
 	});
 
 	$effect(() => {
-		editor?.updateOptions({ readOnly, ariaLabel: label, placeholder });
+		editor?.updateOptions({
+			readOnly,
+			ariaLabel: label,
+			placeholder,
+			wordWrap: wrap ? 'on' : 'off',
+		});
 	});
 
 	/* The display mode, followed. A frame late, so the page's own colours have

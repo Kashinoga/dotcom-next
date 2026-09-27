@@ -26,6 +26,14 @@
 	import { bar, type BarStatus } from '$lib/bar.svelte';
 	import ConnectDrive from '$lib/components/ConnectDrive.svelte';
 	import MonacoSheet from '$lib/components/MonacoSheet.svelte';
+	import QuickOpen, { type Item } from '$lib/components/QuickOpen.svelte';
+	import {
+		pressed,
+		SHORTCUTS,
+		type Shortcut,
+		type ShortcutId,
+		type Stroke,
+	} from '$lib/shortcuts';
 	import Placeholder from '$lib/components/Placeholder.svelte';
 	import Seo from '$lib/components/Seo.svelte';
 	import {
@@ -40,7 +48,7 @@
 	import type { HLJSApi } from 'highlight.js';
 	import { name as scratchName, PERMANENT, scratch } from '$lib/scratch.svelte';
 	import { dirOf, type Row } from '$lib/workspace';
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 
 	/*
@@ -482,34 +490,15 @@
 		}
 	}
 
-	/*
-	 * VS Code's keys on a row: F2, Delete (⌘⌫ on a Mac), cut, copy and paste,
-	 * and Ctrl+K Ctrl+Shift+C for the relative path — a chord, so the first half
-	 * is held until the next key says whether it was one.
-	 */
-	let chord = false;
-
+	/* VS Code's keys on a row: F2, Delete (⌘⌫ on a Mac), cut, copy and paste.
+	 * The chord for its path is the page's — see `pageKeys`. */
 	function rowKeys(event: KeyboardEvent, row: Row) {
-		// A modifier pressed on its own is the start of a key, not a key: it must
-		// not end a chord that is waiting for Ctrl+Shift+C.
-		if (['Control', 'Shift', 'Alt', 'Meta'].includes(event.key)) return;
-		const mod = event.ctrlKey || event.metaKey;
+		// Ctrl alone: Ctrl+Shift+C is the second half of a chord, not a copy.
+		const mod =
+			(event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey;
 		const key = event.key.toLowerCase();
-		const chorded = chord;
-		chord = false;
 
-		if (chorded && mod && event.shiftKey && key === 'c') {
-			event.preventDefault();
-			void copyPath(row);
-			return;
-		}
-		if (mod && key === 'k') {
-			event.preventDefault();
-			chord = true;
-			return;
-		}
-
-		// Everything below changes the folder, which a snapshot cannot be.
+		// Every one of these changes the folder, which a snapshot cannot be.
 		if (!folder.writable) return;
 		if (event.key === 'F2') {
 			event.preventDefault();
@@ -599,13 +588,137 @@
 
 	/* The path from the top of the folder, with forward slashes: the only path a
 	 * browser knows for a folder handed to it, and all a WebDAV drive has. */
-	async function copyPath(row: Row) {
+	async function copyPath(row: { path: string }) {
 		try {
 			await navigator.clipboard.writeText(row.path);
 		} catch {
 			notice = 'The path could not be copied.';
 		}
 	}
+
+	/*
+	 * VS CODE'S KEYS FOR THE WINDOW — see $lib/shortcuts for which and why. The
+	 * sheet hands them to Monaco, which answers them while the caret is in it;
+	 * everywhere else on the page this does.
+	 */
+	let wrap = $state(true);
+	let quick = $state<QuickOpen | null>(null);
+
+	const commands: Record<ShortcutId, () => void> = {
+		wordWrap: () => (wrap = !wrap),
+		togglePreview: () =>
+			view.show(view.current === 'preview' ? 'edit' : 'preview'),
+		previewToSide: () => view.show('split'),
+		sideBar: () => workspace.toggle(),
+		secondarySideBar: () => outlinePanel.toggle(),
+		explorer: () => void showExplorer(),
+		// A scratch note is kept as it is typed; there is nothing to save.
+		save: () => void folder.saveNow(),
+		quickOpen: () => void quick?.show(),
+		newFile: () => (open = { kind: 'scratch', id: scratch.open() }),
+		copyRelativePath: () => {
+			const row = (
+				document.activeElement as HTMLElement | null
+			)?.closest<HTMLElement>('[data-path]');
+			const path =
+				row?.dataset.path ?? (open.kind === 'file' ? open.path : null);
+			if (path) void copyPath({ path });
+		},
+	};
+
+	const actions: (Shortcut & { run: () => void })[] = (
+		Object.keys(SHORTCUTS) as ShortcutId[]
+	).map((id) => ({
+		...SHORTCUTS[id],
+		run: commands[id],
+	}));
+
+	/* The first half of a chord — Ctrl+K — while the second is awaited. */
+	let chordStart: Stroke | null = null;
+
+	function pageKeys(event: KeyboardEvent) {
+		// A modifier on its own is the start of a key, and must not end a chord.
+		if (['Control', 'Shift', 'Alt', 'Meta'].includes(event.key)) return;
+		const first = chordStart;
+		chordStart = null;
+		if (event.defaultPrevented) return;
+		// Monaco has these as its own actions, and answers them itself.
+		if ((event.target as Element | null)?.closest?.('.monaco-editor')) return;
+
+		for (const action of actions) {
+			for (const key of action.keys) {
+				const hit = Array.isArray(key)
+					? first !== null && first === key[0] && pressed(event, key[1])
+					: first === null && pressed(event, key);
+				if (!hit) continue;
+				event.preventDefault();
+				action.run();
+				return;
+			}
+		}
+
+		// The start of a chord: held, and nothing else done with it.
+		const starts = actions.flatMap((action) =>
+			action.keys
+				.filter((key): key is [Stroke, Stroke] => Array.isArray(key))
+				.map((chord) => chord[0]),
+		);
+		const start =
+			first === null && starts.find((stroke) => pressed(event, stroke));
+		if (start) {
+			event.preventDefault();
+			chordStart = start;
+		}
+	}
+
+	/* Ctrl+Shift+E: the files, and the focus on the open one, or the first. */
+	async function showExplorer() {
+		if (!workspace.open) workspace.toggle();
+		await tick();
+		// One after the other: a list of selectors answers in page order, not in
+		// the order it was written, and the first row would win over the open one.
+		const at = (selector: string) =>
+			document.querySelector<HTMLElement>(`#workspace ${selector}`);
+		(at('[aria-current="true"]') ?? at('.file'))?.focus();
+	}
+
+	/*
+	 * GO TO FILE'S LIST: the scratch notes and every document the folder can
+	 * open, those opened lately first, as VS Code puts them.
+	 */
+	let recent = $state<string[]>([]);
+
+	$effect(() => {
+		const key =
+			open.kind === 'file' ? `file:${open.path}` : `scratch:${open.id}`;
+		// Read without being followed, or writing it would run this again.
+		const before = untrack(() => recent);
+		recent = [key, ...before.filter((one) => one !== key)].slice(0, 20);
+	});
+
+	const quickItems = $derived.by(() => {
+		const all: Item[] = [
+			...scratch.notes.map((note) => ({
+				key: `scratch:${note.id}`,
+				label: scratchName(note.id),
+				detail: 'Scratch',
+				run: () => (open = { kind: 'scratch' as const, id: note.id }),
+			})),
+			...folder.files
+				.filter((file) => file.openable !== false)
+				.map((file) => ({
+					key: `file:${file.path}`,
+					label: file.name,
+					detail: dirOf(file.path) || (folder.name ?? ''),
+					run: () => void openFile(file.path),
+				})),
+		];
+		const at = (key: string) => {
+			const i = recent.indexOf(key);
+			return i < 0 ? recent.length : i;
+		};
+		return all.sort((a, b) => at(a.key) - at(b.key));
+	});
 
 	/* The open document, and the focus, go where the row went. */
 	function followMove(from: string, to: string) {
@@ -868,7 +981,9 @@
 />
 
 <svelte:document onvisibilitychange={onHidden} />
-<svelte:window onbeforeunload={onLeave} />
+<svelte:window onbeforeunload={onLeave} onkeydown={pageKeys} />
+
+<QuickOpen bind:this={quick} items={quickItems} />
 
 <!--
 	NO LETTER HERE, AND NO MASTHEAD. Every other page on this site is a letter —
@@ -1154,6 +1269,7 @@
 											style="--depth: {row.depth}"
 											aria-expanded={!folder.isClosed(row.path)}
 											title={row.path}
+											data-path={row.path}
 											draggable={folder.writable}
 											onclick={() => {
 												chosen = row;
@@ -1203,6 +1319,7 @@
 											: undefined}
 										aria-disabled={row.openable ? undefined : 'true'}
 										title={row.path}
+										data-path={row.path}
 										onclick={() => {
 											chosen = row;
 											if (row.openable) void openFile(row.path);
@@ -1477,6 +1594,8 @@
 										: scratchName(open.id)}, the document"
 									readOnly={open.kind === 'file' && !folder.writable}
 									placeholder={open.kind === 'scratch' ? 'Type something.' : ''}
+									{wrap}
+									{actions}
 									oninput={(words) =>
 										open.kind === 'scratch'
 											? scratch.write(open.id, words)
@@ -1493,6 +1612,7 @@
 								<textarea
 									bind:this={sheetText}
 									class="column"
+									wrap={wrap ? 'soft' : 'off'}
 									aria-label="{scratchName(openScratch)}, the document"
 									placeholder="Type something."
 									value={scratch.text(openScratch)}
@@ -1525,6 +1645,7 @@
 								<textarea
 									bind:this={sheetText}
 									class="column"
+									wrap={wrap ? 'soft' : 'off'}
 									aria-label="{open.kind === 'file'
 										? open.path
 										: 'The document'}, the document"
@@ -1828,6 +1949,12 @@
 	 * the window's — a drag handle offering to change it would be offering
 	 * something the layout takes straight back.
 	 */
+	/* Alt+Z off: long lines run on, and the sheet scrolls sideways to them. */
+	.sheet textarea[wrap='off'] {
+		white-space: pre;
+		overflow-x: auto;
+	}
+
 	.sheet textarea {
 		resize: none;
 		/* The pane above draws the box and the colour; this gives up everything the

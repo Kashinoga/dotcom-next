@@ -622,6 +622,25 @@ export const folder = {
 	 * page, and for anything that has to know the disk is current. */
 	flush,
 
+	/* Ctrl+S: out now, and again if the last write failed, as VS Code tries a
+	 * failed save again when asked to save. */
+	saveNow() {
+		if (
+			!pending &&
+			save === 'trouble' &&
+			openPath !== null &&
+			openText !== null
+		) {
+			pending = { path: openPath, body: openText };
+		}
+		return flush();
+	},
+
+	/* Every document listed, folded away or not: what Go to File searches. */
+	get files() {
+		return listing.files;
+	},
+
 	/* A file's bytes, for a picture in the proof. */
 	picture(path: string) {
 		return store ? store.picture(path) : Promise.resolve(null);

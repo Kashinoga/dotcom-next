@@ -3297,3 +3297,122 @@ test('Copy Relative Path puts the path on the clipboard', async ({
 		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
 		.toBe('Sub/one.md');
 });
+
+/*
+ * VS CODE'S KEYS FOR THE WINDOW, each asked twice where it matters: with the
+ * caret in Monaco, which has them as its own actions, and from anywhere else
+ * on the page, which answers them itself.
+ */
+const newNoteKeys =
+	process.platform === 'win32'
+		? ['Control+k', 'n']
+		: [process.platform === 'darwin' ? 'Meta+Alt+n' : 'Control+Alt+n'];
+
+test('Alt+Z turns wrapping off and on, from the sheet or anywhere', async ({
+	page,
+}) => {
+	await editor(page);
+	await write(page, 'word '.repeat(200).trim());
+	const lines = page.locator('.sheet .view-line');
+	await expect.poll(() => lines.count()).toBeGreaterThan(1);
+
+	await page.keyboard.press('Alt+z');
+	await expect(lines).toHaveCount(1);
+
+	await page.getByRole('button', { name: 'Ephemeral 0' }).focus();
+	await page.keyboard.press('Alt+z');
+	await expect.poll(() => lines.count()).toBeGreaterThan(1);
+});
+
+test('the preview and panel keys are VS Code’s', async ({ page }) => {
+	await editor(page);
+	await write(page, '# Keys');
+	const pressedView = (name: string) =>
+		expect(page.getByRole('button', { name, exact: true })).toHaveAttribute(
+			'aria-pressed',
+			'true',
+		);
+
+	// From the sheet.
+	await page.keyboard.press('Control+Shift+v');
+	await pressedView('Preview');
+	// And from the page, since the sheet is gone in Preview.
+	await page.keyboard.press('Control+Shift+v');
+	await pressedView('Edit');
+	await page.keyboard.press('Control+k');
+	await page.keyboard.press('v');
+	await pressedView('Split');
+
+	await page.keyboard.press('Control+b');
+	await expect(page.locator('#workspace')).toBeHidden();
+	await page.keyboard.press('Control+b');
+	await expect(page.locator('#workspace')).toBeVisible();
+	await page.keyboard.press('Control+Alt+b');
+	await expect(page.locator('#outline')).toBeHidden();
+});
+
+test('a new untitled note from vscode.dev’s key', async ({ page }) => {
+	await editor(page);
+	await page.getByRole('button', { name: 'Ephemeral 0' }).focus();
+	for (const key of newNoteKeys) await page.keyboard.press(key);
+	await expect(
+		page.getByRole('button', { name: 'Ephemeral 1' }),
+	).toHaveAttribute('aria-current', 'true');
+});
+
+test('Ctrl+Shift+O lists the headings, and sections fold', async ({ page }) => {
+	await editor(page);
+	await write(page, '# One\n\nWords.\n\n## Two\n\n```js\nconst a = 1;\n```');
+
+	// Folding: a section under each heading, and the block of code.
+	await expect(page.locator('.sheet .codicon-folding-expanded')).toHaveCount(3);
+
+	await page.keyboard.press('Control+Shift+o');
+	const picker = page.locator('.sheet .quick-input-widget');
+	await expect(picker).toBeVisible();
+	await expect(picker).toContainText('# One');
+	await expect(picker).toContainText('## Two');
+});
+
+test('Ctrl+P goes to a file, the latest first', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await writableFolder(page, { 'one.md': 'first', 'two.md': 'second' });
+	await page.getByRole('button', { name: 'one.md' }).click();
+
+	await page.keyboard.press('Control+p');
+	const search = page.getByRole('combobox', { name: 'Search files by name' });
+	await expect(search).toBeFocused();
+	// Nothing typed: what was opened last leads.
+	await expect(page.getByRole('option').first()).toContainText('one.md');
+
+	await search.fill('tw');
+	await expect(page.getByRole('option')).toHaveCount(1);
+	await search.press('Enter');
+	await expect(page.getByRole('button', { name: 'two.md' })).toHaveAttribute(
+		'aria-current',
+		'true',
+	);
+	await expect.poll(() => words(page)).toBe('second');
+});
+
+test('Ctrl+S saves at once, and Ctrl+Shift+E finds the file', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await writableFolder(page, { 'one.md': 'first' });
+	await page.getByRole('button', { name: 'one.md' }).click();
+	await freeze(page);
+	await write(page, 'saved');
+
+	await page.keyboard.press('Control+s');
+	await expect.poll(() => atPath(page, 'one.md')).toBe('saved');
+
+	await page.keyboard.press('Control+Shift+e');
+	await expect(page.getByRole('button', { name: 'one.md' })).toBeFocused();
+});

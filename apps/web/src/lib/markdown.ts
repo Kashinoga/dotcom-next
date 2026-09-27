@@ -168,6 +168,35 @@ export function set(
 	};
 }
 
+/*
+ * THE SHAPE OF A DOCUMENT WITHOUT SETTING IT: its headings, and the blocks of
+ * code it holds as [first line, last line]. What Monaco is given for Go to
+ * Symbol and for folding, which VS Code's Markdown extension gives it there.
+ * The same parse as the proof's, so the two cannot disagree about a heading.
+ */
+export function structure(source: string) {
+	const tokens = md.parse(source, {});
+	const slugger = new GithubSlugger();
+	const headings: Heading[] = [];
+	const fences: [number, number][] = [];
+
+	tokens.forEach((token, i) => {
+		if (!token.map) return;
+		if (token.type === 'heading_open') {
+			const text = plain(tokens[i + 1]);
+			headings.push({
+				text,
+				depth: Number(token.tag.slice(1)),
+				line: token.map[0],
+				id: slugger.slug(text),
+			});
+		} else if (token.type === 'fence' || token.type === 'code_block') {
+			fences.push([token.map[0], token.map[1] - 1]);
+		}
+	});
+	return { headings, fences };
+}
+
 /* What VS Code opens in its Markdown preview. Anything else has nothing to set. */
 export function isMarkdown(path: string) {
 	return /\.(md|markdown|mdown|mkd|mkdn|mdwn)$/i.test(path);

@@ -10,10 +10,98 @@ import 'monaco-editor/features/register.all';
 import 'monaco-editor/languages/definitions/markdown/register';
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
 
+import { structure } from '$lib/markdown';
+import type { Keys, Stroke } from '$lib/shortcuts';
+
 /* One worker, the editor's own. There is no language service to need another. */
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 
 export { monaco };
+
+/*
+ * WHAT VS CODE'S MARKDOWN EXTENSION GIVES THE EDITOR, and Monaco on its own
+ * has nothing for: the headings as symbols, for Go to Symbol (Ctrl+Shift+O)
+ * and the heading that sticks while scrolling; and a heading's section, or a
+ * block of code, as something to fold. From the proof's own parse.
+ *
+ * A section runs to the line before the next heading at its depth or above,
+ * less the blank lines before it, so a folded section does not take them.
+ */
+function sections(model: monaco.editor.ITextModel) {
+	const { headings, fences } = structure(model.getValue());
+	const last = model.getLineCount() - 1;
+	const spans = headings.map((heading, i) => {
+		const next = headings
+			.slice(i + 1)
+			.find((one) => one.depth <= heading.depth);
+		let end = next ? next.line - 1 : last;
+		while (end > heading.line && !model.getLineContent(end + 1).trim())
+			end -= 1;
+		return { ...heading, end };
+	});
+	return { spans, fences };
+}
+
+monaco.languages.registerDocumentSymbolProvider('markdown', {
+	provideDocumentSymbols(model) {
+		const top: monaco.languages.DocumentSymbol[] = [];
+		const open: { depth: number; symbol: monaco.languages.DocumentSymbol }[] =
+			[];
+
+		for (const span of sections(model).spans) {
+			const symbol: monaco.languages.DocumentSymbol = {
+				// As VS Code names them: the heading's marks, then its words.
+				name: `${'#'.repeat(span.depth)} ${span.text}`,
+				detail: '',
+				kind: monaco.languages.SymbolKind.String,
+				tags: [],
+				range: {
+					startLineNumber: span.line + 1,
+					startColumn: 1,
+					endLineNumber: span.end + 1,
+					endColumn: model.getLineMaxColumn(span.end + 1),
+				},
+				selectionRange: {
+					startLineNumber: span.line + 1,
+					startColumn: 1,
+					endLineNumber: span.line + 1,
+					endColumn: model.getLineMaxColumn(span.line + 1),
+				},
+				children: [],
+			};
+			while (open.length && open[open.length - 1].depth >= span.depth) {
+				open.pop();
+			}
+			(open.length ? open[open.length - 1].symbol.children! : top).push(symbol);
+			open.push({ depth: span.depth, symbol });
+		}
+		return top;
+	},
+});
+
+monaco.languages.registerFoldingRangeProvider('markdown', {
+	provideFoldingRanges(model) {
+		const { spans, fences } = sections(model);
+		return [
+			...spans.map((span) => ({ start: span.line + 1, end: span.end + 1 })),
+			...fences.map(([start, end]) => ({ start: start + 1, end: end + 1 })),
+		].filter((range) => range.end > range.start);
+	},
+});
+
+/* A key from $lib/shortcuts, as Monaco numbers one. */
+export function keybindings(keys: Keys) {
+	const one = (stroke: Stroke) =>
+		(stroke.mod ? monaco.KeyMod.CtrlCmd : 0) |
+		(stroke.shift ? monaco.KeyMod.Shift : 0) |
+		(stroke.alt ? monaco.KeyMod.Alt : 0) |
+		monaco.KeyCode[stroke.code as keyof typeof monaco.KeyCode];
+	return keys.map((key) =>
+		Array.isArray(key)
+			? monaco.KeyMod.chord(one(key[0]), one(key[1]))
+			: one(key),
+	);
+}
 
 /*
  * ONE MODEL PER DOCUMENT, kept for as long as the page is, so each keeps its
@@ -76,6 +164,9 @@ export function applyTheme(dark: boolean) {
 			'minimap.background': bg,
 			'editorOverviewRuler.background': bg,
 			'editorStickyScroll.background': bg,
+			// Its line numbers too, which otherwise take the editor's clear ground
+			// and show the numbers scrolling underneath through their own.
+			'editorStickyScrollGutter.background': bg,
 			'editor.foreground': fg,
 			'editorLineNumber.foreground': `${fg}66`,
 			'editorLineNumber.activeForeground': fg,
