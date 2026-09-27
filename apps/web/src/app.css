@@ -346,6 +346,13 @@ body {
 	 */
 	--motion-morph: 180ms;
 
+	/* One breath of a loading placeholder. Slow, because it only has to say
+	 * "still coming", and a faster pulse says "hurry". */
+	--motion-breathe: 1.6s;
+
+	/* One turn of the saving mark in the bar. */
+	--motion-turn: 900ms;
+
 	/*
 	 * THE ACCENT, and the one colour on this site that is not black or white.
 	 *
@@ -445,6 +452,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
 	:root {
 		--motion-morph: 0ms;
+		--motion-breathe: 0ms;
+		--motion-turn: 0ms;
 	}
 }
 

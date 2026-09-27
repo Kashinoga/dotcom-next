@@ -881,15 +881,10 @@
 		}
 	}
 
-	/* Saving turns, and stops turning for anyone who asked for less motion. */
+	/* Saving turns, and stops turning for anyone who asked for less motion: the
+	 * token is 0ms then, and a loop over no time draws nothing. */
 	.status[data-tone='busy'] :global(svg) {
-		animation: turn 900ms linear infinite;
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.status[data-tone='busy'] :global(svg) {
-			animation: none;
-		}
+		animation: turn var(--motion-turn) linear infinite;
 	}
 
 	@keyframes turn {
