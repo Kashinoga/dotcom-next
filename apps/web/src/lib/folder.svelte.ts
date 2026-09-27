@@ -93,12 +93,16 @@ export type Trouble = 'idle' | 'denied' | 'unreadable' | 'empty';
  */
 let waiting = $state<FileSystemDirectoryHandle | null>(null);
 
+/* Whether `look` has answered. Until it has, "no folder open" may not be true. */
+let looked = $state(false);
+
 /*
  * THE DRIVES THIS BROWSER KNOWS. Listed on the page so they can be opened again
  * without being described again — a drive is the small amount somebody says once,
  * and saying it twice is the thing this list exists to prevent.
  */
 let known = $state<Drive[]>([]);
+let drivesRead = $state(false);
 
 let store = $state<Store | null>(null);
 let listing = $state<Listing>({ files: [], dirs: [] });
@@ -127,6 +131,10 @@ let reading = $state(false);
  * on the page because a folder closing has to take them with it. */
 let openPath = $state<string | null>(null);
 let openText = $state<string | null>(null);
+
+/* A document on its way. Without it the sheet has only `null`, which is also
+ * what a document that could not be read is. */
+let fetching = $state(false);
 
 /*
  * WHERE THE WORDS ON THE SHEET STAND WITH THE DISK. `clean` is not "saved" — it
@@ -178,6 +186,7 @@ async function adopt(next: Store) {
 	store = next;
 	openPath = null;
 	openText = null;
+	fetching = false;
 	reading = true;
 
 	const read = await next.list();
@@ -347,9 +356,22 @@ export const folder = {
 		return known;
 	},
 
+	get drivesRead() {
+		return drivesRead;
+	},
+
+	get looked() {
+		return looked;
+	},
+
+	get fetching() {
+		return fetching;
+	},
+
 	/* The drives, read once on arrival. No tokens are touched: a list is a list. */
 	async loadDrives() {
 		known = await listDrives();
+		drivesRead = true;
 	},
 
 	/*
@@ -406,18 +428,22 @@ export const folder = {
 	 * nothing but a click. Anything else waits for one.
 	 */
 	async look() {
-		if (store || waiting) return;
+		try {
+			if (store || waiting) return;
 
-		const handle = await recall();
-		if (!handle) return;
+			const handle = await recall();
+			if (!handle) return;
 
-		const next = localStore(handle, isOpenable);
-		if ((await next.permission()) === 'granted') {
-			await adopt(next);
-			return;
+			const next = localStore(handle, isOpenable);
+			if ((await next.permission()) === 'granted') {
+				await adopt(next);
+				return;
+			}
+
+			waiting = handle;
+		} finally {
+			looked = true;
 		}
-
-		waiting = handle;
 	},
 
 	/*
@@ -483,7 +509,14 @@ export const folder = {
 		openText = null;
 		save = 'clean';
 		saveWhy = null;
-		openText = await store.read(path);
+		fetching = true;
+		const text = await store.read(path);
+
+		/* Another document was asked for while this one was on its way, and its
+		 * own answer is the one the sheet is waiting for. */
+		if (openPath !== path) return;
+		openText = text;
+		fetching = false;
 	},
 
 	/*
@@ -527,5 +560,6 @@ export const folder = {
 		trouble = 'idle';
 		openPath = null;
 		openText = null;
+		fetching = false;
 	},
 };

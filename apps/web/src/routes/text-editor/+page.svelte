@@ -26,6 +26,7 @@
 	import X from '@lucide/svelte/icons/x';
 
 	import ConnectDrive from '$lib/components/ConnectDrive.svelte';
+	import Placeholder from '$lib/components/Placeholder.svelte';
 	import Seo from '$lib/components/Seo.svelte';
 	import { canPickFolder, folder } from '$lib/folder.svelte';
 	import { outline as outlinePanel, workspace } from '$lib/panel.svelte';
@@ -295,7 +296,11 @@
 				</h2>
 
 				{#if folder.reading}
-					<p class="note">Reading the folder.</p>
+					<Placeholder
+						shape="rows"
+						label="Reading the folder."
+						widths={[70, 45, 60, 50]}
+					/>
 				{:else if folder.waiting}
 					<!--
 						A FOLDER FROM LAST TIME. Named, because "the folder from last time"
@@ -308,6 +313,13 @@
 						<FolderOpen aria-hidden="true" />
 						<span class="name">Open it again</span>
 					</button>
+				{:else if !folder.looked}
+					<!-- Not "no folder" until the folder from last time has been asked after. -->
+					<Placeholder
+						shape="rows"
+						label="Looking for the folder from last time."
+						widths={[65]}
+					/>
 				{:else if folder.trouble === 'idle' && !folder.count}
 					<!--
 						NO FOLDER YET, which is not a failure and does not read as one. It
@@ -355,6 +367,15 @@
 										{/if}
 										<span class="name">{row.name}</span>
 									</button>
+
+									{#if folder.isOpening(row.path) && !folder.isClosed(row.path)}
+										<Placeholder
+											shape="rows"
+											label="Reading {row.name}."
+											depth={row.depth + 1}
+											widths={[55, 40]}
+										/>
+									{/if}
 								{:else}
 									<button
 										type="button"
@@ -410,7 +431,9 @@
 					</button>
 				</h2>
 
-				{#if !folder.drives.length}
+				{#if !folder.drivesRead}
+					<Placeholder shape="rows" label="Reading the drives." widths={[60]} />
+				{:else if !folder.drives.length}
 					<p class="note">No drives. Nextcloud and ownCloud.</p>
 				{:else}
 					<ol>
@@ -481,6 +504,18 @@
 									oninput={(event) =>
 										scratch.write(openScratch, event.currentTarget.value)}
 								></textarea>
+							</div>
+						{:else if folder.fetching}
+							<!--
+							ON ITS WAY, and not "could not be read", which is what a sheet with
+							no words said here until the words arrived.
+						-->
+							<div class="sheet">
+								<Placeholder
+									shape="lines"
+									label="Reading the document."
+									widths={[92, 88, 95, 60, 0, 85, 90, 40]}
+								/>
 							</div>
 						{:else if folder.openText !== null && folder.writable}
 							<!--
