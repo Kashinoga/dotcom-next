@@ -28,7 +28,9 @@ import {
 } from '$lib/drives';
 import { forget, recall, remember } from '$lib/remembered';
 import {
+	dirOf,
 	isOpenable,
+	join,
 	localStore,
 	snapshotStore,
 	type FolderEntry,
@@ -234,6 +236,46 @@ function merge(into: Listing, extra: Listing, at: string): Listing {
 		],
 		dirs: [...dirs].filter(Boolean),
 	};
+}
+
+/*
+ * WHAT A NAME THAT WILL NOT DO IS TOLD. VS Code's own refusals, since the
+ * editor takes vscode.dev as its reference: `taken` and `empty` are its words,
+ * `slash` is ours, because VS Code makes the folders a slash names and the
+ * stores here do not.
+ */
+export type Refusal = 'empty' | 'slash' | 'taken' | 'failed';
+
+/* A path, or why not — never one string that could be either. */
+export type Made = { path: string } | { refusal: Refusal };
+
+/* Is a name in use in `dir` already? Without regard to case, because the disk
+ * underneath may not regard it either, and `except` lets a rename change only
+ * the case of its own name. */
+function taken(dir: string, name: string, except?: string) {
+	const path = join(dir, name).toLowerCase();
+	if (except?.toLowerCase() === path) return false;
+	return (
+		listing.files.some((file) => file.path.toLowerCase() === path) ||
+		listing.dirs.some((one) => one.toLowerCase() === path)
+	);
+}
+
+function refuse(name: string): Refusal | null {
+	if (!name.trim()) return 'empty';
+	if (/[/\\]/.test(name)) return 'slash';
+	return null;
+}
+
+/* A folder and everything under it, or a document on its own. */
+const within = (path: string, root: string) =>
+	path === root || path.startsWith(`${root}/`);
+
+/* Open every folder above a path, so what was just made is in view. */
+function reveal(path: string) {
+	const next = new Set(closed);
+	for (let dir = dirOf(path); dir; dir = dirOf(dir)) next.delete(dir);
+	closed = next;
 }
 
 export const folder = {
@@ -539,6 +581,119 @@ export const folder = {
 	/* Put the words out now rather than when the timer says so. For leaving the
 	 * page, and for anything that has to know the disk is current. */
 	flush,
+
+	/* The refusal a name would meet, asked as it is typed, as VS Code asks. */
+	check(dir: string, name: string, except?: string): Refusal | null {
+		return refuse(name) ?? (taken(dir, name.trim(), except) ? 'taken' : null);
+	},
+
+	/*
+	 * A NEW DOCUMENT, named by the visitor as VS Code asks for one. Answers with
+	 * its path, or why not. `create` would number a name it found taken; asking
+	 * first means a taken name is refused, as VS Code refuses it, and not
+	 * quietly changed.
+	 */
+	async newFile(dir: string, name: string): Promise<Made> {
+		name = name.trim();
+		const no = refuse(name) ?? (taken(dir, name) ? 'taken' : null);
+		if (no) return { refusal: no };
+		if (!store?.writable) return { refusal: 'failed' };
+
+		const dot = name.lastIndexOf('.');
+		const made =
+			dot > 0
+				? await store.create(dir, name.slice(0, dot), name.slice(dot), '')
+				: await store.create(dir, name, '', '');
+		if (!made) return { refusal: 'failed' };
+
+		const entry: FolderEntry = isOpenable(made.name)
+			? made
+			: { ...made, openable: false };
+		listing = { files: [...listing.files, entry], dirs: listing.dirs };
+		trouble = 'idle';
+		reveal(made.path);
+		return { path: made.path };
+	},
+
+	/* A NEW FOLDER, drawn shut as VS Code draws it, and known to be empty so a
+	 * lazy store is not asked to read it. */
+	async newFolder(dir: string, name: string): Promise<Made> {
+		name = name.trim();
+		const no = refuse(name) ?? (taken(dir, name) ? 'taken' : null);
+		if (no) return { refusal: no };
+		if (!store?.writable) return { refusal: 'failed' };
+
+		const path = await store.createDir(dir, name);
+		if (!path) return { refusal: 'failed' };
+
+		listing = { files: listing.files, dirs: [...listing.dirs, path] };
+		if (store.listDir) loaded = new Set(loaded).add(path);
+		trouble = 'idle';
+		reveal(path);
+		closed = new Set(closed).add(path);
+		return { path };
+	},
+
+	/*
+	 * A DOCUMENT UNDER A NEW NAME. Documents only: a folder on this device
+	 * cannot be renamed through the handle it was reached by. The words on the
+	 * sheet go out first, under the name they were typed under.
+	 */
+	async rename(path: string, to: string): Promise<Made> {
+		to = to.trim();
+		const no = refuse(to) ?? (taken(dirOf(path), to, path) ? 'taken' : null);
+		if (no) return { refusal: no };
+		if (!store?.writable) return { refusal: 'failed' };
+		if (to === path.slice(path.lastIndexOf('/') + 1)) return { path };
+
+		if (openPath === path) await flush();
+		const moved = await store.rename(path, to);
+		if (!moved) return { refusal: 'failed' };
+
+		const entry: FolderEntry = isOpenable(moved.name)
+			? moved
+			: { ...moved, openable: false };
+		listing = {
+			files: listing.files.map((file) => (file.path === path ? entry : file)),
+			dirs: listing.dirs,
+		};
+		if (openPath === path) openPath = moved.path;
+		return { path: moved.path };
+	},
+
+	/*
+	 * GONE FOR GOOD: there is no bin to put it in from a web page. The page asks
+	 * first, in VS Code's words. A document open on the sheet goes with it, and
+	 * so do its unsaved words, which have nowhere left to be written.
+	 */
+	async remove(row: { kind: 'dir' | 'file'; path: string }) {
+		if (!store?.writable) return false;
+		const gone =
+			row.kind === 'dir'
+				? await store.removeDir(row.path)
+				: await store.remove(row.path);
+		if (!gone) return false;
+
+		const kept = (path: string) => !within(path, row.path);
+		listing = {
+			files: listing.files.filter((file) => kept(file.path)),
+			dirs: listing.dirs.filter(kept),
+		};
+		closed = new Set([...closed].filter(kept));
+		loaded = new Set([...loaded].filter(kept));
+		if (!listing.files.length && !listing.dirs.length) trouble = 'empty';
+
+		if (openPath !== null && !kept(openPath)) {
+			if (timer) clearTimeout(timer);
+			timer = null;
+			pending = null;
+			save = 'clean';
+			saveWhy = null;
+			openPath = null;
+			openText = null;
+		}
+		return true;
+	},
 
 	/* Put the folder away. The scratch notes are untouched: they were never in it. */
 	async close() {

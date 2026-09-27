@@ -468,6 +468,19 @@ export function localStore(
 			 * enforced. */
 			if (!handle || !to || /[/\\]/.test(to)) return null;
 
+			/* A name already taken, refused as `move` refuses one: `move` replaces
+			 * without a word. A change of case only is the same file, and allowed. */
+			const into = dirs.get(dirOf(path));
+			const self = path.slice(path.lastIndexOf('/') + 1);
+			if (into && to.toLowerCase() !== self.toLowerCase()) {
+				try {
+					await into.getFileHandle(to);
+					return null;
+				} catch {
+					/* nothing there by that name */
+				}
+			}
+
 			try {
 				await handle.move(to);
 			} catch {

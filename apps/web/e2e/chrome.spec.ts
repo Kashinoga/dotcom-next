@@ -1227,7 +1227,7 @@ test('a folder is walked, listed, and read onto the sheet', async ({
 				.querySelectorAll('.file'),
 		].map((row) => ({
 			name: row.querySelector('.name')!.textContent,
-			inert: (row as HTMLButtonElement).disabled,
+			inert: row.getAttribute('aria-disabled') === 'true',
 			folder: row.classList.contains('folder'),
 			depth: Number(
 				getComputedStyle(row).getPropertyValue('--depth').trim() || 0,
@@ -2583,4 +2583,217 @@ test('a link to a document in the folder opens it there', async ({
 	await expect(page.locator('#outline')).toContainText(
 		'Only a Markdown document has an outline.',
 	);
+});
+
+/*
+ * THE EXPLORER'S VERBS, as VS Code's explorer has them. Against a folder that
+ * can be written to, and read back off the disk rather than off the rail, since
+ * a row that says a thing was done is not the thing being done.
+ */
+function atPath(page: Page, path: string) {
+	return page.evaluate(async (path) => {
+		let dir = await (
+			await navigator.storage.getDirectory()
+		).getDirectoryHandle('Notes');
+		const parts = path.split('/');
+		const name = parts.pop()!;
+		try {
+			for (const part of parts) dir = await dir.getDirectoryHandle(part);
+			return await (
+				await dir.getFileHandle(name)
+			)
+				.getFile()
+				.then((f) => f.text());
+		} catch {
+			return null;
+		}
+	}, path);
+}
+
+test('a new document is named in the tree, made, and opened', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await writableFolder(page, { 'one.md': 'first' });
+	await page.getByRole('button', { name: 'New file' }).click();
+
+	const box = page.getByRole('textbox', { name: 'Name of the new file' });
+	await expect(box).toBeFocused();
+	await box.fill('two.md');
+	await box.press('Enter');
+
+	const row = page.getByRole('button', { name: 'two.md' });
+	await expect(row).toHaveAttribute('aria-current', 'true');
+	await expect(row).toBeFocused();
+	expect(await atPath(page, 'two.md')).toBe('');
+});
+
+test('a taken name is refused as it is typed, in VS Code’s words', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await writableFolder(page, { 'one.md': 'first' });
+	await page.getByRole('button', { name: 'New file' }).click();
+
+	const box = page.getByRole('textbox', { name: 'Name of the new file' });
+	await box.fill('ONE.md');
+	await expect(page.getByRole('alert')).toHaveText(
+		'A file or folder ONE.md already exists at this location. Please choose a different name.',
+	);
+	await box.press('Enter');
+	await expect(box).toBeVisible();
+
+	await box.press('Escape');
+	await expect(box).toHaveCount(0);
+	expect(await atPath(page, 'one.md')).toBe('first');
+});
+
+test('a new folder, and a document made inside it', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await writableFolder(page, { 'one.md': 'first' });
+	await page.getByRole('button', { name: 'New folder' }).click();
+	const box = page.getByRole('textbox', { name: 'Name of the new folder' });
+	await box.fill('Sub');
+	await box.press('Enter');
+
+	// A folder that was pressed is where the next new thing goes.
+	await page.getByRole('button', { name: 'Sub' }).click();
+	await page.getByRole('button', { name: 'New file' }).click();
+	const inner = page.getByRole('textbox', { name: 'Name of the new file' });
+	await inner.fill('in.md');
+	await inner.press('Enter');
+
+	await expect(page.getByRole('button', { name: 'in.md' })).toBeVisible();
+	expect(await atPath(page, 'Sub/in.md')).toBe('');
+});
+
+test('F2 renames a document, and it stays open under its new name', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await writableFolder(page, { 'one.md': 'first', 'two.md': 'second' });
+	const row = page.getByRole('button', { name: 'one.md' });
+	await row.click();
+	await row.press('F2');
+
+	// The name is chosen up to its extension, so typing keeps the kind of file.
+	const box = page.getByRole('textbox', { name: 'Rename one.md' });
+	expect(
+		await box.evaluate((input: HTMLInputElement) => [
+			input.selectionStart,
+			input.selectionEnd,
+		]),
+	).toEqual([0, 3]);
+
+	// Taken first, and refused; then free, and done.
+	await box.pressSequentially('two');
+	await expect(page.getByRole('alert')).toContainText('already exists');
+	await box.fill('renamed.md');
+	await box.press('Enter');
+
+	const renamed = page.getByRole('button', { name: 'renamed.md' });
+	await expect(renamed).toHaveAttribute('aria-current', 'true');
+	await expect(page.locator('.sheet textarea')).toHaveValue('first');
+	expect(await atPath(page, 'renamed.md')).toBe('first');
+	expect(await atPath(page, 'one.md')).toBe(null);
+	expect(await atPath(page, 'two.md')).toBe('second');
+});
+
+test('Delete asks first, and then deletes for good', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await writableFolder(page, { 'one.md': 'first' });
+	const row = page.getByRole('button', { name: 'one.md' });
+	await row.click();
+	await row.press('Delete');
+
+	const dialog = page.getByRole('dialog');
+	await expect(dialog).toContainText(
+		'Are you sure you want to permanently delete ‘one.md’?',
+	);
+	await expect(dialog.getByRole('button', { name: 'Delete' })).toBeFocused();
+
+	// Escape is a no, and the focus comes back to the row.
+	await page.keyboard.press('Escape');
+	await expect(dialog).toBeHidden();
+	await expect(row).toBeFocused();
+	expect(await atPath(page, 'one.md')).toBe('first');
+
+	await row.press('Delete');
+	await dialog.getByRole('button', { name: 'Delete' }).click();
+	await expect(row).toHaveCount(0);
+	expect(await atPath(page, 'one.md')).toBe(null);
+
+	// It was on the sheet, and the sheet goes back to the scratch note.
+	await expect(
+		page.getByRole('button', { name: 'Ephemeral 0' }),
+	).toHaveAttribute('aria-current', 'true');
+});
+
+test('the context menu offers the verbs, and gives the focus back', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await writableFolder(page, { 'one.md': 'first' });
+	const row = page.getByRole('button', { name: 'one.md' });
+	await row.click({ button: 'right' });
+
+	const menu = page.getByRole('menu');
+	await expect(menu.getByRole('menuitem')).toHaveText([
+		'New File…',
+		'New Folder…',
+		'Rename… F2',
+		'Delete Delete',
+	]);
+	await expect(menu.getByRole('menuitem').first()).toBeFocused();
+
+	await page.keyboard.press('ArrowUp');
+	await expect(menu.getByRole('menuitem').last()).toBeFocused();
+
+	await page.keyboard.press('Escape');
+	await expect(menu).toHaveCount(0);
+	await expect(row).toBeFocused();
+
+	// From the menu to the name box, which is where the focus has to land.
+	await row.click({ button: 'right' });
+	await menu.getByRole('menuitem', { name: 'Rename…' }).click();
+	await expect(
+		page.getByRole('textbox', { name: 'Rename one.md' }),
+	).toBeFocused();
+});
+
+test('a folder that cannot be written to offers none of the verbs', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(
+		browserName !== 'firefox',
+		'the input is the only way in from here',
+	);
+
+	await editor(page);
+	await page.locator('input[webkitdirectory]').setInputFiles(fixtureFolder());
+	const row = page.getByRole('button', { name: 'Notes.txt' });
+	await expect(row).toBeVisible();
+
+	await expect(page.getByRole('button', { name: 'New file' })).toHaveCount(0);
+	await row.click({ button: 'right' });
+	await expect(page.getByRole('menu')).toHaveCount(0);
+	await row.press('F2');
+	await expect(page.locator('.naming input')).toHaveCount(0);
 });

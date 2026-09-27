@@ -15,7 +15,9 @@
 	import NotepadText from '@lucide/svelte/icons/notepad-text';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import FilePlus from '@lucide/svelte/icons/file-plus';
 	import FolderOpen from '@lucide/svelte/icons/folder-open';
+	import FolderPlus from '@lucide/svelte/icons/folder-plus';
 	import Cloud from '@lucide/svelte/icons/cloud';
 	import Plus from '@lucide/svelte/icons/plus';
 	import X from '@lucide/svelte/icons/x';
@@ -24,11 +26,18 @@
 	import ConnectDrive from '$lib/components/ConnectDrive.svelte';
 	import Placeholder from '$lib/components/Placeholder.svelte';
 	import Seo from '$lib/components/Seo.svelte';
-	import { canPickFolder, folder } from '$lib/folder.svelte';
+	import {
+		canPickFolder,
+		folder,
+		type Made,
+		type Refusal,
+	} from '$lib/folder.svelte';
 	import { outline as outlinePanel, workspace } from '$lib/panel.svelte';
 	import { view } from '$lib/view.svelte';
 	import { isMarkdown, set } from '$lib/markdown';
 	import { name as scratchName, PERMANENT, scratch } from '$lib/scratch.svelte';
+	import { dirOf, type Row } from '$lib/workspace';
+	import { tick } from 'svelte';
 
 	/*
 	 * WHAT IS ON THE DESK. A scratch note and a document in a folder are not the
@@ -243,7 +252,294 @@
 		const url = new URL(href, `file:///${encodeURI(dir)}`);
 		void openFile(decodeURIComponent(url.pathname.slice(1)));
 	}
+
+	/*
+	 * THE EXPLORER'S VERBS, as VS Code's explorer has them: New File and New
+	 * Folder in the heading, a name typed into the tree, F2 to rename, Delete to
+	 * delete, and all of them on the row's context menu. Only where the folder
+	 * can be written to; a snapshot offers none of them.
+	 */
+
+	/* The row last pressed. A new thing goes into it if it is a folder, and
+	 * beside it if not — VS Code's rule. */
+	let chosen = $state<Row | null>(null);
+
+	type Naming =
+		| { kind: 'file' | 'dir'; dir: string; refusal: Refusal | null }
+		| { kind: 'rename'; path: string; refusal: Refusal | null };
+
+	let naming = $state<Naming | null>(null);
+	/* What is in the box, for the refusal to name it. */
+	let typed = $state('');
+
+	function refusal(why: Refusal, name: string, kind: Naming['kind']) {
+		switch (why) {
+			case 'empty':
+				return 'A file or folder name must be provided.';
+			case 'slash':
+				return 'A name cannot hold a / or a \\ here.';
+			case 'taken':
+				return `A file or folder ${name.trim()} already exists at this location. Please choose a different name.`;
+			case 'failed':
+				return kind === 'rename'
+					? `Unable to rename to ${name.trim()}.`
+					: `Unable to create ${name.trim()}.`;
+		}
+	}
+
+	function startNew(kind: 'file' | 'dir') {
+		const dir = !chosen
+			? ''
+			: chosen.kind === 'dir'
+				? chosen.path
+				: dirOf(chosen.path);
+		if (dir && folder.isClosed(dir)) void folder.fold(dir);
+		typed = '';
+		naming = { kind, dir, refusal: null };
+	}
+
+	function startRename(row: Row) {
+		if (row.kind !== 'file') return;
+		chosen = row;
+		typed = row.name;
+		naming = { kind: 'rename', path: row.path, refusal: null };
+	}
+
+	/* The name box takes the focus, with the name selected up to its extension,
+	 * so typing replaces the name and keeps the kind of file it is. */
+	function takeName(input: HTMLInputElement) {
+		input.focus();
+		const dot = input.value.lastIndexOf('.');
+		input.setSelectionRange(0, dot > 0 ? dot : input.value.length);
+	}
+
+	function recheck(value: string) {
+		if (!naming) return;
+		naming.refusal =
+			naming.kind === 'rename'
+				? folder.check(dirOf(naming.path), value, naming.path)
+				: folder.check(naming.dir, value);
+	}
+
+	/* Back to the row a thing was done to, so the keyboard is where the eye is. */
+	async function focusRow(path: string) {
+		await tick();
+		document
+			.querySelector<HTMLElement>(
+				`#workspace button[title="${CSS.escape(path)}"]`,
+			)
+			?.focus();
+	}
+
+	/* One at a time: Enter and the blur that can follow it would otherwise make
+	 * the same thing twice. */
+	let committing = false;
+
+	async function commit(value: string) {
+		const now = naming;
+		if (!now || now.refusal || committing) return;
+		committing = true;
+
+		let made: Made;
+		if (now.kind === 'rename') made = await folder.rename(now.path, value);
+		else if (now.kind === 'file') made = await folder.newFile(now.dir, value);
+		else made = await folder.newFolder(now.dir, value);
+		committing = false;
+
+		if ('refusal' in made) {
+			if (naming === now) naming = { ...now, refusal: made.refusal };
+			return;
+		}
+
+		naming = null;
+		if (
+			now.kind === 'rename' &&
+			open.kind === 'file' &&
+			open.path === now.path
+		) {
+			open = { kind: 'file', path: made.path };
+		}
+		// A new document opens, as it does in VS Code.
+		if (now.kind === 'file') await openFile(made.path);
+		void focusRow(made.path);
+	}
+
+	/* Away from the box: kept if it can be, dropped if it cannot — VS Code's
+	 * answer, so a click elsewhere never leaves a box behind asking. */
+	async function leaveName(value: string) {
+		const now = naming;
+		if (!now) return;
+		if (!value.trim() || now.refusal) {
+			naming = null;
+			return;
+		}
+		await commit(value);
+		// Refused on the way out: dropped, and not left behind asking.
+		if (naming?.refusal) naming = null;
+	}
+
+	function nameKeys(
+		event: KeyboardEvent & { currentTarget: HTMLInputElement },
+	) {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			void commit(event.currentTarget.value);
+		} else if (event.key === 'Escape') {
+			event.preventDefault();
+			const was = naming;
+			naming = null;
+			if (was?.kind === 'rename') void focusRow(was.path);
+		}
+	}
+
+	/* F2 and Delete on a row, VS Code's keys; ⌘⌫ too, which is its key on a Mac. */
+	function rowKeys(event: KeyboardEvent, row: Row) {
+		if (!folder.writable) return;
+		if (event.key === 'F2') {
+			event.preventDefault();
+			startRename(row);
+		} else if (
+			event.key === 'Delete' ||
+			(event.key === 'Backspace' && event.metaKey)
+		) {
+			event.preventDefault();
+			askDelete(row);
+		}
+	}
+
+	/*
+	 * THE CONTEXT MENU. A popover, so the browser gives it the top layer, a
+	 * light dismiss and Escape, and gives the focus back where it came from.
+	 * The keyboard's own menu key and Shift+F10 send `contextmenu` too.
+	 */
+	let menu = $state<{ row: Row; x: number; y: number } | null>(null);
+	let menuEl = $state<HTMLElement | null>(null);
+
+	async function openMenu(event: MouseEvent, row: Row) {
+		if (!folder.writable) return;
+		event.preventDefault();
+		chosen = row;
+
+		// From the keyboard there is no pointer, so the menu opens on the row.
+		const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
+		const fromKeys = event.clientX === 0 && event.clientY === 0;
+		menu = {
+			row,
+			x: fromKeys ? box.left + 16 : event.clientX,
+			y: fromKeys ? box.bottom : event.clientY,
+		};
+
+		await tick();
+		if (!menuEl) return;
+		menuEl.showPopover();
+
+		// Kept inside the window, as a menu opened near an edge would not be.
+		const size = menuEl.getBoundingClientRect();
+		menu.x = Math.max(4, Math.min(menu.x, innerWidth - size.width - 4));
+		menu.y = Math.max(4, Math.min(menu.y, innerHeight - size.height - 4));
+		menuEl.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+	}
+
+	function menuKeys(event: KeyboardEvent) {
+		const items = [
+			...(menuEl?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []),
+		];
+		const at = items.indexOf(document.activeElement as HTMLElement);
+		const to =
+			event.key === 'ArrowDown'
+				? (at + 1) % items.length
+				: event.key === 'ArrowUp'
+					? (at - 1 + items.length) % items.length
+					: event.key === 'Home'
+						? 0
+						: event.key === 'End'
+							? items.length - 1
+							: null;
+		if (to === null) return;
+		event.preventDefault();
+		items[to]?.focus();
+	}
+
+	/* A choice made from the menu, which closes first so the focus it hands back
+	 * does not land on top of what the choice is about to focus. The menu's own
+	 * state goes when it says it has closed — see `ontoggle`. */
+	function fromMenu(action: () => void) {
+		menuEl?.hidePopover();
+		action();
+	}
+
+	/*
+	 * DELETING, which a web page cannot undo — there is no bin to put it in. So
+	 * it asks first, in VS Code's words for exactly this case.
+	 */
+	let doomed = $state<Row | null>(null);
+	let deleteFailed = $state(false);
+	let confirmEl = $state<HTMLDialogElement | null>(null);
+
+	async function askDelete(row: Row) {
+		chosen = row;
+		doomed = row;
+		deleteFailed = false;
+		await tick();
+		confirmEl?.showModal();
+		// The primary button, where VS Code puts the focus.
+		confirmEl?.querySelector<HTMLElement>('.primary')?.focus();
+	}
+
+	async function confirmDelete() {
+		const row = doomed;
+		if (!row) return;
+		if (!(await folder.remove(row))) {
+			deleteFailed = true;
+			return;
+		}
+		// Said, so closing does not hand the focus back to a row that is gone.
+		confirmEl?.close('deleted');
+		// What was on the sheet went with it, as its tab goes in VS Code.
+		if (
+			open.kind === 'file' &&
+			(open.path === row.path || open.path.startsWith(`${row.path}/`))
+		) {
+			open = { kind: 'scratch', id: PERMANENT };
+		}
+		chosen = null;
+	}
 </script>
+
+{#snippet nameBox(kind: Naming['kind'], depth: number, initial: string)}
+	<div class="naming" style="--depth: {depth}">
+		{#if kind === 'dir'}
+			<ChevronRight aria-hidden="true" />
+		{:else}
+			<FileText aria-hidden="true" />
+		{/if}
+		<input
+			type="text"
+			value={initial}
+			aria-label={kind === 'rename'
+				? `Rename ${initial}`
+				: kind === 'dir'
+					? 'Name of the new folder'
+					: 'Name of the new file'}
+			aria-invalid={naming?.refusal ? 'true' : undefined}
+			aria-describedby={naming?.refusal ? 'name-refusal' : undefined}
+			autocomplete="off"
+			spellcheck="false"
+			{@attach takeName}
+			oninput={(event) => {
+				typed = event.currentTarget.value;
+				recheck(typed);
+			}}
+			onkeydown={nameKeys}
+			onblur={(event) => void leaveName(event.currentTarget.value)}
+		/>
+	</div>
+	{#if naming?.refusal}
+		<p id="name-refusal" class="refusal" style="--depth: {depth}" role="alert">
+			{refusal(naming.refusal, typed, kind)}
+		</p>
+	{/if}
+{/snippet}
 
 <Seo
 	title="Text Editor"
@@ -376,20 +672,44 @@
 						what a visitor gets is not the same thing.
 					-->
 					{#if folder.name}
-						<!--
-							CLOSING IS A DECISION ABOUT THIS FOLDER, so it forgets it too —
-							otherwise the next visit opens on the folder somebody just put
-							away. The scratch notes are untouched: they were never in it.
-						-->
-						<button
-							type="button"
-							class="add"
-							title="Put this folder away"
-							aria-label="Put {folder.name} away"
-							onclick={() => folder.close()}
-						>
-							<X aria-hidden="true" />
-						</button>
+						<span class="actions">
+							{#if folder.writable}
+								<!-- VS Code's two, in its order, and under its names. -->
+								<button
+									type="button"
+									class="add"
+									title="New File…"
+									aria-label="New file"
+									onclick={() => startNew('file')}
+								>
+									<FilePlus aria-hidden="true" />
+								</button>
+								<button
+									type="button"
+									class="add"
+									title="New Folder…"
+									aria-label="New folder"
+									onclick={() => startNew('dir')}
+								>
+									<FolderPlus aria-hidden="true" />
+								</button>
+							{/if}
+
+							<!--
+								CLOSING IS A DECISION ABOUT THIS FOLDER, so it forgets it too —
+								otherwise the next visit opens on the folder somebody just put
+								away. The scratch notes are untouched: they were never in it.
+							-->
+							<button
+								type="button"
+								class="add"
+								title="Put this folder away"
+								aria-label="Put {folder.name} away"
+								onclick={() => folder.close()}
+							>
+								<X aria-hidden="true" />
+							</button>
+						</span>
 					{:else if canPickFolder()}
 						<button
 							type="button"
@@ -454,7 +774,7 @@
 						label="Looking for the folder from last time."
 						widths={[65]}
 					/>
-				{:else if folder.trouble === 'idle' && !folder.count}
+				{:else if folder.trouble === 'idle' && !folder.name}
 					<!--
 						NO FOLDER YET, which is not a failure and does not read as one. It
 						says what the control above does, because a mark on its own is a
@@ -476,8 +796,11 @@
 					it keeps the step every list holds off what is above it, so the pane
 					that had no rows carried four pixels more foot than the two that did.
 				-->
-				{#if folder.rows.length}
+				{#if folder.rows.length || naming}
 					<ol>
+						{#if naming && naming.kind !== 'rename' && naming.dir === ''}
+							<li>{@render nameBox(naming.kind, 0, '')}</li>
+						{/if}
 						{#each folder.rows as row (row.path)}
 							<li>
 								{#if row.kind === 'dir'}
@@ -492,7 +815,12 @@
 										style="--depth: {row.depth}"
 										aria-expanded={!folder.isClosed(row.path)}
 										title={row.path}
-										onclick={() => folder.fold(row.path)}
+										onclick={() => {
+											chosen = row;
+											void folder.fold(row.path);
+										}}
+										oncontextmenu={(event) => openMenu(event, row)}
+										onkeydown={(event) => rowKeys(event, row)}
 									>
 										{#if folder.isClosed(row.path)}
 											<ChevronRight aria-hidden="true" />
@@ -510,7 +838,14 @@
 											widths={[55, 40]}
 										/>
 									{/if}
+								{:else if naming?.kind === 'rename' && naming.path === row.path}
+									{@render nameBox('rename', row.depth, row.name)}
 								{:else}
+									<!--
+										NOT `disabled`, which takes a row out of reach of the keyboard
+										and the context menu: a document this editor cannot open can
+										still be renamed and deleted, as it can in VS Code.
+									-->
 									<button
 										type="button"
 										class="file"
@@ -519,9 +854,14 @@
 										aria-current={open.kind === 'file' && open.path === row.path
 											? 'true'
 											: undefined}
-										disabled={!row.openable}
+										aria-disabled={row.openable ? undefined : 'true'}
 										title={row.path}
-										onclick={() => openFile(row.path)}
+										onclick={() => {
+											chosen = row;
+											if (row.openable) void openFile(row.path);
+										}}
+										oncontextmenu={(event) => openMenu(event, row)}
+										onkeydown={(event) => rowKeys(event, row)}
 									>
 										<!--
 											A PAGE WITH WRITING ON IT, or a page without. What these
@@ -537,9 +877,104 @@
 									</button>
 								{/if}
 							</li>
+							{#if naming && naming.kind !== 'rename' && naming.dir === row.path && !folder.isClosed(row.path)}
+								<li>{@render nameBox(naming.kind, row.depth + 1, '')}</li>
+							{/if}
 						{/each}
 					</ol>
 				{/if}
+
+				{#if menu}
+					{@const row = menu.row}
+					<div
+						bind:this={menuEl}
+						class="menu"
+						popover="auto"
+						role="menu"
+						tabindex="-1"
+						aria-label={row.name}
+						style="left: {menu.x}px; top: {menu.y}px"
+						onkeydown={menuKeys}
+						ontoggle={(event) => {
+							if ((event as ToggleEvent).newState !== 'closed') return;
+							// Read before the menu goes, and `row` with it.
+							const path = row.path;
+							menu = null;
+							// Escape or a click away: the focus goes back to the row.
+							if (
+								!document.activeElement ||
+								document.activeElement === document.body
+							) {
+								void focusRow(path);
+							}
+						}}
+					>
+						<button
+							type="button"
+							role="menuitem"
+							onclick={() => fromMenu(() => startNew('file'))}
+						>
+							New File…
+						</button>
+						<button
+							type="button"
+							role="menuitem"
+							onclick={() => fromMenu(() => startNew('dir'))}
+						>
+							New Folder…
+						</button>
+						<hr />
+						{#if row.kind === 'file'}
+							<button
+								type="button"
+								role="menuitem"
+								onclick={() => fromMenu(() => startRename(row))}
+							>
+								Rename… <kbd>F2</kbd>
+							</button>
+						{/if}
+						<button
+							type="button"
+							role="menuitem"
+							onclick={() => fromMenu(() => void askDelete(row))}
+						>
+							Delete <kbd>Delete</kbd>
+						</button>
+					</div>
+				{/if}
+
+				<dialog
+					bind:this={confirmEl}
+					class="confirm"
+					aria-labelledby="confirm-question"
+					onclose={() => {
+						const was = doomed;
+						doomed = null;
+						if (was && confirmEl?.returnValue !== 'deleted')
+							void focusRow(was.path);
+					}}
+				>
+					{#if doomed}
+						<p id="confirm-question">
+							Are you sure you want to permanently delete ‘{doomed.name}’{doomed.kind ===
+							'dir'
+								? ' and its contents'
+								: ''}?
+						</p>
+						<p class="detail">This action is irreversible.</p>
+						{#if deleteFailed}
+							<p class="detail" role="alert">It could not be deleted.</p>
+						{/if}
+						<div class="choices">
+							<button type="button" onclick={() => confirmEl?.close()}
+								>Cancel</button
+							>
+							<button type="button" class="primary" onclick={confirmDelete}
+								>Delete</button
+							>
+						</div>
+					{/if}
+				</dialog>
 			</section>
 
 			<!--
@@ -1575,7 +2010,7 @@
 		white-space: nowrap;
 	}
 
-	.file:hover:not(:disabled) {
+	.file:hover:not(.inert) {
 		color: var(--fg);
 		background-color: var(--surface-hover);
 	}
@@ -1599,6 +2034,185 @@
 	.file.inert {
 		color: color-mix(in oklab, var(--fg) 35%, transparent);
 		cursor: default;
+	}
+
+	/* THE HEADING'S CONTROLS, together at its end. One auto margin on the group,
+	 * because one on each would share the space out between them. */
+	.actions {
+		display: flex;
+		margin-inline-start: auto;
+	}
+
+	.actions .add {
+		margin-inline-start: 0;
+	}
+
+	/*
+	 * THE NAME BOX, standing where the row it names will stand: a row's height
+	 * and indent, with the mark it will have. VS Code draws its box in the tree
+	 * for the same reason — the name is typed where it will be read.
+	 */
+	.naming {
+		--indent: var(--space-16);
+
+		display: flex;
+		align-items: center;
+		gap: var(--space-4);
+		min-block-size: var(--rail-control-block-size);
+		padding-inline: calc(var(--space-4) + var(--depth) * var(--indent))
+			var(--space-4);
+
+		font-size: var(--text-label1);
+	}
+
+	.naming :global(svg) {
+		flex: none;
+		inline-size: 1em;
+		block-size: 1em;
+		color: color-mix(in oklab, var(--fg) 60%, transparent);
+	}
+
+	.naming input {
+		flex: 1;
+		min-inline-size: 0;
+		padding: var(--space-2) var(--space-4);
+		border: none;
+		border-radius: var(--radius-s);
+		outline: 1px solid var(--fg);
+		background-color: var(--bg);
+		color: var(--fg);
+		line-height: var(--leading-tight);
+	}
+
+	.naming input[aria-invalid='true'] {
+		outline-width: 2px;
+	}
+
+	/* The refusal hangs under the box, as VS Code's does, and pushes the rows
+	 * below it down rather than covering them. */
+	.refusal {
+		margin: var(--space-2) var(--space-4) var(--space-4)
+			calc(
+				var(--space-4) + var(--depth) * var(--space-16) + 1em + var(--space-4)
+			);
+		padding: var(--space-4) var(--space-6);
+		border-radius: var(--radius-s);
+		box-shadow: inset 0 0 0 1px var(--fg);
+		background-color: var(--bg);
+		font-size: var(--text-label2);
+		line-height: var(--leading-tight);
+		text-wrap: pretty;
+	}
+
+	/*
+	 * THE CONTEXT MENU. In the top layer, so nothing in the rail can clip it,
+	 * and placed where it was asked for. The browser's own popover rules centre
+	 * it and hide it; `inset` and `margin` undo the first, and `display` is set
+	 * only while it is open so the second still holds.
+	 */
+	.menu {
+		position: fixed;
+		inset: auto;
+		margin: 0;
+		min-inline-size: 11rem;
+		padding: var(--space-4);
+		border: none;
+		border-radius: var(--radius-m);
+		background-color: var(--bg);
+		color: var(--fg);
+		box-shadow:
+			0 0 0 1px var(--frame),
+			0 var(--space-4) var(--space-16) rgb(0 0 0 / 16%);
+	}
+
+	.menu:popover-open {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.menu [role='menuitem'] {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-16);
+		min-block-size: var(--rail-control-block-size);
+		padding: var(--space-4) var(--space-8);
+		border: none;
+		border-radius: var(--radius-s);
+		background: none;
+		color: inherit;
+		font-size: var(--text-label1);
+		text-align: start;
+		cursor: pointer;
+	}
+
+	/* The wash is the focus, as it is in VS Code's menus; the ring would sit on
+	 * top of it saying the same thing. */
+	.menu [role='menuitem']:is(:hover, :focus-visible) {
+		outline: none;
+		background-color: var(--surface-hover);
+	}
+
+	.menu kbd {
+		font: inherit;
+		color: color-mix(in oklab, var(--fg) 60%, transparent);
+	}
+
+	.menu hr {
+		margin: var(--space-4) 0;
+		border: none;
+		border-block-start: 1px solid var(--frame);
+	}
+
+	/* THE QUESTION BEFORE A DELETE. Modal, so nothing else can be pressed while
+	 * it is asked, and Escape is the browser's own "no". */
+	.confirm {
+		max-inline-size: min(24rem, calc(100vw - var(--space-32)));
+		margin: auto;
+		padding: var(--space-16);
+		border: none;
+		border-radius: var(--radius-l);
+		background-color: var(--bg);
+		color: var(--fg);
+		box-shadow: 0 0 0 1px var(--frame);
+		font-size: var(--text-body1);
+		line-height: var(--leading-prose);
+	}
+
+	.confirm::backdrop {
+		background-color: rgb(0 0 0 / 30%);
+	}
+
+	.confirm .detail {
+		color: color-mix(in oklab, var(--fg) 60%, transparent);
+	}
+
+	.choices {
+		display: flex;
+		justify-content: flex-end;
+		gap: var(--space-8);
+		margin-block-start: var(--space-16);
+	}
+
+	/* 2.75rem is 44px, the smallest target a finger can hit reliably. */
+	.choices button {
+		min-block-size: 2.75rem;
+		padding-inline: var(--space-16);
+		border: none;
+		border-radius: var(--radius-m);
+		background-color: var(--surface-hover);
+		color: inherit;
+		cursor: pointer;
+	}
+
+	.choices .primary {
+		background-color: var(--accent);
+		color: var(--accent-fg);
+	}
+
+	.choices button:focus-visible {
+		outline: 2px solid var(--fg);
+		outline-offset: 2px;
 	}
 
 	.heading {
