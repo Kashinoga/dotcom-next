@@ -79,6 +79,15 @@ export function applyTheme(dark: boolean) {
 			'editor.foreground': fg,
 			'editorLineNumber.foreground': `${fg}66`,
 			'editorLineNumber.activeForeground': fg,
+			/*
+			 * THE CARET'S LINE AS A WASH, not VS Code's outline. The line runs on
+			 * under the minimap, whose opaque canvas cut the outline's end off and
+			 * left two stray rules against its edge; a wash meeting the minimap is
+			 * an edge and not a cut. It is the rail's own wash for a row, too —
+			 * the ink at 8%, as `--surface-hover` is.
+			 */
+			'editor.lineHighlightBorder': CLEAR,
+			'editor.lineHighlightBackground': `${fg}14`,
 		},
 	});
 	monaco.editor.setTheme(name);
