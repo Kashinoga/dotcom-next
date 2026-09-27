@@ -1423,6 +1423,57 @@ test('folding a folder takes its contents with it', async ({
 });
 
 /*
+ * EVERY FOLDER STARTS SHUT, however deep, and the heading opens or shuts them
+ * all. Deeper's own folder is only named by a document's path in a snapshot,
+ * which is the case a list of shut folders would miss.
+ */
+test('folders open shut, and all of them open and shut at once', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(
+		browserName !== 'firefox',
+		'the input is the only way in from here',
+	);
+
+	const root = fixtureFolder();
+	mkdirSync(join(root, 'Deeper', 'Deepest'));
+	writeFileSync(join(root, 'Deeper', 'Deepest', 'bottom.md'), 'the floor');
+
+	await page.goto('/text-editor');
+	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+	await page.locator('input[webkitdirectory]').setInputFiles(root);
+
+	const deeper = page.getByRole('button', { name: 'Deeper' });
+	const deepest = page.getByRole('button', { name: 'Deepest' });
+	const bottom = page.getByRole('button', { name: 'bottom.md' });
+	const collapse = page.getByRole('button', { name: 'Collapse all folders' });
+
+	await expect(collapse).toBeDisabled();
+	await deeper.click();
+	await expect(deepest).toHaveAttribute('aria-expanded', 'false');
+	await expect(bottom).toHaveCount(0);
+
+	await page.getByRole('button', { name: 'Expand all folders' }).click();
+	await expect(bottom).toBeVisible();
+
+	await collapse.click();
+	await expect(deeper).toHaveAttribute('aria-expanded', 'false');
+	await expect(deepest).toHaveCount(0);
+	await expect(collapse).toBeDisabled();
+
+	// VS Code's tree keys: Right opens, Left shuts, and Left again goes up.
+	await deeper.focus();
+	await page.keyboard.press('ArrowRight');
+	await expect(deepest).toBeVisible();
+	await deepest.focus();
+	await page.keyboard.press('ArrowLeft');
+	await expect(deeper).toBeFocused();
+	await page.keyboard.press('ArrowLeft');
+	await expect(deepest).toHaveCount(0);
+});
+
+/*
  * A SNAPSHOT CANNOT BE WRITTEN TO, and the sheet says so by BEING a `<pre>`
  * rather than by refusing a keystroke somebody has already made.
  *
@@ -1997,52 +2048,75 @@ for (const width of [1280, 380]) {
 }
 
 /*
- * A RAIL IS PANES, ONE PER GROUP, EACH THE HEIGHT OF WHAT IS IN IT — and the
- * rail is what scrolls when they will not all fit.
- *
- * Asked in a SHORT window with enough notes to overflow, because that is the
- * only place the claim can fail. With room to spare a pane is its content's
- * height whatever the rules say; it is when there is not enough that a pane
- * either holds its size or gets squeezed.
+ * THE RAIL STANDS STILL, as VS Code's side bar does: a long list scrolls inside
+ * its own pane, and every heading stays in view.
  *
  * This is also the test for `block-size` on `.app`. With `min-block-size` there
- * — which is what it said, and looked right — the rail had no definite height
- * above it, so an auto grid row took the whole list, the page grew past its end,
- * and the rail's `overflow-y` never ran. Measured at 112px of page past the
- * window before it was found. Nothing else in the suite was asking.
+ * the rail had no definite height above it, an auto grid row took the whole
+ * list, and the page grew past its end — 112px of it, before it was found.
  */
-test('a rail scrolls; its panes keep the height of their content', async ({
+test('the rail stands still; a long list scrolls inside its pane', async ({
 	page,
 }) => {
-	await page.setViewportSize({ width: 1280, height: 320 });
+	await page.setViewportSize({ width: 1280, height: 480 });
 	await page.goto('/text-editor');
 	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
 
-	// Enough notes that the two panes together cannot fit the rail.
-	for (let i = 0; i < 4; i += 1)
+	for (let i = 0; i < 12; i += 1)
 		await page
 			.getByRole('button', { name: 'Open a new ephemeral note' })
 			.click();
 
 	const seen = await page.evaluate(() => {
 		const rail = document.querySelector('#workspace')!;
+		const box = rail.getBoundingClientRect();
+		const list = document.querySelector('#scratch-body')!;
 		return {
 			pageScroll: document.documentElement.scrollHeight - window.innerHeight,
 			railScroll: rail.scrollHeight - rail.clientHeight,
-			panes: [...rail.querySelectorAll('.section')].map((pane) => ({
-				drawn: Math.round(pane.getBoundingClientRect().height),
-				content: pane.scrollHeight,
-			})),
+			listScroll: list.scrollHeight - list.clientHeight,
+			heads: [...rail.querySelectorAll('.section h2')].map((head) => {
+				const at = head.getBoundingClientRect();
+				return at.top >= box.top && at.bottom <= box.bottom;
+			}),
 		};
 	});
 
-	// The app is still exactly the window, and the rail took the overflow.
 	expect(seen.pageScroll).toBe(0);
-	expect(seen.railScroll).toBeGreaterThan(0);
+	expect(seen.railScroll).toBe(0);
+	expect(seen.listScroll).toBeGreaterThan(0);
+	expect(seen.heads).toEqual([true, true]);
 
-	// Every pane is its own content's height — not squeezed to fit.
-	expect(seen.panes.length).toBeGreaterThan(1);
-	for (const pane of seen.panes) expect(pane.drawn).toBe(pane.content);
+	// The newest note is scrolled to inside the pane, not off the end of it.
+	await expect(
+		page.getByRole('button', { name: 'Ephemeral 12' }),
+	).toBeInViewport();
+});
+
+/* A SECTION FOLDS TO ITS HEADING, and stays folded after a reload. */
+test('a section folds to its heading, and stays folded', async ({ page }) => {
+	await page.goto('/text-editor');
+	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+
+	const scratchHead = page.getByRole('button', {
+		name: 'Scratch',
+		exact: true,
+	});
+	const note = page.getByRole('button', { name: 'Ephemeral 0' });
+	await expect(scratchHead).toHaveAttribute('aria-expanded', 'true');
+	await expect(note).toBeVisible();
+
+	await scratchHead.click();
+	await expect(scratchHead).toHaveAttribute('aria-expanded', 'false');
+	await expect(note).toBeHidden();
+
+	await page.reload();
+	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+	await expect(scratchHead).toHaveAttribute('aria-expanded', 'false');
+	await expect(note).toBeHidden();
+
+	await scratchHead.click();
+	await expect(note).toBeVisible();
 });
 
 /*
@@ -2394,10 +2468,12 @@ test('a scratch note is there to type in, and survives a reload', async ({
 	page,
 }) => {
 	await editor(page);
-
+	// Edit, so the sentence is one line on the sheet and not wrapped in half.
+	await page.getByRole('button', { name: 'Edit' }).click();
 	await write(page, 'The terrain is unforgiving by design.');
 	await page.reload();
 	await page.locator('.workspace[data-ready]').waitFor({ state: 'attached' });
+	await page.getByRole('button', { name: 'Edit' }).click();
 	await expect
 		.poll(() => words(page))
 		.toBe('The terrain is unforgiving by design.');
@@ -2621,6 +2697,66 @@ test('a heading in the outline brings both panes to it', async ({ page }) => {
 		page.locator('.sheet .view-line', { hasText: '# Top' }),
 	).toBeInViewport();
 	await expect(page.locator('.proof h1')).toBeInViewport();
+});
+
+/*
+ * THE PREVIEW FOLLOWS THE SHEET IN SPLIT, and the sheet the preview, by the
+ * line each block of the proof came from.
+ */
+test('in split, the preview follows the sheet and the sheet the preview', async ({
+	page,
+}) => {
+	await editor(page);
+	await page.getByRole('button', { name: 'Split' }).click();
+	const text = Array.from(
+		{ length: 100 },
+		(_, i) => `## Part ${i}\n\nWords for part ${i}.\n`,
+	).join('\n');
+	await write(page, text);
+	await page.keyboard.press('ControlOrMeta+Home');
+
+	// The line at the top of the sheet, read off Monaco's own numbers.
+	const sheetTop = () =>
+		page.evaluate(() => {
+			const pane = document
+				.querySelector('.sheet .monaco-editor')!
+				.getBoundingClientRect();
+			const numbers = [
+				...document.querySelectorAll<HTMLElement>(
+					'.sheet .margin-view-overlays .line-numbers',
+				),
+			]
+				.filter((one) => one.getBoundingClientRect().top >= pane.top - 1)
+				.map((one) => Number(one.textContent));
+			return Math.min(...numbers) - 1;
+		});
+
+	// The source line of the block at the top of the proof.
+	const proofTop = () =>
+		page.evaluate(() => {
+			const proof = document.querySelector('.proof')!;
+			const top = proof.getBoundingClientRect().top;
+			const block = [
+				...proof.querySelectorAll<HTMLElement>('.markdown > [data-line]'),
+			].find((one) => one.getBoundingClientRect().bottom > top + 12);
+			return Number(block?.dataset.line);
+		});
+
+	const sheet = (await page.locator('.sheet').boundingBox())!;
+	await page.mouse.move(sheet.x + sheet.width / 2, sheet.y + sheet.height / 2);
+	// A step at a time: Firefox hands Monaco a wheel of lines, not pixels.
+	for (let i = 0; i < 10; i += 1) await page.mouse.wheel(0, 200);
+	await expect.poll(sheetTop).toBeGreaterThan(12);
+	await expect
+		.poll(async () => Math.abs((await proofTop()) - (await sheetTop())))
+		.toBeLessThan(4);
+
+	const proof = (await page.locator('.proof').boundingBox())!;
+	await page.mouse.move(proof.x + proof.width / 2, proof.y + proof.height / 2);
+	for (let i = 0; i < 3; i += 1) await page.mouse.wheel(0, -200);
+	await expect
+		.poll(async () => Math.abs((await proofTop()) - (await sheetTop())))
+		.toBeLessThan(4);
 });
 
 test('a link to a heading goes to it', async ({ page }) => {
@@ -3303,10 +3439,14 @@ test('Copy Relative Path puts the path on the clipboard', async ({
  * caret in Monaco, which has them as its own actions, and from anywhere else
  * on the page, which answers them itself.
  */
-const newNoteKeys =
-	process.platform === 'win32'
+/* By the browser's own platform, which is what the page reads: the desktop
+ * devices say Windows whatever machine the test runs on. */
+const newNoteKeys = async (page: Page) => {
+	const agent = await page.evaluate(() => navigator.userAgent);
+	return /Windows/.test(agent)
 		? ['Control+k', 'n']
-		: [process.platform === 'darwin' ? 'Meta+Alt+n' : 'Control+Alt+n'];
+		: [/Mac/.test(agent) ? 'Meta+Alt+n' : 'Control+Alt+n'];
+};
 
 test('Alt+Z turns wrapping off and on, from the sheet or anywhere', async ({
 	page,
@@ -3354,7 +3494,7 @@ test('the preview and panel keys are VS Code’s', async ({ page }) => {
 test('a new untitled note from vscode.dev’s key', async ({ page }) => {
 	await editor(page);
 	await page.getByRole('button', { name: 'Ephemeral 0' }).focus();
-	for (const key of newNoteKeys) await page.keyboard.press(key);
+	for (const key of await newNoteKeys(page)) await page.keyboard.press(key);
 	await expect(
 		page.getByRole('button', { name: 'Ephemeral 1' }),
 	).toHaveAttribute('aria-current', 'true');

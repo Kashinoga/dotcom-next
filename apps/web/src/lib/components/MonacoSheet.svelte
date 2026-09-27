@@ -23,6 +23,7 @@
 		wrap = true,
 		actions = [],
 		oninput,
+		onscroll,
 	}: {
 		/* Which document: a model is kept per key, and its undo history with it. */
 		key: string;
@@ -40,6 +41,9 @@
 		 */
 		actions?: { id: string; label: string; keys: Keys; run: () => void }[];
 		oninput?: (value: string) => void;
+		/* The source line at the top of the sheet, zero-based and fractional, for
+		 * the preview to follow — see `topLine`. */
+		onscroll?: (line: number) => void;
 	} = $props();
 
 	let host: HTMLElement;
@@ -49,6 +53,10 @@
 	/* True while the page, not the person, is changing the words, so the change
 	 * is not handed back up as typing. */
 	let quiet = false;
+
+	/* True while the page is scrolling the sheet, so the preview it is
+	 * following is not told to follow it back. */
+	let steered = false;
 
 	onMount(() => {
 		let gone = false;
@@ -84,6 +92,9 @@
 			}
 			made.onDidChangeModelContent(() => {
 				if (!quiet) oninput?.(made.getValue());
+			});
+			made.onDidScrollChange((event) => {
+				if (event.scrollTopChanged && !steered) onscroll?.(topLine(made));
 			});
 
 			loaded = module;
@@ -127,6 +138,37 @@
 		const frame = requestAnimationFrame(() => module.applyTheme(dark));
 		return () => cancelAnimationFrame(frame);
 	});
+
+	/*
+	 * THE LINE AT THE TOP, with how far through it the top has gone, as VS
+	 * Code's preview reads the editor: a wrapped line is taller than one row,
+	 * so the fraction is of that line's own height.
+	 */
+	function topLine(on: Editor) {
+		const top = on.getScrollTop();
+		const first = on.getVisibleRanges()[0]?.startLineNumber ?? 1;
+		const from = on.getTopForLineNumber(first);
+		const to = on.getTopForLineNumber(first + 1);
+		const through = to > from ? (top - from) / (to - from) : 0;
+		return first - 1 + Math.min(Math.max(through, 0), 1);
+	}
+
+	/* The line at the top of the sheet, where the preview has scrolled to it. */
+	export function scrollToLine(line: number) {
+		if (!editor) return;
+		const whole = Math.floor(line);
+		const from = editor.getTopForLineNumber(whole + 1);
+		const to = editor.getTopForLineNumber(whole + 2);
+		steered = true;
+		editor.setScrollTop(from + (line - whole) * Math.max(to - from, 0));
+		steered = false;
+	}
+
+	/* The line the top of the sheet is on now, for the preview to catch up to
+	 * when it appears or is set again. */
+	export function currentLine() {
+		return editor ? topLine(editor) : null;
+	}
 
 	/* The caret to a line, and the line to the top of the sheet: what VS Code
 	 * does when a heading in its outline is pressed. Zero-based, as the parse

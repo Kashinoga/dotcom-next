@@ -29,9 +29,11 @@ import {
 import { forget, recall, remember } from '$lib/remembered';
 import {
 	dirOf,
+	foldersOf,
 	isOpenable,
 	join,
 	localStore,
+	MAX_DEPTH,
 	snapshotStore,
 	type FolderEntry,
 	toRows,
@@ -110,11 +112,11 @@ let store = $state<Store | null>(null);
 let listing = $state<Listing>({ files: [], dirs: [] });
 
 /*
- * WHICH FOLDERS ARE SHUT. Closed rather than open, so a folder that arrives in a
- * later listing is drawn open — a workspace that hid every folder until it was
- * clicked would open on a rail that looks empty.
+ * WHICH FOLDERS ARE OPEN. Open rather than shut, so a folder that arrives in a
+ * later listing — a drive's, read when its parent opens, or one only named by a
+ * document's path — is drawn shut like every other, as VS Code draws it.
  */
-let closed = $state<Set<string>>(new Set());
+let expanded = $state<Set<string>>(new Set());
 
 /*
  * WHICH FOLDERS HAVE BEEN READ. Only a LAZY store needs this — one that answered
@@ -214,7 +216,7 @@ async function adopt(next: Store) {
 	 * this device and a folder on a server are the same thing to somebody looking
 	 * at a list of them.
 	 */
-	closed = new Set(read.dirs);
+	expanded = new Set();
 	loaded = new Set(next.listDir ? [''] : []);
 	opening = new Set();
 	listing = read;
@@ -306,16 +308,42 @@ function remap(from: string, to: string) {
 		),
 		dirs: listing.dirs.map(swap),
 	};
-	closed = new Set([...closed].map(swap));
+	expanded = new Set([...expanded].map(swap));
 	loaded = new Set([...loaded].map(swap));
 	if (openPath !== null) openPath = swap(openPath);
 }
 
+/*
+ * READ A FOLDER ON A LAZY STORE, the first time it is opened. Its folders
+ * arrive shut, as every folder does — see `expanded`.
+ */
+async function load(path: string) {
+	const from = store;
+	if (!from?.listDir || loaded.has(path) || opening.has(path)) return;
+
+	opening = new Set(opening).add(path);
+	const extra = await from.listDir(path);
+	opening = new Set([...opening].filter((one) => one !== path));
+
+	/* The whole folder put away, or another taken, while that was in flight:
+	 * this answer is about a tree nobody is looking at. */
+	if (store !== from) return;
+
+	/* Left UNLOADED, so opening it again tries again. A folder that failed once
+	 * over a network is not a folder that is empty. */
+	if (!extra) return;
+
+	loaded = new Set(loaded).add(path);
+	listing = merge(listing, extra, path);
+}
+
+const folderPaths = () => foldersOf(listing);
+
 /* Open every folder above a path, so what was just made is in view. */
 function reveal(path: string) {
-	const next = new Set(closed);
-	for (let dir = dirOf(path); dir; dir = dirOf(dir)) next.delete(dir);
-	closed = next;
+	const next = new Set(expanded);
+	for (let dir = dirOf(path); dir; dir = dirOf(dir)) next.add(dir);
+	expanded = next;
 }
 
 export const folder = {
@@ -334,7 +362,7 @@ export const folder = {
 	/* The rail's rows: folders and documents in one flat list, each carrying how
 	 * far in it sits. See `toRows`. */
 	get rows(): Row[] {
-		return toRows(listing, closed);
+		return toRows(listing, expanded);
 	},
 
 	/* How many documents there are, whatever is folded away. The rail asks this to
@@ -344,7 +372,7 @@ export const folder = {
 	},
 
 	isClosed(path: string) {
-		return closed.has(path);
+		return !expanded.has(path);
 	},
 
 	isOpening(path: string) {
@@ -360,29 +388,47 @@ export const folder = {
 	 * only what is in it.
 	 */
 	async fold(path: string) {
-		const next = new Set(closed);
-		const opened = next.delete(path);
-		if (!opened) next.add(path);
-		closed = next;
+		const next = new Set(expanded);
+		const opened = !next.delete(path);
+		if (opened) next.add(path);
+		expanded = next;
 
-		if (!opened || !store?.listDir || loaded.has(path)) return;
+		if (opened) await load(path);
+	},
 
-		opening = new Set(opening).add(path);
-		const extra = await store.listDir(path);
-		opening = new Set([...opening].filter((one) => one !== path));
+	/* Every folder above a path opened, so its row is in view. */
+	reveal(path: string) {
+		reveal(path);
+	},
 
-		/* Closed again while it was in flight, or the whole folder put away. Either
-		 * way this answer is about a tree nobody is looking at. */
-		if (!store) return;
+	/* Every folder shut, as VS Code's Collapse Folders in Explorer shuts them. */
+	collapseAll() {
+		expanded = new Set();
+	},
 
-		if (!extra) {
-			/* Left UNLOADED, so pressing again tries again. A folder that failed once
-			 * over a network is not a folder that is empty. */
-			return;
+	/*
+	 * EVERY FOLDER OPEN, down to what the walk would reach. A lazy store reads
+	 * each level as it is opened, one round trip a folder, and a level at a time
+	 * so the rail fills from the top.
+	 */
+	async expandAll() {
+		const from = store;
+		for (let depth = 0; depth < MAX_DEPTH && store === from; depth += 1) {
+			const shut = [...folderPaths()].filter((path) => !expanded.has(path));
+			if (!shut.length) return;
+			expanded = new Set([...expanded, ...shut]);
+			await Promise.all(shut.map(load));
 		}
+	},
 
-		loaded = new Set(loaded).add(path);
-		listing = merge(listing, extra, path);
+	/* Whether any folder is open, for the heading to offer the one of the two
+	 * that would do something. */
+	get anyExpanded() {
+		return [...expanded].some((path) => folderPaths().has(path));
+	},
+
+	get hasFolders() {
+		return folderPaths().size > 0;
 	},
 
 	get trouble() {
@@ -694,7 +740,6 @@ export const folder = {
 		if (store.listDir) loaded = new Set(loaded).add(path);
 		trouble = 'idle';
 		reveal(path);
-		closed = new Set(closed).add(path);
 		return { path };
 	},
 
@@ -772,9 +817,6 @@ export const folder = {
 		 * `adopt`. On a lazy store it is read when it is opened, like any other. */
 		const top = join(dir, name);
 		reveal(top);
-		if (row.kind === 'dir') {
-			closed = new Set([...closed, ...copied.made.dirs]);
-		}
 
 		return copied.whole ? { path: top } : { refusal: 'partial' };
 	},
@@ -819,7 +861,7 @@ export const folder = {
 			files: listing.files.filter((file) => kept(file.path)),
 			dirs: listing.dirs.filter(kept),
 		};
-		closed = new Set([...closed].filter(kept));
+		expanded = new Set([...expanded].filter(kept));
 		loaded = new Set([...loaded].filter(kept));
 		if (!listing.files.length && !listing.dirs.length) trouble = 'empty';
 
@@ -859,7 +901,7 @@ export const folder = {
 		saveWhy = null;
 		store = null;
 		listing = { files: [], dirs: [] };
-		closed = new Set();
+		expanded = new Set();
 		loaded = new Set();
 		opening = new Set();
 		trouble = 'idle';

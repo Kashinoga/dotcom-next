@@ -16,6 +16,8 @@
 	import NotepadText from '@lucide/svelte/icons/notepad-text';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import ChevronsDownUp from '@lucide/svelte/icons/chevrons-down-up';
+	import ChevronsUpDown from '@lucide/svelte/icons/chevrons-up-down';
 	import FilePlus from '@lucide/svelte/icons/file-plus';
 	import FolderOpen from '@lucide/svelte/icons/folder-open';
 	import FolderPlus from '@lucide/svelte/icons/folder-plus';
@@ -271,6 +273,170 @@
 	}
 
 	/*
+	 * THE PREVIEW FOLLOWS THE SHEET, and the sheet the preview, in split: VS
+	 * Code's `markdown.preview.scrollPreviewWithEditor` and its opposite, both
+	 * on by default there. A line is found by the `data-line` each block of the
+	 * proof carries, and a place between two blocks in proportion between them.
+	 * The textarea has no lines to read, so it and the proof keep proportion.
+	 */
+	const syncing = $derived(view.current === 'split' && setting !== null);
+	const lineCount = $derived(source?.split('\n').length ?? 0);
+
+	/* The proof's blocks by source line, the outermost of each. Read again when
+	 * the proof is set again. */
+	let blocks: { line: number; el: HTMLElement }[] | null = null;
+
+	function blockList() {
+		if (blocks?.[0]?.el.isConnected) return blocks;
+		const seen = new Set<number>();
+		blocks = [];
+		for (const el of proof?.querySelectorAll<HTMLElement>('[data-line]') ??
+			[]) {
+			const line = Number(el.dataset.line);
+			if (seen.has(line)) continue;
+			seen.add(line);
+			blocks.push({ line, el });
+		}
+		blocks.sort((a, b) => a.line - b.line);
+		return blocks;
+	}
+
+	/* Where a block stands in the proof's scroll, less the padding, so the first
+	 * block of a document is at 0 as it is before any scrolling. */
+	function topOf(el: HTMLElement) {
+		if (!proof) return 0;
+		return (
+			el.getBoundingClientRect().top -
+			proof.getBoundingClientRect().top +
+			proof.scrollTop -
+			Number.parseFloat(getComputedStyle(proof).paddingBlockStart)
+		);
+	}
+
+	/* The last block at or above a line, by halving. */
+	function blockAt(list: { line: number }[], line: number) {
+		let lo = 0;
+		let hi = list.length - 1;
+		while (lo < hi) {
+			const mid = Math.ceil((lo + hi) / 2);
+			if (list[mid].line <= line) lo = mid;
+			else hi = mid - 1;
+		}
+		return lo;
+	}
+
+	/* Set by the page scrolling one pane, so that pane's scroll is not handed
+	 * back to the other as if a person had made it. */
+	let proofSteered = false;
+	let sheetSteered = false;
+
+	function steer(el: HTMLElement, to: number) {
+		const before = el.scrollTop;
+		el.scrollTop = to;
+		return el.scrollTop !== before;
+	}
+
+	function proofTo(line: number) {
+		const list = blockList();
+		if (!proof || !list.length) return;
+		const i = blockAt(list, line);
+		const prev = list[i];
+		const next = list[i + 1];
+		const from = topOf(prev.el);
+		let at: number;
+		if (line < prev.line) at = 0;
+		else if (next) {
+			at =
+				from +
+				((line - prev.line) / (next.line - prev.line)) *
+					(topOf(next.el) - from);
+		} else {
+			// Past the last block, the rest of the proof in proportion.
+			const left = Math.max(lineCount - prev.line, 1);
+			at =
+				from +
+				Math.min((line - prev.line) / left, 1) * (proof.scrollHeight - from);
+		}
+		if (steer(proof, at)) proofSteered = true;
+	}
+
+	/* The source line at the top of the proof: `proofTo` read backwards. */
+	function lineAtProof() {
+		const list = blockList();
+		if (!proof || !list.length) return null;
+		const y = proof.scrollTop;
+		let lo = 0;
+		let hi = list.length - 1;
+		while (lo < hi) {
+			const mid = Math.ceil((lo + hi) / 2);
+			if (topOf(list[mid].el) <= y) lo = mid;
+			else hi = mid - 1;
+		}
+		const prev = list[lo];
+		const from = topOf(prev.el);
+		if (y < from) return 0;
+		const next = list[lo + 1];
+		if (next) {
+			const to = topOf(next.el);
+			const through = to > from ? (y - from) / (to - from) : 0;
+			return prev.line + Math.min(through, 1) * (next.line - prev.line);
+		}
+		const rest = proof.scrollHeight - from;
+		return (
+			prev.line +
+			(rest > 0 ? (y - from) / rest : 0) * Math.max(lineCount - prev.line, 0)
+		);
+	}
+
+	const ratio = (el: HTMLElement) =>
+		el.scrollTop / Math.max(el.scrollHeight - el.clientHeight, 1);
+
+	const toRatio = (el: HTMLElement, at: number) =>
+		at * Math.max(el.scrollHeight - el.clientHeight, 0);
+
+	function sheetScrolled(line: number) {
+		if (syncing) proofTo(line);
+	}
+
+	function textScrolled() {
+		if (sheetSteered) {
+			sheetSteered = false;
+			return;
+		}
+		if (!syncing || !proof || !sheetText) return;
+		if (steer(proof, toRatio(proof, ratio(sheetText)))) proofSteered = true;
+	}
+
+	function proofScrolled() {
+		if (proofSteered) {
+			proofSteered = false;
+			return;
+		}
+		if (!syncing || !proof) return;
+		if (monacoSheet) {
+			const line = lineAtProof();
+			if (line !== null) monacoSheet.scrollToLine(line);
+		} else if (sheetText) {
+			if (steer(sheetText, toRatio(sheetText, ratio(proof)))) {
+				sheetSteered = true;
+			}
+		}
+	}
+
+	/* On entering split, and each time the proof is set again, it catches up
+	 * with the sheet — which is where the person is typing. */
+	$effect(() => {
+		void setting?.html;
+		if (!syncing || !proof) return;
+		blocks = null;
+		const line = monacoSheet?.currentLine();
+		if (line != null) proofTo(line);
+		else if (sheetText && steer(proof, toRatio(proof, ratio(sheetText)))) {
+			proofSteered = true;
+		}
+	});
+
+	/*
 	 * A LINK IN THE PROOF. Out of the site it opens beside the editor — see
 	 * $lib/markdown. Within the document it goes to the heading. Anything else is
 	 * a path in this workspace, and opens here as it would in VS Code; a scratch
@@ -343,6 +509,33 @@
 	});
 
 	/*
+	 * A SECTION FOLDS TO ITS HEADING, as each of VS Code's side bar views does,
+	 * and stays folded between visits. Read after the first paint, so the
+	 * prerendered rail and the hydrated one agree.
+	 */
+	type Section = 'scratch' | 'files';
+	const SECTIONS = 'text-editor.sections';
+	let shut = $state<Section[]>([]);
+
+	$effect(() => {
+		try {
+			const kept = JSON.parse(localStorage.getItem(SECTIONS) ?? '[]');
+			if (Array.isArray(kept)) shut = kept;
+		} catch {
+			// Every section open, which is where a first visit starts anyway.
+		}
+	});
+
+	function toggleSection(section: Section, show = shut.includes(section)) {
+		shut = show ? shut.filter((one) => one !== section) : [...shut, section];
+		try {
+			localStorage.setItem(SECTIONS, JSON.stringify(shut));
+		} catch {
+			// Folded for this visit only.
+		}
+	}
+
+	/*
 	 * THE EXPLORER'S VERBS, as VS Code's explorer has them: New File and New
 	 * Folder in the heading, a name typed into the tree, F2 to rename, Delete to
 	 * delete, and all of them on the row's context menu. Only where the folder
@@ -380,12 +573,16 @@
 
 	function startNew(kind: 'file' | 'dir') {
 		notice = null;
+		toggleSection('files', true);
 		const dir = !chosen
 			? ''
 			: chosen.kind === 'dir'
 				? chosen.path
 				: dirOf(chosen.path);
-		if (dir && folder.isClosed(dir)) void folder.fold(dir);
+		if (dir) {
+			folder.reveal(dir);
+			if (folder.isClosed(dir)) void folder.fold(dir);
+		}
 		typed = '';
 		naming = { kind, dir, refusal: null };
 	}
@@ -497,6 +694,23 @@
 		const mod =
 			(event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey;
 		const key = event.key.toLowerCase();
+
+		/* VS Code's tree: Right opens a folder, Left shuts it, and Left on
+		 * anything already shut goes up to the folder it is in. */
+		if (event.key === 'ArrowRight' && row.kind === 'dir') {
+			event.preventDefault();
+			if (folder.isClosed(row.path)) void folder.fold(row.path);
+			return;
+		}
+		if (event.key === 'ArrowLeft') {
+			event.preventDefault();
+			if (row.kind === 'dir' && !folder.isClosed(row.path)) {
+				void folder.fold(row.path);
+			} else if (dirOf(row.path)) {
+				void focusRow(dirOf(row.path));
+			}
+			return;
+		}
 
 		// Every one of these changes the folder, which a snapshot cannot be.
 		if (!folder.writable) return;
@@ -674,6 +888,9 @@
 	/* Ctrl+Shift+E: the files, and the focus on the open one, or the first. */
 	async function showExplorer() {
 		if (!workspace.open) workspace.toggle();
+		// The open one is shown, as VS Code's `explorer.autoReveal` shows it.
+		toggleSection(open.kind === 'file' ? 'files' : 'scratch', true);
+		if (open.kind === 'file') folder.reveal(open.path);
 		await tick();
 		// One after the other: a list of selectors answers in page order, not in
 		// the order it was written, and the first row would win over the open one.
@@ -681,6 +898,18 @@
 			document.querySelector<HTMLElement>(`#workspace ${selector}`);
 		(at('[aria-current="true"]') ?? at('.file'))?.focus();
 	}
+
+	/* The open one's row is shown, its folders opened and scrolled to in its
+	 * pane, as VS Code's `explorer.autoReveal` shows it. */
+	$effect(() => {
+		const path = open.kind === 'file' ? open.path : null;
+		if (path) untrack(() => folder.reveal(path));
+		void tick().then(() =>
+			document
+				.querySelector('#workspace [aria-current="true"]')
+				?.scrollIntoView({ block: 'nearest' }),
+		);
+	});
 
 	/*
 	 * GO TO FILE'S LIST: the scratch notes and every document the folder can
@@ -973,6 +1202,23 @@
 	{/if}
 {/snippet}
 
+{#snippet twisty(section: Section, title: string)}
+	<button
+		type="button"
+		class="twisty"
+		aria-expanded={!shut.includes(section)}
+		aria-controls="{section}-body"
+		onclick={() => toggleSection(section)}
+	>
+		{#if shut.includes(section)}
+			<ChevronRight aria-hidden="true" />
+		{:else}
+			<ChevronDown aria-hidden="true" />
+		{/if}
+		<span class="name">{title}</span>
+	</button>
+{/snippet}
+
 <Seo
 	title="Text Editor"
 	description="A Markdown editor, set as a page of the manual it renders."
@@ -1038,9 +1284,9 @@
 				yet. Putting it at the top is not a ranking of importance so much as
 				an answer to "where do I start" — the top of the list is where.
 			-->
-			<section class="section">
+			<section class="section bounded">
 				<h2>
-					Scratch
+					{@render twisty('scratch', 'Scratch')}
 					<button
 						type="button"
 						class="add"
@@ -1052,40 +1298,42 @@
 					</button>
 				</h2>
 
-				<ol>
-					{#each scratch.notes as note (note.id)}
-						<li class="row">
-							<button
-								type="button"
-								class="file"
-								aria-current={openScratch === note.id ? 'true' : undefined}
-								onclick={() => (open = { kind: 'scratch', id: note.id })}
-							>
-								<NotepadText aria-hidden="true" />
-								<span class="name">{scratchName(note.id)}</span>
-							</button>
+				<div id="scratch-body" class="body" hidden={shut.includes('scratch')}>
+					<ol>
+						{#each scratch.notes as note (note.id)}
+							<li class="row">
+								<button
+									type="button"
+									class="file"
+									aria-current={openScratch === note.id ? 'true' : undefined}
+									onclick={() => (open = { kind: 'scratch', id: note.id })}
+								>
+									<NotepadText aria-hidden="true" />
+									<span class="name">{scratchName(note.id)}</span>
+								</button>
 
-							<!--
+								<!--
 								THE LABEL SAYS WHICH OF THE TWO THINGS THIS DOES. Closing
 								Ephemeral 0 empties it and leaves the row; closing any other
 								takes the row with it. Both are "close" to the hand doing it,
 								and a screen reader should not have to find that out by
 								pressing.
 							-->
-							<button
-								type="button"
-								class="close"
-								title={note.id === PERMANENT ? 'Clear it' : 'Close it'}
-								aria-label={note.id === PERMANENT
-									? `Clear ${scratchName(note.id)}`
-									: `Close ${scratchName(note.id)}`}
-								onclick={() => closeScratch(note.id)}
-							>
-								<X aria-hidden="true" />
-							</button>
-						</li>
-					{/each}
-				</ol>
+								<button
+									type="button"
+									class="close"
+									title={note.id === PERMANENT ? 'Clear it' : 'Close it'}
+									aria-label={note.id === PERMANENT
+										? `Clear ${scratchName(note.id)}`
+										: `Close ${scratchName(note.id)}`}
+									onclick={() => closeScratch(note.id)}
+								>
+									<X aria-hidden="true" />
+								</button>
+							</li>
+						{/each}
+					</ol>
+				</div>
 			</section>
 
 			<!--
@@ -1106,7 +1354,7 @@
 				ondrop={(event) => drop(event, null)}
 			>
 				<h2>
-					{folder.name ?? 'Files'}
+					{@render twisty('files', folder.name ?? 'Files')}
 
 					<!--
 						TWO WAYS IN, AND ONLY ONE IS OFFERED. Chromium can hand over a
@@ -1139,6 +1387,31 @@
 								</button>
 							{/if}
 
+							{#if folder.hasFolders}
+								<button
+									type="button"
+									class="add"
+									title="Expand All"
+									aria-label="Expand all folders"
+									onclick={() => {
+										toggleSection('files', true);
+										void folder.expandAll();
+									}}
+								>
+									<ChevronsUpDown aria-hidden="true" />
+								</button>
+								<button
+									type="button"
+									class="add"
+									title="Collapse Folders in Explorer"
+									aria-label="Collapse all folders"
+									disabled={!folder.anyExpanded}
+									onclick={() => folder.collapseAll()}
+								>
+									<ChevronsDownUp aria-hidden="true" />
+								</button>
+							{/if}
+
 							<!--
 								CLOSING IS A DECISION ABOUT THIS FOLDER, so it forgets it too —
 								otherwise the next visit opens on the folder somebody just put
@@ -1154,204 +1427,262 @@
 								<X aria-hidden="true" />
 							</button>
 						</span>
-					{:else if canPickFolder()}
-						<button
-							type="button"
-							class="add"
-							title="Open a folder from this device"
-							aria-label="Open a folder from this device"
-							onclick={() => folder.pick()}
-						>
-							<FolderOpen aria-hidden="true" />
-						</button>
 					{:else}
-						<button
-							type="button"
-							class="add"
-							title="Open a folder from this device, as it is now"
-							aria-label="Open a folder from this device, read-only"
-							onclick={() => dirInput?.click()}
-						>
-							<FolderOpen aria-hidden="true" />
-						</button>
-
 						<!--
+							THE WAYS IN, together: a folder on this device, and a drive on a
+							server. Once one is open the other is a close away.
+						-->
+						<span class="actions">
+							{#if canPickFolder()}
+								<button
+									type="button"
+									class="add"
+									title="Open a folder from this device"
+									aria-label="Open a folder from this device"
+									onclick={() => folder.pick()}
+								>
+									<FolderOpen aria-hidden="true" />
+								</button>
+							{:else}
+								<button
+									type="button"
+									class="add"
+									title="Open a folder from this device, as it is now"
+									aria-label="Open a folder from this device, read-only"
+									onclick={() => dirInput?.click()}
+								>
+									<FolderOpen aria-hidden="true" />
+								</button>
+
+								<!--
 							OUT OF THE READING, and not `display: none`, which would take it
 							out of the tab order and out of reach of the click above. The
 							button beside it is the control; this is the mechanism.
 						-->
-						<input
-							bind:this={dirInput}
-							class="visually-hidden"
-							type="file"
-							tabindex="-1"
-							aria-hidden="true"
-							webkitdirectory
-							multiple
-							onchange={takeFolder}
-						/>
+								<input
+									bind:this={dirInput}
+									class="visually-hidden"
+									type="file"
+									tabindex="-1"
+									aria-hidden="true"
+									webkitdirectory
+									multiple
+									onchange={takeFolder}
+								/>
+							{/if}
+							<button
+								type="button"
+								class="add"
+								title="Connect a Nextcloud or ownCloud drive"
+								aria-label="Connect a drive"
+								onclick={() => (connecting = true)}
+							>
+								<Cloud aria-hidden="true" />
+							</button>
+						</span>
 					{/if}
 				</h2>
 
-				{#if notice}
-					<p class="refusal notice" role="alert">{notice}</p>
-				{/if}
+				<div id="files-body" class="body" hidden={shut.includes('files')}>
+					{#if notice}
+						<p class="refusal notice" role="alert">{notice}</p>
+					{/if}
 
-				{#if folder.reading}
-					<Placeholder
-						shape="rows"
-						label="Reading the folder."
-						widths={[70, 45, 60, 50]}
-					/>
-				{:else if folder.waiting}
-					<!--
+					{#if folder.reading}
+						<Placeholder
+							shape="rows"
+							label="Reading the folder."
+							widths={[70, 45, 60, 50]}
+						/>
+					{:else if folder.waiting}
+						<!--
 						A FOLDER FROM LAST TIME. Named, because "the folder from last time"
 						is a question nobody can answer and "Notes" is one they can. It is a
 						button because a browser grants the permission again only in answer
 						to a press.
 					-->
-					<p class="note">Last time you had {folder.waiting.name}.</p>
-					<button type="button" class="file" onclick={() => folder.resume()}>
-						<FolderOpen aria-hidden="true" />
-						<span class="name">Open it again</span>
-					</button>
-				{:else if !folder.looked}
-					<!-- Not "no folder" until the folder from last time has been asked after. -->
-					<Placeholder
-						shape="rows"
-						label="Looking for the folder from last time."
-						widths={[65]}
-					/>
-				{:else if folder.trouble === 'idle' && !folder.name}
-					<!--
+						<p class="note">Last time you had {folder.waiting.name}.</p>
+						<button type="button" class="file" onclick={() => folder.resume()}>
+							<FolderOpen aria-hidden="true" />
+							<span class="name">Open it again</span>
+						</button>
+					{:else if !folder.looked}
+						<!-- Not "no folder" until the folder from last time has been asked after. -->
+						<Placeholder
+							shape="rows"
+							label="Looking for the folder from last time."
+							widths={[65]}
+						/>
+					{:else if folder.trouble === 'idle' && !folder.name}
+						<!--
 						NO FOLDER YET, which is not a failure and does not read as one. It
 						says what the control above does, because a mark on its own is a
 						thing to work out and this is the one row a first visit sees.
 					-->
-					<p class="note">
-						No folder open. The scratch notes above are kept in this browser.
-					</p>
-				{:else if folder.trouble === 'empty'}
-					<p class="note">Nothing in {folder.name} this editor can open.</p>
-				{:else if folder.trouble === 'unreadable'}
-					<p class="note">That folder could not be read.</p>
-				{:else if folder.trouble === 'denied'}
-					<p class="note">That folder was not handed over.</p>
-				{/if}
+						<p class="note">
+							No folder open. Open one from this device, or a Nextcloud or
+							ownCloud drive.
+						</p>
+					{:else if folder.trouble === 'empty'}
+						<p class="note">Nothing in {folder.name} this editor can open.</p>
+					{:else if folder.trouble === 'unreadable'}
+						<p class="note">That folder could not be read.</p>
+					{:else if folder.trouble === 'denied'}
+						<p class="note">That folder was not handed over.</p>
+					{/if}
 
-				<!--
+					<!-- The drives this browser knows, while nothing is open. -->
+					{#if !folder.name && !folder.reading}
+						{#if !folder.drivesRead}
+							<Placeholder
+								shape="rows"
+								label="Reading the drives."
+								widths={[60]}
+							/>
+						{:else if folder.drives.length}
+							<ol aria-label="Drives">
+								{#each folder.drives as drive (drive.id)}
+									<li class="row">
+										<button
+											type="button"
+											class="file"
+											title="{drive.user} at {drive.base}"
+											onclick={() => folder.openDrive(drive.id)}
+										>
+											<Cloud aria-hidden="true" />
+											<span class="name">{drive.name}</span>
+										</button>
+
+										<button
+											type="button"
+											class="close"
+											title="Forget it"
+											aria-label="Forget {drive.name}"
+											onclick={() => folder.dropDrive(drive.id)}
+										>
+											<X aria-hidden="true" />
+										</button>
+									</li>
+								{/each}
+							</ol>
+						{/if}
+					{/if}
+
+					<!--
 					NO LIST UNTIL THERE IS SOMETHING IN IT. An empty <ol> is not nothing:
 					it keeps the step every list holds off what is above it, so the pane
 					that had no rows carried four pixels more foot than the two that did.
 				-->
-				{#if folder.rows.length || naming}
-					<ol>
-						{#if naming && naming.kind !== 'rename' && naming.dir === ''}
-							<li>{@render nameBox(naming.kind, 0, '')}</li>
-						{/if}
-						{#each folder.rows as row (row.path)}
-							<li>
-								{#if row.kind === 'dir'}
-									<!--
+					{#if folder.rows.length || naming}
+						<ol>
+							{#if naming && naming.kind !== 'rename' && naming.dir === ''}
+								<li>{@render nameBox(naming.kind, 0, '')}</li>
+							{/if}
+							{#each folder.rows as row (row.path)}
+								<li>
+									{#if row.kind === 'dir'}
+										<!--
 										A FOLDER FOLDS. `aria-expanded` is the state and the mark
 										is drawn from it, so the announcement and the drawing are
 										one attribute read twice.
 									-->
-									{#if naming?.kind === 'rename' && naming.path === row.path}
-										{@render nameBox('rename', row.depth, row.name, 'dir')}
+										{#if naming?.kind === 'rename' && naming.path === row.path}
+											{@render nameBox('rename', row.depth, row.name, 'dir')}
+										{:else}
+											<button
+												type="button"
+												class="file folder"
+												class:drop={dropDir === row.path}
+												class:cut={clipboard?.mode === 'cut' &&
+													clipboard.row.path === row.path}
+												style="--depth: {row.depth}"
+												aria-expanded={!folder.isClosed(row.path)}
+												title={row.path}
+												data-path={row.path}
+												draggable={folder.writable}
+												onclick={() => {
+													chosen = row;
+													void folder.fold(row.path);
+												}}
+												oncontextmenu={(event) => openMenu(event, row)}
+												onkeydown={(event) => rowKeys(event, row)}
+												ondragstart={(event) => dragStart(event, row)}
+												ondragover={(event) => dragOver(event, row)}
+												ondrop={(event) => drop(event, row)}
+												ondragend={dragEnd}
+											>
+												{#if folder.isClosed(row.path)}
+													<ChevronRight aria-hidden="true" />
+												{:else}
+													<ChevronDown aria-hidden="true" />
+												{/if}
+												<span class="name">{row.name}</span>
+											</button>
+										{/if}
+
+										{#if folder.isOpening(row.path) && !folder.isClosed(row.path)}
+											<Placeholder
+												shape="rows"
+												label="Reading {row.name}."
+												depth={row.depth + 1}
+												widths={[55, 40]}
+											/>
+										{/if}
+									{:else if naming?.kind === 'rename' && naming.path === row.path}
+										{@render nameBox('rename', row.depth, row.name)}
 									{:else}
+										<!--
+										NOT `disabled`, which takes a row out of reach of the keyboard
+										and the context menu: a document this editor cannot open can
+										still be renamed and deleted, as it can in VS Code.
+									-->
 										<button
 											type="button"
-											class="file folder"
-											class:drop={dropDir === row.path}
+											class="file"
+											class:inert={!row.openable}
 											class:cut={clipboard?.mode === 'cut' &&
 												clipboard.row.path === row.path}
 											style="--depth: {row.depth}"
-											aria-expanded={!folder.isClosed(row.path)}
+											aria-current={open.kind === 'file' &&
+											open.path === row.path
+												? 'true'
+												: undefined}
+											aria-disabled={row.openable ? undefined : 'true'}
 											title={row.path}
 											data-path={row.path}
-											draggable={folder.writable}
 											onclick={() => {
 												chosen = row;
-												void folder.fold(row.path);
+												if (row.openable) void openFile(row.path);
 											}}
 											oncontextmenu={(event) => openMenu(event, row)}
 											onkeydown={(event) => rowKeys(event, row)}
+											draggable={folder.writable}
 											ondragstart={(event) => dragStart(event, row)}
 											ondragover={(event) => dragOver(event, row)}
 											ondrop={(event) => drop(event, row)}
 											ondragend={dragEnd}
 										>
-											{#if folder.isClosed(row.path)}
-												<ChevronRight aria-hidden="true" />
-											{:else}
-												<ChevronDown aria-hidden="true" />
-											{/if}
-											<span class="name">{row.name}</span>
-										</button>
-									{/if}
-
-									{#if folder.isOpening(row.path) && !folder.isClosed(row.path)}
-										<Placeholder
-											shape="rows"
-											label="Reading {row.name}."
-											depth={row.depth + 1}
-											widths={[55, 40]}
-										/>
-									{/if}
-								{:else if naming?.kind === 'rename' && naming.path === row.path}
-									{@render nameBox('rename', row.depth, row.name)}
-								{:else}
-									<!--
-										NOT `disabled`, which takes a row out of reach of the keyboard
-										and the context menu: a document this editor cannot open can
-										still be renamed and deleted, as it can in VS Code.
-									-->
-									<button
-										type="button"
-										class="file"
-										class:inert={!row.openable}
-										class:cut={clipboard?.mode === 'cut' &&
-											clipboard.row.path === row.path}
-										style="--depth: {row.depth}"
-										aria-current={open.kind === 'file' && open.path === row.path
-											? 'true'
-											: undefined}
-										aria-disabled={row.openable ? undefined : 'true'}
-										title={row.path}
-										data-path={row.path}
-										onclick={() => {
-											chosen = row;
-											if (row.openable) void openFile(row.path);
-										}}
-										oncontextmenu={(event) => openMenu(event, row)}
-										onkeydown={(event) => rowKeys(event, row)}
-										draggable={folder.writable}
-										ondragstart={(event) => dragStart(event, row)}
-										ondragover={(event) => dragOver(event, row)}
-										ondrop={(event) => drop(event, row)}
-										ondragend={dragEnd}
-									>
-										<!--
+											<!--
 											A PAGE WITH WRITING ON IT, or a page without. What these
 											rows have in common is being files this editor cannot
 											read, so they get the page with nothing on it.
 										-->
-										{#if row.openable}
-											<FileText aria-hidden="true" />
-										{:else}
-											<File aria-hidden="true" />
-										{/if}
-										<span class="name">{row.name}</span>
-									</button>
+											{#if row.openable}
+												<FileText aria-hidden="true" />
+											{:else}
+												<File aria-hidden="true" />
+											{/if}
+											<span class="name">{row.name}</span>
+										</button>
+									{/if}
+								</li>
+								{#if naming && naming.kind !== 'rename' && naming.dir === row.path && !folder.isClosed(row.path)}
+									<li>{@render nameBox(naming.kind, row.depth + 1, '')}</li>
 								{/if}
-							</li>
-							{#if naming && naming.kind !== 'rename' && naming.dir === row.path && !folder.isClosed(row.path)}
-								<li>{@render nameBox(naming.kind, row.depth + 1, '')}</li>
-							{/if}
-						{/each}
-					</ol>
-				{/if}
+							{/each}
+						</ol>
+					{/if}
+				</div>
 
 				{#if menu}
 					{@const row = menu.row}
@@ -1495,62 +1826,6 @@
 					</div>
 				</dialog>
 			</section>
-
-			<!--
-				DRIVES ARE THEIR OWN PANE, because a folder on this device and a folder
-				on a server are different kinds of thing to somebody choosing between
-				them — one is here and one is somewhere else, and which of those it is
-				matters more than which folder it is.
-
-				The editor cannot tell them apart once one is open, which is the seam
-				doing its job. A person can, and the rail says so.
-			-->
-			<section class="section">
-				<h2>
-					Drives
-					<button
-						type="button"
-						class="add"
-						title="Connect a Nextcloud or ownCloud drive"
-						aria-label="Connect a drive"
-						onclick={() => (connecting = true)}
-					>
-						<Plus aria-hidden="true" />
-					</button>
-				</h2>
-
-				{#if !folder.drivesRead}
-					<Placeholder shape="rows" label="Reading the drives." widths={[60]} />
-				{:else if !folder.drives.length}
-					<p class="note">No drives. Nextcloud and ownCloud.</p>
-				{:else}
-					<ol>
-						{#each folder.drives as drive (drive.id)}
-							<li class="row">
-								<button
-									type="button"
-									class="file"
-									title="{drive.user} at {drive.base}"
-									onclick={() => folder.openDrive(drive.id)}
-								>
-									<Cloud aria-hidden="true" />
-									<span class="name">{drive.name}</span>
-								</button>
-
-								<button
-									type="button"
-									class="close"
-									title="Forget it"
-									aria-label="Forget {drive.name}"
-									onclick={() => folder.dropDrive(drive.id)}
-								>
-									<X aria-hidden="true" />
-								</button>
-							</li>
-						{/each}
-					</ol>
-				{/if}
-			</section>
 		</nav>
 
 		<div class="desk">
@@ -1596,6 +1871,7 @@
 									placeholder={open.kind === 'scratch' ? 'Type something.' : ''}
 									{wrap}
 									{actions}
+									onscroll={sheetScrolled}
 									oninput={(words) =>
 										open.kind === 'scratch'
 											? scratch.write(open.id, words)
@@ -1616,6 +1892,7 @@
 									aria-label="{scratchName(openScratch)}, the document"
 									placeholder="Type something."
 									value={scratch.text(openScratch)}
+									onscroll={textScrolled}
 									oninput={(event) =>
 										scratch.write(openScratch, event.currentTarget.value)}
 								></textarea>
@@ -1650,6 +1927,7 @@
 										? open.path
 										: 'The document'}, the document"
 									value={folder.openText}
+									onscroll={textScrolled}
 									oninput={(event) => folder.edit(event.currentTarget.value)}
 								></textarea>
 							</div>
@@ -1683,6 +1961,7 @@
 							class="proof"
 							aria-label="The document, set"
 							onclick={follow}
+							onscroll={proofScrolled}
 						>
 							{#if openScratch === null && folder.fetching}
 								<Placeholder
@@ -1727,28 +2006,30 @@
 			-->
 			<section class="section">
 				<h2>Outline</h2>
-				{#if setting?.headings.length}
-					<ol>
-						{#each setting.headings as heading (heading.id)}
-							<li>
-								<button
-									type="button"
-									class="heading"
-									style="--depth: {heading.depth - shallowest}"
-									onclick={() => goTo(heading.line)}>{heading.text}</button
-								>
-							</li>
-						{/each}
-					</ol>
-				{:else}
-					<p class="note">
-						{source === null
-							? 'Nothing is open.'
-							: markdown
-								? 'No headings in this document.'
-								: 'Only a Markdown document has an outline.'}
-					</p>
-				{/if}
+				<div class="body">
+					{#if setting?.headings.length}
+						<ol>
+							{#each setting.headings as heading (heading.id)}
+								<li>
+									<button
+										type="button"
+										class="heading"
+										style="--depth: {heading.depth - shallowest}"
+										onclick={() => goTo(heading.line)}>{heading.text}</button
+									>
+								</li>
+							{/each}
+						</ol>
+					{:else}
+						<p class="note">
+							{source === null
+								? 'Nothing is open.'
+								: markdown
+									? 'No headings in this document.'
+									: 'Only a Markdown document has an outline.'}
+						</p>
+					{/if}
+				</div>
 			</section>
 		</nav>
 	</div>
@@ -2364,20 +2645,10 @@
 	 * the workspace is a way of choosing another one, not the only way.
 	 */
 	/*
-	 * NOT STICKY ANY MORE. A rail used to be as tall as its own list and stuck to
-	 * the bar as the page went past it; the page does not go past anything now,
-	 * so it is a full-height column and what scrolls is the column. A workspace of
-	 * two hundred files keeps the desk beside it exactly where it was.
-	 *
-	 * THE OVERFLOW IS HERE AND NOT ON THE LIST, which is what makes a pane the
-	 * height of what is in it. A list that scrolls inside its pane holds the pane
-	 * open at whatever height is going spare — so the pane stops being sized by
-	 * its contents and starts being sized by the window, which is the one thing
-	 * these are not.
-	 *
-	 * The rail is the only thing on this page with an `--space-8` gap that is not
-	 * the workbench's own: the panes in a rail are parted by exactly what parts
-	 * the rail from the desk.
+	 * THE RAIL STANDS STILL, as VS Code's side bar does: each pane keeps its
+	 * heading and scrolls its own list, so a folder of two hundred files does not
+	 * carry Scratch and Drives off the top. The rail scrolls only when a window is
+	 * too short for even the headings.
 	 */
 	.rail {
 		display: none;
@@ -2452,12 +2723,16 @@
 	 * how much they are worth. What separates them is the gap, the same as
 	 * everywhere else on this page.
 	 *
-	 * `flex: none` is what keeps a pane the height of its content. Flex items do
-	 * not grow on their own, but they DO shrink, and a rail with more in it than
-	 * fits would otherwise squeeze both panes to fit rather than scrolling.
+	 * A pane is the height of its content until the rail runs out, and then the
+	 * files give way and scroll — see `.bounded` for the two that do not. The
+	 * least a pane shrinks to is its heading and its padding.
 	 */
 	.section {
-		flex: none;
+		flex: 0 1 auto;
+		min-block-size: calc(
+			var(--rail-control-block-size) + var(--space-4) * 2 + var(--space-8) +
+				var(--space-16)
+		);
 
 		display: flex;
 		flex-direction: column;
@@ -2499,6 +2774,32 @@
 	}
 
 	/*
+	 * SCRATCH AND DRIVES ARE SHORT LISTS, and hold their height while the files
+	 * take the rest; past a third of the rail they scroll too. Shrinking all
+	 * three by size, flexbox's own rule, would take a long folder's overflow out
+	 * of the short panes first.
+	 */
+	.section.bounded {
+		flex-shrink: 0;
+		max-block-size: 33%;
+	}
+
+	/* The list under a heading, and what scrolls. */
+	.body {
+		min-block-size: 0;
+		overflow-y: auto;
+	}
+
+	.body[hidden] {
+		display: none;
+	}
+
+	/* Folded to its heading: the foot goes with the list it answered. */
+	.section:has(> .body[hidden]) {
+		padding-block-end: var(--space-8);
+	}
+
+	/*
 	 * The heading's text starts where a row's icon does (the row's own 4px
 	 * inset), and its button ends where a row's box does, so the pane has one
 	 * left line and one right line. Every heading is a control tall, button or
@@ -2516,6 +2817,37 @@
 		font-size: var(--text-label1);
 		line-height: var(--leading-tight);
 		color: color-mix(in oklab, var(--fg) 60%, transparent);
+	}
+
+	/* The heading's own button, which folds the section: the whole width that
+	 * is not an action, as VS Code's view headers are. */
+	.twisty {
+		flex: 1;
+		min-inline-size: 0;
+		display: flex;
+		align-items: center;
+		gap: var(--space-4);
+		align-self: stretch;
+
+		padding: 0;
+		border: none;
+		border-radius: var(--radius-s);
+		background: none;
+		color: inherit;
+		font: inherit;
+		text-align: start;
+		cursor: pointer;
+	}
+
+	.twisty :global(svg) {
+		flex: none;
+		inline-size: 1em;
+		block-size: 1em;
+	}
+
+	.twisty:focus-visible {
+		outline: 2px solid var(--fg);
+		outline-offset: -2px;
 	}
 
 	/* At the end of the heading it belongs to, so it reads as "Scratch, and one
@@ -2547,9 +2879,15 @@
 		block-size: 0.875rem;
 	}
 
-	.add:hover,
+	.add:hover:not(:disabled),
 	.close:hover {
 		background-color: var(--surface-hover);
+	}
+
+	/* Nothing open to collapse, as VS Code dims its own. */
+	.add:disabled {
+		opacity: 0.4;
+		cursor: default;
 	}
 
 	.add:focus-visible,

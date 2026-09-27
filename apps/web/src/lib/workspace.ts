@@ -196,10 +196,10 @@ export type Row =
 			openable: boolean;
 	  };
 
-export function toRows(listing: Listing, closed: ReadonlySet<string>): Row[] {
-	/* Every folder that holds anything, including the ones only named by a
-	 * document's path — a store lists the folders it walked, and a folder that
-	 * came back empty is not one the rail has anything to put in. */
+/* Every folder that holds anything, including the ones only named by a
+ * document's path — a store lists the folders it walked, and a folder that
+ * came back empty is not one the rail has anything to put in. */
+export function foldersOf(listing: Listing): Set<string> {
 	const folders = new Set(listing.dirs);
 	for (const file of listing.files) {
 		let dir = dirOf(file.path);
@@ -208,17 +208,12 @@ export function toRows(listing: Listing, closed: ReadonlySet<string>): Row[] {
 			dir = dirOf(dir);
 		}
 	}
+	return folders;
+}
 
-	/* A folder inside a closed folder is not drawn at all, however it was closed —
-	 * so the test is against every ancestor and not just the parent. */
-	const shut = (path: string) => {
-		let dir = dirOf(path);
-		while (dir) {
-			if (closed.has(dir)) return true;
-			dir = dirOf(dir);
-		}
-		return false;
-	};
+/* A folder is drawn open only if it is in `open`; every other is shut. */
+export function toRows(listing: Listing, open: ReadonlySet<string>): Row[] {
+	const folders = foldersOf(listing);
 
 	const depthOf = (path: string) => path.split('/').length - 1;
 	const nameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1);
@@ -246,7 +241,7 @@ export function toRows(listing: Listing, closed: ReadonlySet<string>): Row[] {
 
 		for (const folder of childDirs) {
 			out.push(folder);
-			if (!closed.has(folder.path)) out.push(...under(folder.path));
+			if (open.has(folder.path)) out.push(...under(folder.path));
 		}
 
 		const childFiles = listing.files
@@ -264,7 +259,7 @@ export function toRows(listing: Listing, closed: ReadonlySet<string>): Row[] {
 		return out;
 	};
 
-	return under('').filter((row) => !shut(row.path));
+	return under('');
 }
 
 /** The directory part of a path — '' for a document at the root. */
@@ -304,7 +299,7 @@ const SKIP_DIR =
  * directory. These cover any notes folder anybody actually keeps.
  */
 const MAX_FILES = 500;
-const MAX_DEPTH = 6;
+export const MAX_DEPTH = 6;
 
 /*
  * How many UNOPENABLE files a walk lists before it stops bothering, on a budget of
