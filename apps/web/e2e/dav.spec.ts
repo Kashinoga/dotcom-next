@@ -253,3 +253,59 @@ test('a folder is moved in one step, and never into itself', async () => {
 		globalThis.fetch = real;
 	}
 });
+
+test('a copy is one COPY by the server, deep for a folder', async () => {
+	const cfg: DavConfig = {
+		connection: 'c',
+		base: 'https://cloud.example.com',
+		user: 'someone',
+		token: 't',
+		via: 'direct',
+		root: 'Notes',
+		name: 'Notes',
+	};
+	const sent: {
+		method: string;
+		url: string;
+		headers: Record<string, string>;
+	}[] = [];
+	const real = globalThis.fetch;
+	globalThis.fetch = (async (url: string, init: RequestInit) => {
+		sent.push({
+			method: String(init.method),
+			url,
+			headers: init.headers as Record<string, string>,
+		});
+		return new Response(null, { status: 201 });
+	}) as typeof fetch;
+
+	try {
+		const store = davStore(cfg, (name) => name.endsWith('.md'));
+		const files =
+			'https://cloud.example.com/remote.php/dav/files/someone/Notes';
+
+		expect(await store.copy('one.md', 'file', '', 'one copy.md')).toEqual({
+			made: { files: [{ name: 'one copy.md', path: 'one copy.md' }], dirs: [] },
+			whole: true,
+		});
+		expect(sent[0]).toMatchObject({
+			method: 'COPY',
+			url: `${files}/one.md`,
+			headers: { destination: `${files}/one%20copy.md`, overwrite: 'F' },
+		});
+		expect(sent[0].headers.depth).toBeUndefined();
+
+		expect(await store.copy('Sub', 'dir', 'Other', 'Sub')).toEqual({
+			made: { files: [], dirs: ['Other/Sub'] },
+			whole: true,
+		});
+		expect(sent[1].headers.depth).toBe('infinity');
+
+		// Into itself, or under a name that is a path: not asked.
+		expect(await store.copy('Sub', 'dir', 'Sub/Deeper', 'Sub')).toBe(null);
+		expect(await store.copy('one.md', 'file', '', 'a/b.md')).toBe(null);
+		expect(sent).toHaveLength(2);
+	} finally {
+		globalThis.fetch = real;
+	}
+});

@@ -244,7 +244,23 @@ function merge(into: Listing, extra: Listing, at: string): Listing {
  * `slash` is ours, because VS Code makes the folders a slash names and the
  * stores here do not.
  */
-export type Refusal = 'empty' | 'slash' | 'taken' | 'into' | 'failed';
+export type Refusal =
+	'empty' | 'slash' | 'taken' | 'into' | 'partial' | 'failed';
+
+/*
+ * THE NAME A COPY TAKES WHERE ITS OWN IS TAKEN: VS Code's default,
+ * `explorer.incrementalNaming: simple`. `one.md`, then `one copy.md`, then
+ * `one copy 2.md`; a folder's name has no extension to keep.
+ */
+export function copyName(name: string, isDir: boolean) {
+	const dot = isDir ? -1 : name.lastIndexOf('.');
+	const base = dot > 0 ? name.slice(0, dot) : name;
+	const ext = dot > 0 ? name.slice(dot) : '';
+	const counted = /^(.+ copy)(?: (\d+))?$/.exec(base);
+	return counted
+		? `${counted[1]} ${Number(counted[2] ?? 1) + 1}${ext}`
+		: `${base} copy${ext}`;
+}
 
 /* A path, or why not — never one string that could be either. */
 export type Made = { path: string } | { refusal: Refusal };
@@ -697,6 +713,53 @@ export const folder = {
 	 * INTO ANOTHER FOLDER, from a drag or a cut and paste. A taken name is
 	 * refused rather than replaced, and a folder is not put inside itself.
 	 */
+	/*
+	 * A COPY, from a paste or a drag with Ctrl held. It keeps its name where that
+	 * is free and takes a "copy" name where it is not — into its own folder, a
+	 * duplicate. The words on the sheet go out first, so the copy is of what is
+	 * on the screen. A folder copy that stopped part way is still listed, as far
+	 * as it got.
+	 */
+	async copy(
+		row: { kind: 'dir' | 'file'; path: string },
+		dir: string,
+	): Promise<Made> {
+		if (!store?.writable) return { refusal: 'failed' };
+		if (row.kind === 'dir' && within(dir, row.path)) {
+			return { refusal: 'into' };
+		}
+
+		let name = row.path.slice(row.path.lastIndexOf('/') + 1);
+		for (let tries = 0; taken(dir, name); tries += 1) {
+			if (tries >= 100) return { refusal: 'failed' };
+			name = copyName(name, row.kind === 'dir');
+		}
+
+		if (openPath !== null && within(openPath, row.path)) await flush();
+		const copied = await store.copy(row.path, row.kind, dir, name);
+		if (!copied) return { refusal: 'failed' };
+
+		const known = new Set(listing.files.map((file) => file.path));
+		listing = {
+			files: [
+				...listing.files,
+				...copied.made.files.filter((file) => !known.has(file.path)),
+			],
+			dirs: [...new Set([...listing.dirs, ...copied.made.dirs])],
+		};
+		trouble = 'idle';
+
+		/* Every folder a copy made lands shut, as every folder opens shut — see
+		 * `adopt`. On a lazy store it is read when it is opened, like any other. */
+		const top = join(dir, name);
+		reveal(top);
+		if (row.kind === 'dir') {
+			closed = new Set([...closed, ...copied.made.dirs]);
+		}
+
+		return copied.whole ? { path: top } : { refusal: 'partial' };
+	},
+
 	async move(path: string, dir: string): Promise<Made> {
 		if (!store?.writable) return { refusal: 'failed' };
 		if (dirOf(path) === dir) return { path };

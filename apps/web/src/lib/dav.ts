@@ -605,6 +605,44 @@ export function davStore(cfg: DavConfig, openable: Openable): Store {
 				? Promise.resolve(null)
 				: relocate(path, join(dirOf(path), to)),
 
+		/*
+		 * ONE COPY, DONE BY THE SERVER: nothing is read down and written back, so
+		 * a folder of any size is one request. `Depth: infinity` takes everything
+		 * under a folder, and `Overwrite: F` refuses a name already taken. A lazy
+		 * store reads a folder when it is opened, so only the top is handed back.
+		 */
+		async copy(path, kind, dir, name) {
+			if (!name || /[/\\]/.test(name)) return null;
+			if (kind === 'dir' && (dir === path || dir.startsWith(`${path}/`))) {
+				return null;
+			}
+
+			const to = join(dir, name);
+			const answer = await dav(cfg, 'COPY', target(cfg, path), {
+				headers: {
+					destination: target(cfg, to),
+					overwrite: 'F',
+					...(kind === 'dir' ? { depth: 'infinity' } : {}),
+				},
+			});
+			if (!answer || !answer.ok) return null;
+
+			return {
+				made:
+					kind === 'dir'
+						? { files: [], dirs: [to] }
+						: {
+								files: [
+									openable(name)
+										? { name, path: to }
+										: { name, path: to, openable: false },
+								],
+								dirs: [],
+							},
+				whole: true,
+			};
+		},
+
 		moveDir: (path, dir) =>
 			/* Not into itself, which a server may refuse or may not. */
 			dir === path || dir.startsWith(`${path}/`) || dirOf(path) === dir

@@ -36,8 +36,8 @@ const relay = (
 const GOOD = 'https://cloud.example.com/remote.php/dav/files/someone/Notes';
 
 test('a method this editor does not use is refused', async ({ request }) => {
-	// PROPPATCH, LOCK, REPORT and COPY are all real DAV and none of them are ours.
-	for (const method of ['PROPPATCH', 'LOCK', 'REPORT', 'COPY']) {
+	// PROPPATCH, LOCK and REPORT are all real DAV and none of them are ours.
+	for (const method of ['PROPPATCH', 'LOCK', 'REPORT']) {
 		const answer = await relay(request, GOOD, { method });
 		expect(answer.status(), method).toBe(405);
 	}
@@ -125,30 +125,32 @@ test('a target that is not a Nextcloud files path is refused', async ({
 	expect((await relay(request, null)).status()).toBe(400);
 });
 
-test("a MOVE's destination is checked as hard as its target", async ({
-	request,
-}) => {
-	const move = (destination?: string) =>
-		relay(request, GOOD, {
-			method: 'MOVE',
-			headers: destination ? { destination } : {},
-		});
+for (const method of ['MOVE', 'COPY']) {
+	test(`a ${method}'s destination is checked as hard as its target`, async ({
+		request,
+	}) => {
+		const move = (destination?: string) =>
+			relay(request, GOOD, {
+				method,
+				headers: destination ? { destination } : {},
+			});
 
-	// Missing entirely.
-	expect((await move()).status()).toBe(400);
+		// Missing entirely.
+		expect((await move()).status()).toBe(400);
 
-	// Somewhere this relay would never forward to on its own.
-	expect((await move('https://example.com/')).status()).toBe(400);
+		// Somewhere this relay would never forward to on its own.
+		expect((await move('https://example.com/')).status()).toBe(400);
 
-	/*
-	 * AND THE ONE A TARGET CHECK ALONE WOULD MISS: a perfectly good Nextcloud
-	 * files path on a DIFFERENT server. Without the same-origin rule, a move is a
-	 * way to make one Nextcloud write into another with the first one's password.
-	 */
-	const elsewhere =
-		'https://other.example.com/remote.php/dav/files/someone/Notes/moved.md';
-	expect((await move(elsewhere)).status()).toBe(400);
-});
+		/*
+		 * AND THE ONE A TARGET CHECK ALONE WOULD MISS: a perfectly good Nextcloud
+		 * files path on a DIFFERENT server. Without the same-origin rule, a move is a
+		 * way to make one Nextcloud write into another with the first one's password.
+		 */
+		const elsewhere =
+			'https://other.example.com/remote.php/dav/files/someone/Notes/moved.md';
+		expect((await move(elsewhere)).status()).toBe(400);
+	});
+}
 
 test('a document larger than the cap is refused', async ({ request }) => {
 	// The cap is 4MB and is counted in BYTES — a cap counted in code units is not

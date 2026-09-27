@@ -73,13 +73,13 @@ const relay: RequestHandler = async ({ request, fetch }) => {
 	headers.set('user-agent', USER_AGENT);
 
 	/*
-	 * A MOVE names a second URL, and it gets every check the first got plus a
-	 * same-server rule. Checked here rather than in the loop above because a bad
-	 * one must refuse the whole request, not quietly travel without its
-	 * destination — which the server would read as a malformed MOVE and answer 400
-	 * to, from behind this site's name.
+	 * A MOVE or a COPY names a second URL, and it gets every check the first got
+	 * plus a same-server rule. Checked here rather than in the loop above because
+	 * a bad one must refuse the whole request, not quietly travel without its
+	 * destination — which the server would read as malformed and answer 400 to,
+	 * from behind this site's name.
 	 */
-	if (method === 'MOVE') {
+	if (method === 'MOVE' || method === 'COPY') {
 		const destination = checkDestination(
 			request.headers.get('destination'),
 			target.url,
@@ -135,5 +135,5 @@ export const HEAD = relay;
 export const PUT = relay;
 export const POST = relay;
 export const DELETE = relay;
-/** PROPFIND and MOVE have no named export in SvelteKit; this is how they arrive. */
+/** PROPFIND, MOVE and COPY have no named export in SvelteKit; this is how they arrive. */
 export const fallback = relay;

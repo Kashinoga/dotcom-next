@@ -68,13 +68,14 @@ export const TIMEOUT_MS = 20_000;
 
 /*
  * The methods a workspace uses, and no others. PROPFIND lists, GET reads, PUT
- * writes, MOVE renames and moves, MKCOL makes a folder, DELETE deletes; POST is
- * for the login flow alone.
+ * writes, MOVE renames and moves, COPY copies, MKCOL makes a folder, DELETE
+ * deletes; POST is for the login flow alone.
  *
  * IT GROWS ONE METHOD AT A TIME, each time a gesture needs one, and never in
- * advance. PROPPATCH, LOCK, REPORT and COPY are out — not because they are
- * dangerous, but because this editor does not do them, and a relay should not be
- * able to do on somebody's behalf what its own app cannot.
+ * advance. COPY came in with the explorer's Copy. PROPPATCH, LOCK and REPORT are
+ * out — not because they are dangerous, but because this editor does not do
+ * them, and a relay should not be able to do on somebody's behalf what its own
+ * app cannot.
  */
 export const METHODS = new Set([
 	'PROPFIND',
@@ -82,6 +83,7 @@ export const METHODS = new Set([
 	'HEAD',
 	'PUT',
 	'MOVE',
+	'COPY',
 	'MKCOL',
 	'DELETE',
 	'POST',

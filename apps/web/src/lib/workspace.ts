@@ -152,7 +152,26 @@ export type Store = {
 	 */
 	renameDir?(path: string, to: string): Promise<string | null>;
 	moveDir?(path: string, dir: string): Promise<string | null>;
+	/*
+	 * A COPY of a document, or of a folder and all it holds, into `dir` under
+	 * `name` — refused where the name is taken, and never into itself. A folder
+	 * is copied on every store, as vscode.dev copies one: a copy that stops part
+	 * way loses nothing, since the original is untouched.
+	 */
+	copy(
+		path: string,
+		kind: 'dir' | 'file',
+		dir: string,
+		name: string,
+	): Promise<Copied | null>;
 };
+
+/*
+ * WHAT A COPY MADE: the documents and folders to list, for a store that lists
+ * everything, or only the top for one that reads a folder when it is opened;
+ * and whether all of it was made, or it stopped part way.
+ */
+export type Copied = { made: Listing; whole: boolean };
 
 /*
  * A TREE, FROM A FLAT LIST OF PATHS. The stores answer with paths because a path
@@ -601,6 +620,99 @@ export function localStore(
 			return true;
 		},
 
+		/*
+		 * BYTE FOR BYTE, as vscode.dev copies on a folder of this device: read,
+		 * then written under the new name. A folder is made and filled one entry
+		 * at a time, hidden ones included — it is a copy — though only what the
+		 * walk would list is handed back to be listed.
+		 */
+		async copy(path, kind, dir, name) {
+			const into = dirs.get(dir);
+			if (!into || !name || /[/\\]/.test(name)) return null;
+			if (kind === 'dir' && (dir === path || dir.startsWith(`${path}/`))) {
+				return null;
+			}
+			try {
+				await into.getFileHandle(name);
+				return null;
+			} catch {
+				/* not a document by that name */
+			}
+			try {
+				await into.getDirectoryHandle(name);
+				return null;
+			} catch {
+				/* nor a folder */
+			}
+
+			const made: Listing = { files: [], dirs: [] };
+			const shown = (at: string) => !at.split('/').some(hidden);
+
+			const copyFile = async (
+				from: FileSystemFileHandle,
+				parent: FileSystemDirectoryHandle,
+				to: string,
+			) => {
+				const leaf = to.slice(to.lastIndexOf('/') + 1);
+				const handle = await parent.getFileHandle(leaf, { create: true });
+				const writable = await handle.createWritable();
+				await writable.write(await from.getFile());
+				await writable.close();
+				files.set(to, handle);
+				if (shown(to)) {
+					made.files.push(
+						openable(leaf)
+							? { name: leaf, path: to }
+							: { name: leaf, path: to, openable: false },
+					);
+				}
+			};
+
+			const copyDir = async (
+				from: FileSystemDirectoryHandle,
+				parent: FileSystemDirectoryHandle,
+				to: string,
+			) => {
+				const leaf = to.slice(to.lastIndexOf('/') + 1);
+				const handle = await parent.getDirectoryHandle(leaf, { create: true });
+				dirs.set(to, handle);
+				if (shown(to)) made.dirs.push(to);
+				for await (const [child, entry] of from.entries()) {
+					if (entry.kind === 'directory') {
+						await copyDir(
+							entry as FileSystemDirectoryHandle,
+							handle,
+							join(to, child),
+						);
+					} else {
+						await copyFile(
+							entry as FileSystemFileHandle,
+							handle,
+							join(to, child),
+						);
+					}
+				}
+			};
+
+			const to = join(dir, name);
+			try {
+				if (kind === 'file') {
+					const from = files.get(path);
+					if (!from) return null;
+					await copyFile(from, into, to);
+				} else {
+					const from = dirs.get(path);
+					if (!from) return null;
+					await copyDir(from, into, to);
+				}
+			} catch {
+				return made.files.length || made.dirs.length
+					? { made, whole: false }
+					: null;
+			}
+			return { made, whole: true };
+		},
+
 		permission: () =>
 			Promise.resolve(root.queryPermission?.({ mode: 'readwrite' })),
 		requestPermission: () =>
@@ -679,6 +791,8 @@ export function snapshotStore(
 		},
 
 		picture: async (path) => files.get(path) ?? null,
+
+		copy: async () => null,
 
 		/*
 		 * NOTHING HERE CAN BE WRITTEN, and the type is what says so. `writable` is

@@ -482,10 +482,35 @@
 		}
 	}
 
-	/* VS Code's keys on a row: F2, Delete (⌘⌫ on a Mac), and cut and paste. */
+	/*
+	 * VS Code's keys on a row: F2, Delete (⌘⌫ on a Mac), cut, copy and paste,
+	 * and Ctrl+K Ctrl+Shift+C for the relative path — a chord, so the first half
+	 * is held until the next key says whether it was one.
+	 */
+	let chord = false;
+
 	function rowKeys(event: KeyboardEvent, row: Row) {
-		if (!folder.writable) return;
+		// A modifier pressed on its own is the start of a key, not a key: it must
+		// not end a chord that is waiting for Ctrl+Shift+C.
+		if (['Control', 'Shift', 'Alt', 'Meta'].includes(event.key)) return;
 		const mod = event.ctrlKey || event.metaKey;
+		const key = event.key.toLowerCase();
+		const chorded = chord;
+		chord = false;
+
+		if (chorded && mod && event.shiftKey && key === 'c') {
+			event.preventDefault();
+			void copyPath(row);
+			return;
+		}
+		if (mod && key === 'k') {
+			event.preventDefault();
+			chord = true;
+			return;
+		}
+
+		// Everything below changes the folder, which a snapshot cannot be.
+		if (!folder.writable) return;
 		if (event.key === 'F2') {
 			event.preventDefault();
 			startRename(row);
@@ -495,24 +520,27 @@
 		) {
 			event.preventDefault();
 			askDelete(row);
-		} else if (mod && event.key.toLowerCase() === 'x' && movable(row)) {
+		} else if (mod && key === 'x' && movable(row)) {
 			event.preventDefault();
-			cut = row;
-		} else if (mod && event.key.toLowerCase() === 'v' && cut) {
+			clipboard = { row, mode: 'cut' };
+		} else if (mod && key === 'c') {
+			event.preventDefault();
+			clipboard = { row, mode: 'copy' };
+		} else if (mod && key === 'v' && clipboard) {
 			event.preventDefault();
 			paste(row);
-		} else if (event.key === 'Escape' && cut) {
-			cut = null;
+		} else if (event.key === 'Escape' && clipboard) {
+			clipboard = null;
 		}
 	}
 
 	/*
-	 * MOVING, by a drag or by cut and paste — VS Code's two ways, and the second
-	 * is the one a keyboard has. A move that cannot be done says why above the
-	 * rows, as VS Code says it in a notification.
+	 * MOVING AND COPYING, by a drag or by the clipboard — VS Code's two ways,
+	 * and the second is the one a keyboard has. What cannot be done says why
+	 * above the rows, as VS Code says it in a notification.
 	 */
 	let notice = $state<string | null>(null);
-	let cut = $state<Row | null>(null);
+	let clipboard = $state<{ row: Row; mode: 'cut' | 'copy' } | null>(null);
 	let dragging = $state<Row | null>(null);
 	let dropDir = $state<string | null>(null);
 
@@ -526,10 +554,16 @@
 	const dirName = (dir: string) =>
 		dir ? dir.slice(dir.lastIndexOf('/') + 1) : (folder.name ?? '');
 
+	/* A cut is pasted once and is gone; a copy stays, to be pasted again. */
 	function paste(onto: Row | null) {
-		const what = cut;
-		cut = null;
-		if (what) void moveNow(what, destination(onto));
+		const held = clipboard;
+		if (!held) return;
+		if (held.mode === 'cut') {
+			clipboard = null;
+			void moveNow(held.row, destination(onto));
+		} else {
+			void copyNow(held.row, destination(onto));
+		}
 	}
 
 	async function moveNow(row: Row, dir: string) {
@@ -548,6 +582,31 @@
 		return true;
 	}
 
+	async function copyNow(row: Row, dir: string) {
+		notice = null;
+		const made = await folder.copy(row, dir);
+		if ('refusal' in made) {
+			notice =
+				made.refusal === 'into'
+					? 'A folder cannot be copied into itself.'
+					: made.refusal === 'partial'
+						? `Only part of ${row.name} could be copied.`
+						: `Unable to copy ${row.name}.`;
+			return;
+		}
+		void focusRow(made.path);
+	}
+
+	/* The path from the top of the folder, with forward slashes: the only path a
+	 * browser knows for a folder handed to it, and all a WebDAV drive has. */
+	async function copyPath(row: Row) {
+		try {
+			await navigator.clipboard.writeText(row.path);
+		} catch {
+			notice = 'The path could not be copied.';
+		}
+	}
+
 	/* The open document, and the focus, go where the row went. */
 	function followMove(from: string, to: string) {
 		if (open.kind === 'file' && inside(open.path, from)) {
@@ -556,29 +615,42 @@
 		void focusRow(to);
 	}
 
+	/* Ctrl copies a drag rather than moving it, and on a Mac it is Option — VS
+	 * Code's keys for the same. */
+	const mac =
+		typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
+	const copying = (event: DragEvent) => (mac ? event.altKey : event.ctrlKey);
+
 	function dragStart(event: DragEvent, row: Row) {
-		if (!folder.writable || !movable(row) || !event.dataTransfer) {
+		if (!folder.writable || !event.dataTransfer) {
 			event.preventDefault();
 			return;
 		}
 		notice = null;
 		dragging = row;
-		event.dataTransfer.effectAllowed = 'move';
+		event.dataTransfer.effectAllowed = movable(row) ? 'copyMove' : 'copy';
 		event.dataTransfer.setData('text/plain', row.name);
 	}
 
-	/* Only a drop that would move something is offered: not into where it
-	 * already is, and not a folder into itself. */
+	/* Only a drop that would do something is offered: a copy anywhere but into
+	 * itself, and a move anywhere but where it already is. */
 	function dragOver(event: DragEvent, row: Row | null) {
 		if (!dragging) return;
 		event.stopPropagation();
 		const dir = destination(row);
-		if (dir === dirOf(dragging.path) || inside(dir, dragging.path)) {
+		const copy = copying(event);
+		const offered = copy
+			? !(dragging.kind === 'dir' && inside(dir, dragging.path))
+			: movable(dragging) &&
+				dir !== dirOf(dragging.path) &&
+				!inside(dir, dragging.path);
+		if (!offered) {
 			dropDir = null;
 			return;
 		}
 		event.preventDefault();
-		if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+		if (event.dataTransfer)
+			event.dataTransfer.dropEffect = copy ? 'copy' : 'move';
 		dropDir = dir;
 	}
 
@@ -591,7 +663,9 @@
 		event.stopPropagation();
 
 		const dir = destination(row);
-		if (asksBeforeDrop()) void ask({ kind: 'move', row: what, dir });
+		// VS Code asks before a drag that moves, and not before one that copies.
+		if (copying(event)) void copyNow(what, dir);
+		else if (asksBeforeDrop()) void ask({ kind: 'move', row: what, dir });
 		else void moveNow(what, dir);
 	}
 
@@ -621,7 +695,6 @@
 	let menuEl = $state<HTMLElement | null>(null);
 
 	async function openMenu(event: MouseEvent, row: Row) {
-		if (!folder.writable) return;
 		event.preventDefault();
 		chosen = row;
 
@@ -634,8 +707,21 @@
 			y: fromKeys ? box.bottom : event.clientY,
 		};
 
+		/*
+		 * NOT UNTIL THE BUTTON IS UP. Firefox, and every browser on macOS and
+		 * Linux, asks for the menu on the press; the release then lands outside a
+		 * menu already open, and the popover takes it as a click away and closes
+		 * at once. Windows asks on the release, with nothing still held.
+		 */
+		if (event.buttons) {
+			await new Promise((released) =>
+				addEventListener('pointerup', released, { once: true }),
+			);
+			await new Promise((next) => setTimeout(next));
+		}
+
 		await tick();
-		if (!menuEl) return;
+		if (!menuEl || !menu) return;
 		menuEl.showPopover();
 
 		// Kept inside the window, as a menu opened near an edge would not be.
@@ -1063,11 +1149,12 @@
 											type="button"
 											class="file folder"
 											class:drop={dropDir === row.path}
-											class:cut={cut?.path === row.path}
+											class:cut={clipboard?.mode === 'cut' &&
+												clipboard.row.path === row.path}
 											style="--depth: {row.depth}"
 											aria-expanded={!folder.isClosed(row.path)}
 											title={row.path}
-											draggable={folder.writable && movable(row)}
+											draggable={folder.writable}
 											onclick={() => {
 												chosen = row;
 												void folder.fold(row.path);
@@ -1108,7 +1195,8 @@
 										type="button"
 										class="file"
 										class:inert={!row.openable}
-										class:cut={cut?.path === row.path}
+										class:cut={clipboard?.mode === 'cut' &&
+											clipboard.row.path === row.path}
 										style="--depth: {row.depth}"
 										aria-current={open.kind === 'file' && open.path === row.path
 											? 'true'
@@ -1173,56 +1261,78 @@
 							}
 						}}
 					>
-						<button
-							type="button"
-							role="menuitem"
-							onclick={() => fromMenu(() => startNew('file'))}
-						>
-							New File…
-						</button>
-						<button
-							type="button"
-							role="menuitem"
-							onclick={() => fromMenu(() => startNew('dir'))}
-						>
-							New Folder…
-						</button>
-						<hr />
-						{#if movable(row)}
+						<!-- VS Code's groups, in its order. A snapshot can be read and not changed, so it keeps only the path. -->
+						{#if folder.writable}
 							<button
 								type="button"
 								role="menuitem"
-								onclick={() => fromMenu(() => (cut = row))}
+								onclick={() => fromMenu(() => startNew('file'))}
 							>
-								Cut <kbd>Ctrl+X</kbd>
+								New File…
 							</button>
-						{/if}
-						{#if cut}
 							<button
 								type="button"
 								role="menuitem"
-								onclick={() => fromMenu(() => paste(row))}
+								onclick={() => fromMenu(() => startNew('dir'))}
 							>
-								Paste <kbd>Ctrl+V</kbd>
+								New Folder…
 							</button>
-						{/if}
-						<hr />
-						{#if movable(row)}
+							<hr />
+							{#if movable(row)}
+								<button
+									type="button"
+									role="menuitem"
+									onclick={() =>
+										fromMenu(() => (clipboard = { row, mode: 'cut' }))}
+								>
+									Cut <kbd>Ctrl+X</kbd>
+								</button>
+							{/if}
 							<button
 								type="button"
 								role="menuitem"
-								onclick={() => fromMenu(() => startRename(row))}
+								onclick={() =>
+									fromMenu(() => (clipboard = { row, mode: 'copy' }))}
 							>
-								Rename… <kbd>F2</kbd>
+								Copy <kbd>Ctrl+C</kbd>
 							</button>
+							{#if clipboard}
+								<button
+									type="button"
+									role="menuitem"
+									onclick={() => fromMenu(() => paste(row))}
+								>
+									Paste <kbd>Ctrl+V</kbd>
+								</button>
+							{/if}
+							<hr />
 						{/if}
 						<button
 							type="button"
 							role="menuitem"
-							onclick={() => fromMenu(() => void askDelete(row))}
+							onclick={() => fromMenu(() => void copyPath(row))}
 						>
-							Delete <kbd>Delete</kbd>
+							Copy Relative Path <kbd>Ctrl+K Ctrl+Shift+C</kbd>
 						</button>
+						{#if folder.writable}
+							<hr />
+							{#if movable(row)}
+								<button
+									type="button"
+									role="menuitem"
+									onclick={() => fromMenu(() => startRename(row))}
+								>
+									Rename… <kbd>F2</kbd>
+								</button>
+							{/if}
+							<button
+								type="button"
+								role="menuitem"
+								onclick={() => fromMenu(() => void askDelete(row))}
+							>
+								Delete <kbd>Delete</kbd>
+							</button>
+						{/if}
 					</div>
 				{/if}
 

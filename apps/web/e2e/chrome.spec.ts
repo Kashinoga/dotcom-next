@@ -2846,6 +2846,8 @@ test('the context menu offers the verbs, and gives the focus back', async ({
 		'New File…',
 		'New Folder…',
 		'Cut Ctrl+X',
+		'Copy Ctrl+C',
+		'Copy Relative Path Ctrl+K Ctrl+Shift+C',
 		'Rename… F2',
 		'Delete Delete',
 	]);
@@ -2881,8 +2883,12 @@ test('a folder that cannot be written to offers none of the verbs', async ({
 	await expect(row).toBeVisible();
 
 	await expect(page.getByRole('button', { name: 'New file' })).toHaveCount(0);
+	// It can be read, so its path can be copied; nothing else.
 	await row.click({ button: 'right' });
-	await expect(page.getByRole('menu')).toHaveCount(0);
+	await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText([
+		'Copy Relative Path Ctrl+K Ctrl+Shift+C',
+	]);
+	await page.keyboard.press('Escape');
 	await row.press('F2');
 	await expect(page.locator('.naming input')).toHaveCount(0);
 });
@@ -2986,13 +2992,14 @@ test('a folder on this device is not offered a rename or a move', async ({
 	await withSub(page);
 	const sub = page.getByRole('button', { name: 'Sub' });
 	await sub.click({ button: 'right' });
+	// Copied, as vscode.dev copies a folder here; not cut, renamed or moved.
 	await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText([
 		'New File…',
 		'New Folder…',
+		'Copy Ctrl+C',
+		'Copy Relative Path Ctrl+K Ctrl+Shift+C',
 		'Delete Delete',
 	]);
-	await page.keyboard.press('Escape');
-	await expect(sub).not.toHaveAttribute('draggable', 'true');
 });
 
 /*
@@ -3157,4 +3164,136 @@ test.describe('on a phone', () => {
 		expect(seen.caret).toBe(seen.line);
 		expect(seen.top).toBeGreaterThan(0);
 	});
+});
+
+/*
+ * COPYING, as VS Code's explorer copies: Ctrl+C and Ctrl+V, a copy that keeps
+ * its name where it is free and takes VS Code's "copy" name where it is not,
+ * and a drag with Ctrl held. Read back off the disk.
+ */
+test('a pasted copy takes a "copy" name, and pastes again', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await withSub(page);
+	const one = page.getByRole('button', { name: 'one.md' });
+	await one.click();
+
+	// Typed and not yet saved: the copy is of what is on the screen.
+	await freeze(page);
+	await write(page, 'typed');
+
+	await one.focus();
+	await page.keyboard.press('Control+c');
+	await page.keyboard.press('Control+v');
+	await expect(page.getByRole('button', { name: 'one copy.md' })).toBeFocused();
+	await page.keyboard.press('Control+v');
+	await expect(
+		page.getByRole('button', { name: 'one copy 2.md' }),
+	).toBeFocused();
+
+	expect(await atPath(page, 'one copy.md')).toBe('typed');
+	expect(await atPath(page, 'one copy 2.md')).toBe('typed');
+
+	// Into another folder, where the name is free, it keeps it.
+	await page.getByRole('button', { name: 'Sub' }).focus();
+	await page.keyboard.press('Control+v');
+	await expect.poll(() => atPath(page, 'Sub/one.md')).toBe('typed');
+	expect(await atPath(page, 'one.md')).toBe('typed');
+});
+
+test('a folder is copied with everything in it', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await writableFolder(page, { 'one.md': 'first' });
+	await page.evaluate(async () => {
+		const root = await (
+			await navigator.storage.getDirectory()
+		).getDirectoryHandle('Notes');
+		const sub = await root.getDirectoryHandle('Sub', { create: true });
+		const deeper = await sub.getDirectoryHandle('Deeper', { create: true });
+		const writable = await (
+			await deeper.getFileHandle('in.md', { create: true })
+		).createWritable();
+		await writable.write('nested');
+		await writable.close();
+	});
+	await page.getByRole('button', { name: 'Put Notes away' }).click();
+	await page
+		.getByRole('button', { name: 'Open a folder from this device' })
+		.click();
+
+	const sub = page.getByRole('button', { name: 'Sub', exact: true });
+	await sub.click({ button: 'right' });
+	await page.getByRole('menuitem', { name: 'Copy Ctrl+C' }).click();
+	await page.getByRole('button', { name: 'one.md' }).focus();
+	await page.keyboard.press('Control+v');
+
+	await expect.poll(() => atPath(page, 'Sub copy/Deeper/in.md')).toBe('nested');
+
+	// Drawn shut, and holding what was copied once opened.
+	const copy = page.getByRole('button', { name: 'Sub copy' });
+	await expect(copy).toHaveAttribute('aria-expanded', 'false');
+	await copy.click();
+	await page.getByRole('button', { name: 'Deeper' }).last().click();
+	await expect(
+		page.locator('button[title="Sub copy/Deeper/in.md"]'),
+	).toBeVisible();
+
+	// And never into itself.
+	await sub.focus();
+	await page.keyboard.press('Control+c');
+	await sub.click();
+	await page.locator('button[title="Sub/Deeper"]').focus();
+	await page.keyboard.press('Control+v');
+	await expect(page.locator('.notice')).toHaveText(
+		'A folder cannot be copied into itself.',
+	);
+});
+
+test('a drag with Ctrl held copies, and does not ask', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await withSub(page);
+	await page.keyboard.down('Control');
+	await page
+		.getByRole('button', { name: 'one.md' })
+		.dragTo(page.getByRole('button', { name: 'Sub' }));
+	await page.keyboard.up('Control');
+
+	await expect(page.getByRole('dialog')).toBeHidden();
+	await expect.poll(() => atPath(page, 'Sub/one.md')).toBe('first');
+	expect(await atPath(page, 'one.md')).toBe('first');
+});
+
+test('Copy Relative Path puts the path on the clipboard', async ({
+	page,
+	context,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+	await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+
+	await withSub(page);
+	await page
+		.getByRole('button', { name: 'one.md' })
+		.dragTo(page.getByRole('button', { name: 'Sub' }));
+	await page.getByRole('dialog').getByRole('button', { name: 'Move' }).click();
+
+	// VS Code's chord: Ctrl+K, then Ctrl+Shift+C.
+	const row = page.locator('button[title="Sub/one.md"]');
+	await row.focus();
+	await page.keyboard.press('Control+k');
+	await page.keyboard.press('Control+Shift+c');
+	await expect
+		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+		.toBe('Sub/one.md');
 });
