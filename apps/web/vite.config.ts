@@ -13,4 +13,19 @@ export default defineConfig({
 			adapter: adapter(),
 		}),
 	],
+
+	/*
+	 * THE TEXT EDITOR'S LIBRARIES, bundled when the dev server starts rather than
+	 * found on the first visit. They are imported late, so the server otherwise
+	 * meets them mid-page, bundles them, and reloads the page under whoever is
+	 * using it — a test, as often as not.
+	 */
+	optimizeDeps: {
+		include: [
+			'monaco-editor/editor',
+			'monaco-editor/features/register.all',
+			'monaco-editor/languages/definitions/markdown/register',
+			'highlight.js/lib/common',
+		],
+	},
 });

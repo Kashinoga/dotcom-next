@@ -788,6 +788,7 @@ for (const height of [1000, 700, 500]) {
 		await page.setViewportSize({ width: 1400, height });
 		await page.goto('/text-editor');
 		await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+		await monaco(page);
 
 		const seen = await page.evaluate(() => {
 			const over = (selector: string) => {
@@ -819,22 +820,31 @@ test('a document longer than the pane scrolls, and the page does not', async ({
 	await page.goto('/text-editor');
 	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
 
-	const sheet = page.locator('.sheet textarea');
-	await sheet.fill(
-		Array.from({ length: 200 }, (_, line) => `Line ${line + 1}`).join('\n'),
+	await write(
+		page,
+		Array.from({ length: 80 }, (_, line) => `Line ${line + 1}`).join('\n'),
 	);
 
+	// Monaco is its own scroller: the end of the document is reached inside it.
+	await page.keyboard.press('ControlOrMeta+End');
+	const line = (text: string) =>
+		page.locator('.sheet .view-line', {
+			// Monaco draws a space as a no-break space; `s` is either.
+			hasText: new RegExp(`^${text.replace(' ', '\\s')}$`),
+		});
+	await expect(line('Line 80')).toBeInViewport();
+	await expect(line('Line 1')).not.toBeInViewport();
+
 	const seen = await page.evaluate(() => {
-		const area = document.querySelector('.sheet textarea')!;
+		const sheet = document.querySelector('.sheet')!;
 		return {
-			// The textarea is its own scroller — a textarea always is.
-			area: area.scrollHeight - area.clientHeight,
+			sheet: sheet.scrollHeight - sheet.clientHeight,
 			page: document.documentElement.scrollHeight - window.innerHeight,
 		};
 	});
-
-	expect(seen.area).toBeGreaterThan(0);
-	// And the app is still exactly the window, which is the invariant it all rests on.
+	// And the pane and the app are still exactly their size, which is the
+	// invariant it all rests on.
+	expect(seen.sheet).toBe(0);
 	expect(seen.page).toBe(0);
 });
 
@@ -860,13 +870,25 @@ for (const mode of ['light', 'dark'] as const) {
 		const page = await context.newPage();
 		await page.goto('/text-editor');
 		await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+		await monaco(page);
 
+		/*
+		 * Monaco draws a cursor, a selection and its scrollbars, which are not
+		 * grounds; the layers that would be — the editor, its background and its
+		 * gutter — are asked by name, and everything outside it as before.
+		 */
 		const seen = await page.evaluate(() => {
 			const pane = document.querySelector('.sheet')!;
+			const layers = ['.monaco-editor', '.monaco-editor-background', '.margin'];
 			return {
 				pane: getComputedStyle(pane).backgroundColor,
-				inside: [...pane.querySelectorAll('*')].map((child) => ({
-					tag: child.tagName.toLowerCase(),
+				inside: [
+					...[...pane.querySelectorAll('*')].filter(
+						(child) => !child.closest('.monaco-editor'),
+					),
+					...layers.map((layer) => pane.querySelector(layer)!),
+				].map((child) => ({
+					tag: `${child.tagName.toLowerCase()}.${child.classList[0] ?? ''}`,
 					background: getComputedStyle(child).backgroundColor,
 				})),
 			};
@@ -1046,7 +1068,7 @@ test('a heading starts where its own rows start', async ({ page }) => {
 	await page.goto('/text-editor');
 	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
 	// The outline lists what the document holds, so it is given a heading to list.
-	await page.locator('.sheet textarea').fill('# A heading');
+	await write(page, '# A heading');
 	await expect(page.locator('#outline li button')).toHaveCount(1);
 
 	const seen = await page.evaluate(() => {
@@ -1267,11 +1289,11 @@ test('a folder is walked, listed, and read onto the sheet', async ({
 
 	// And a row puts its own words on the sheet.
 	await page.getByRole('button', { name: 'The Curriculum.md' }).click();
-	await expect(page.locator('.sheet pre')).toContainText('# The Curriculum');
-	await expect(page.locator('.sheet pre')).toContainText('Welcome.');
+	await expect.poll(() => words(page)).toContain('# The Curriculum');
+	await expect.poll(() => words(page)).toContain('Welcome.');
 
 	await page.getByRole('button', { name: 'inside.md' }).click();
-	await expect(page.locator('.sheet pre')).toContainText('nested words');
+	await expect.poll(() => words(page)).toContain('nested words');
 });
 
 /*
@@ -1425,13 +1447,18 @@ test('a folder that cannot be written to offers no typing', async ({
 	await page.getByRole('button', { name: 'The Curriculum.md' }).click();
 
 	// The document is shown, and shown as something that cannot be typed in.
-	await expect(page.locator('.sheet pre')).toContainText('# The Curriculum');
-	await expect(page.locator('.sheet textarea')).toHaveCount(0);
+	await expect.poll(() => words(page)).toContain('# The Curriculum');
+	await (await monaco(page)).click();
+	await page.keyboard.insertText('typed');
+	// Given time to have gone in, had it been going to.
+	await page.waitForTimeout(300);
+	expect(await words(page)).not.toContain('typed');
 
 	/* A scratch note in the same session still takes typing — the sheet is
 	 * read-only about THIS document and not about itself. */
 	await page.getByRole('button', { name: 'Ephemeral 0' }).click();
-	await expect(page.locator('.sheet textarea')).toHaveCount(1);
+	await write(page, 'typed');
+	await expect.poll(() => words(page)).toBe('typed');
 });
 
 /*
@@ -1439,9 +1466,7 @@ test('a folder that cannot be written to offers no typing', async ({
  * picker is answered with a folder in the origin's private file system, which
  * is a real writable handle. Chromium only — that is where the picker is.
  *
- * The clock is paused once the folder is open, so the 600ms settle never fires
- * on its own and any word that reaches the disk got there by the path under
- * test. `install` alone lets time run.
+ * The clock is installed and left running; see `freeze`.
  */
 async function writableFolder(page: Page, files: Record<string, string>) {
 	await page.clock.install();
@@ -1468,6 +1493,15 @@ async function writableFolder(page: Page, files: Record<string, string>) {
 		.getByRole('button', { name: 'Open a folder from this device' })
 		.click();
 	await page.getByRole('button', { name: 'Put Notes away' }).waitFor();
+}
+
+/*
+ * THE CLOCK STOPPED, so the 600ms settle never fires on its own and any word
+ * that reaches the disk got there by the path under test. Only once Monaco is
+ * on the sheet: it draws on the clock too, and would stop half made.
+ */
+async function freeze(page: Page) {
+	await monaco(page);
 	await page.clock.pauseAt(Date.now() + 60_000);
 }
 
@@ -1489,11 +1523,12 @@ test('the bar says where the words stand, in Edit too', async ({
 	await writableFolder(page, { 'one.md': 'first' });
 	await page.getByRole('button', { name: 'one.md' }).click();
 	await page.getByRole('button', { name: 'Edit', exact: true }).click();
+	await freeze(page);
 
 	const status = page.locator('.status');
 	await expect(status).toHaveText('All changes saved.');
 
-	await page.locator('.sheet textarea').fill('second');
+	await write(page, 'second');
 	await expect(status).toHaveText('Saving…');
 
 	await page.clock.runFor(600);
@@ -1509,7 +1544,8 @@ test('putting a folder away saves what was just typed', async ({
 
 	await writableFolder(page, { 'one.md': 'first' });
 	await page.getByRole('button', { name: 'one.md' }).click();
-	await page.locator('.sheet textarea').fill('second');
+	await freeze(page);
+	await write(page, 'second');
 
 	await page.getByRole('button', { name: 'Put Notes away' }).click();
 	await expect(page.getByRole('button', { name: 'one.md' })).toHaveCount(0);
@@ -1524,7 +1560,8 @@ test('a hidden page saves what was just typed', async ({
 
 	await writableFolder(page, { 'one.md': 'first' });
 	await page.getByRole('button', { name: 'one.md' }).click();
-	await page.locator('.sheet textarea').fill('second');
+	await freeze(page);
+	await write(page, 'second');
 
 	await page.evaluate(() => {
 		Object.defineProperty(document, 'visibilityState', { value: 'hidden' });
@@ -1541,13 +1578,14 @@ test('a folder whose save failed is not put away on the first press', async ({
 
 	await writableFolder(page, { 'one.md': 'first' });
 	await page.getByRole('button', { name: 'one.md' }).click();
+	await freeze(page);
 
 	// The grant withdrawn from under the editor, so the write is refused.
 	await page.evaluate(() => {
 		FileSystemFileHandle.prototype.createWritable = () =>
 			Promise.reject(new DOMException('withdrawn', 'NotAllowedError'));
 	});
-	await page.locator('.sheet textarea').fill('second');
+	await write(page, 'second');
 
 	const away = page.getByRole('button', { name: 'Put Notes away' });
 	await away.click();
@@ -2305,20 +2343,64 @@ async function editor(page: Page) {
 	await page.locator('.workspace[data-ready]').waitFor({ state: 'attached' });
 }
 
+/*
+ * THE SHEET, WHICH ON A COMPUTER IS MONACO once it has loaded — and these run
+ * as a computer. Words go in as a paste, which is how a block of text arrives
+ * in an editor; in Firefox they are typed a line at a time instead, since its
+ * test driver neither hands Monaco a made-up paste nor types a line break into
+ * it only once. Nothing written here is indented, so Monaco's keeping of the
+ * last line's indent on Enter changes nothing.
+ */
+async function monaco(page: Page) {
+	const sheet = page.locator('.sheet .monaco-editor');
+	await expect(sheet).toBeVisible();
+	return sheet;
+}
+
+async function write(page: Page, text: string) {
+	await (await monaco(page)).click();
+	await page.keyboard.press('ControlOrMeta+a');
+	await page.keyboard.press('Delete');
+	if (!text) return;
+
+	if (page.context().browser()?.browserType().name() === 'chromium') {
+		await page.evaluate((text) => {
+			const data = new DataTransfer();
+			data.setData('text/plain', text);
+			document.activeElement?.dispatchEvent(
+				new ClipboardEvent('paste', {
+					clipboardData: data,
+					bubbles: true,
+					cancelable: true,
+				}),
+			);
+		}, text);
+		return;
+	}
+	for (const [i, line] of text.split('\n').entries()) {
+		if (i) await page.keyboard.press('Enter');
+		if (line) await page.keyboard.insertText(line);
+	}
+}
+
+/* What the sheet says, as Monaco draws it — which is only the lines in view,
+ * so this is for a document short enough to be seen whole. */
+async function words(page: Page) {
+	const lines = (await monaco(page)).locator('.view-lines');
+	return (await lines.innerText()).replace(/\u00a0/g, ' ');
+}
+
 test('a scratch note is there to type in, and survives a reload', async ({
 	page,
 }) => {
 	await editor(page);
 
-	const sheet = page.locator('.sheet textarea');
-	await expect(sheet).toBeVisible();
-
-	await sheet.fill('The terrain is unforgiving by design.');
+	await write(page, 'The terrain is unforgiving by design.');
 	await page.reload();
 	await page.locator('.workspace[data-ready]').waitFor({ state: 'attached' });
-	await expect(page.locator('.sheet textarea')).toHaveValue(
-		'The terrain is unforgiving by design.',
-	);
+	await expect
+		.poll(() => words(page))
+		.toBe('The terrain is unforgiving by design.');
 });
 
 /*
@@ -2368,7 +2450,7 @@ test('closing Ephemeral 0 clears it; closing another removes it', async ({
 }) => {
 	await editor(page);
 
-	await page.locator('.sheet textarea').fill('Take care.');
+	await write(page, 'Take care.');
 
 	const zero = page.locator('.row', { hasText: 'Ephemeral 0' });
 	await zero.hover();
@@ -2378,7 +2460,7 @@ test('closing Ephemeral 0 clears it; closing another removes it', async ({
 	await expect(
 		page.locator('.workspace section').first().locator('.file .name'),
 	).toHaveText(['Ephemeral 0']);
-	await expect(page.locator('.sheet textarea')).toHaveValue('');
+	await expect.poll(() => words(page)).toBe('');
 });
 
 /*
@@ -2466,9 +2548,10 @@ test('a note is set in the proof, and its headings are the outline', async ({
 	page,
 }) => {
 	await editor(page);
-	await page
-		.locator('.sheet textarea')
-		.fill('---\ntitle: kept out\n---\n# One\n\nSome **words**.\n\n## Two');
+	await write(
+		page,
+		'---\ntitle: kept out\n---\n# One\n\nSome **words**.\n\n## Two',
+	);
 
 	const proof = page.locator('.proof');
 	await expect(proof.locator('h1')).toHaveText('One');
@@ -2484,16 +2567,16 @@ test('a note is set in the proof, and its headings are the outline', async ({
 
 test('a script in a document is not run', async ({ page }) => {
 	await editor(page);
-	await page
-		.locator('.sheet textarea')
-		.fill(
-			[
-				'<img src="x" onerror="window.ran = 1">',
-				'<script>window.ran = 2</script>',
-				'<a href="javascript:window.ran = 3">raw</a>',
-				'[written](javascript:window.ran=4)',
-			].join('\n\n'),
-		);
+	await write(
+		page,
+
+		[
+			'<img src="x" onerror="window.ran = 1">',
+			'<script>window.ran = 2</script>',
+			'<a href="javascript:window.ran = 3">raw</a>',
+			'[written](javascript:window.ran=4)',
+		].join('\n\n'),
+	);
 	await expect(page.locator('.proof img')).toHaveCount(1);
 	await expect(page.locator('.proof img')).not.toHaveAttribute('onerror');
 
@@ -2509,39 +2592,44 @@ test('a script in a document is not run', async ({ page }) => {
 
 test('a heading in the outline brings both panes to it', async ({ page }) => {
 	await editor(page);
-	const filler = Array.from({ length: 120 }, (_, i) => `Line ${i}.\n`);
-	const doc = ['# Top', '', ...filler, '## Middle', '', ...filler].join('\n');
-	const sheet = page.locator('.sheet textarea');
-	await sheet.fill(doc);
+	const filler = Array.from({ length: 60 }, (_, i) => `Line ${i}.`);
+	await write(
+		page,
+		['# Top', '', ...filler, '## Middle', '', ...filler].join('\n'),
+	);
 
 	await page.getByRole('button', { name: 'Middle' }).click();
 
-	// The caret is on the heading's line, and that line is in view.
-	const seen = await sheet.evaluate((area: HTMLTextAreaElement) => ({
-		caret: area.selectionStart,
-		line: area.value.indexOf('## Middle'),
-		top: area.scrollTop,
-		height: area.scrollHeight,
-	}));
-	expect(seen.caret).toBe(seen.line);
-	expect(seen.top).toBeGreaterThan(seen.height / 3);
-	expect(seen.top).toBeLessThan((seen.height * 2) / 3);
+	// The heading's line is near the top of the sheet, and the caret is on it.
+	const middle = page.locator('.sheet .view-line', { hasText: '## Middle' });
+	await expect(middle).toBeInViewport();
+	await expect(page.locator('.sheet .monaco-editor')).toHaveClass(/focused/);
+	const line = (await middle.boundingBox())!;
+	const pane = (await page.locator('.sheet').boundingBox())!;
+	// Near the top, as VS Code reveals it, with the pinned heading above.
+	expect(line.y - pane.y).toBeLessThan(pane.height / 2);
+	const current = (await page
+		.locator('.sheet .view-overlays .current-line')
+		.boundingBox())!;
+	expect(Math.abs(current.y - line.y)).toBeLessThan(2);
 
-	const heading = page.locator('.proof h2');
-	await expect(heading).toBeInViewport();
+	await expect(page.locator('.proof h2')).toBeInViewport();
 
-	// And back up, which is the direction Chromium would not scroll on its own.
+	// And back up.
 	await page.getByRole('button', { name: 'Top' }).click();
-	expect(await sheet.evaluate((area) => area.scrollTop)).toBe(0);
+	await expect(
+		page.locator('.sheet .view-line', { hasText: '# Top' }),
+	).toBeInViewport();
 	await expect(page.locator('.proof h1')).toBeInViewport();
 });
 
 test('a link to a heading goes to it', async ({ page }) => {
 	await editor(page);
-	const filler = Array.from({ length: 120 }, (_, i) => `Line ${i}.\n`);
-	await page
-		.locator('.sheet textarea')
-		.fill(['[down](#the-far-end)', '', ...filler, '## The Far End'].join('\n'));
+	const filler = Array.from({ length: 60 }, (_, i) => `Line ${i}.`);
+	await write(
+		page,
+		['[down](#the-far-end)', '', ...filler, '## The Far End'].join('\n'),
+	);
 
 	await page.locator('.proof a').click();
 	await expect(page.locator('.proof h2')).toBeInViewport();
@@ -2572,7 +2660,7 @@ test('a link to a document in the folder opens it there', async ({
 	await page.getByRole('button', { name: 'start.md' }).click();
 	await page.locator('.proof a').click();
 
-	await expect(page.locator('.sheet pre')).toHaveText('# Next');
+	await expect.poll(() => words(page)).toBe('# Next');
 	await expect(page.locator('.proof h1')).toHaveText('Next');
 
 	// Not Markdown, so nothing is set and nothing is outlined.
@@ -2703,7 +2791,7 @@ test('F2 renames a document, and it stays open under its new name', async ({
 
 	const renamed = page.getByRole('button', { name: 'renamed.md' });
 	await expect(renamed).toHaveAttribute('aria-current', 'true');
-	await expect(page.locator('.sheet textarea')).toHaveValue('first');
+	await expect.poll(() => words(page)).toBe('first');
 	expect(await atPath(page, 'renamed.md')).toBe('first');
 	expect(await atPath(page, 'one.md')).toBe(null);
 	expect(await atPath(page, 'two.md')).toBe('second');
@@ -2844,7 +2932,7 @@ test('a document dragged onto a folder moves into it, once asked', async ({
 		'aria-current',
 		'true',
 	);
-	await expect(page.locator('.sheet textarea')).toHaveValue('first');
+	await expect.poll(() => words(page)).toBe('first');
 
 	// Told not to ask, it does not: back out to the top, at once.
 	await page
@@ -2882,7 +2970,8 @@ test('cut and paste moves without asking, and a taken name is refused', async ({
 	await page.keyboard.press('Control+x');
 	await page.locator('button[title="Sub/one.md"]').focus();
 	await page.keyboard.press('Control+v');
-	await expect(page.getByRole('alert')).toHaveText(
+	// The page's notice, and not one of Monaco's own live regions.
+	await expect(page.locator('.notice')).toHaveText(
 		'A file or folder one.md already exists in the destination folder.',
 	);
 	expect(await atPath(page, 'one.md')).toBe('');
@@ -2987,16 +3076,16 @@ test('a fence that names a language is coloured as VS Code colours it', async ({
 }) => {
 	const fetched: string[] = [];
 	page.on('request', (request) => {
-		if (request.url().includes('highlight')) fetched.push(request.url());
+		// highlight.js, and not Monaco's own highlightDecorations.css.
+		if (/highlight[._]js/.test(request.url())) fetched.push(request.url());
 	});
 
 	await editor(page);
-	const sheet = page.locator('.sheet textarea');
-	await sheet.fill('```\nplain\n```');
+	await write(page, '```\nplain\n```');
 	await expect(page.locator('.proof pre')).toHaveText('plain');
 	expect(fetched).toEqual([]);
 
-	await sheet.fill('```js\nconst wand = "it"; // kept\n```');
+	await write(page, '```js\nconst wand = "it"; // kept\n```');
 	const keyword = page.locator('.proof .hljs-keyword');
 	await expect(keyword).toHaveText('const');
 	// The light theme's keyword, #00f, from VS Code's highlight.css.
@@ -3008,4 +3097,64 @@ test('a fence that names a language is coloured as VS Code colours it', async ({
 	// And vs2015's in dark.
 	await page.emulateMedia({ colorScheme: 'dark' });
 	await expect(keyword).toHaveCSS('color', 'rgb(86, 156, 214)');
+});
+
+/*
+ * ON A PHONE THE SHEET IS A TEXTAREA, since Monaco does not support mobile
+ * browsers. Chromium only, which is the engine that can be told it is a phone.
+ * These keep the textarea's own traps covered: the ground it paints by default,
+ * the descender's space under it, and the caret Chromium will not scroll to.
+ */
+test.describe('on a phone', () => {
+	test.use({
+		isMobile: true,
+		hasTouch: true,
+		viewport: { width: 412, height: 800 },
+	});
+	test.skip(({ browserName }) => browserName !== 'chromium', 'Chromium only');
+
+	test('the sheet is a textarea, and Monaco is never loaded', async ({
+		page,
+	}) => {
+		const fetched: string[] = [];
+		page.on('request', (request) => {
+			if (request.url().includes('monaco')) fetched.push(request.url());
+		});
+		await editor(page);
+		const sheet = page.locator('.sheet textarea');
+		await sheet.fill('# On a phone');
+		await expect(page.locator('#outline li button')).toHaveText(['On a phone']);
+		await expect(page.locator('.sheet .monaco-editor')).toHaveCount(0);
+		expect(fetched).toEqual([]);
+	});
+
+	test('the textarea paints no ground of its own, in dark', async ({
+		page,
+	}) => {
+		await page.emulateMedia({ colorScheme: 'dark' });
+		await editor(page);
+		const ground = await page
+			.locator('.sheet textarea')
+			.evaluate((area) => getComputedStyle(area).backgroundColor);
+		expect(ground).toBe('rgba(0, 0, 0, 0)');
+	});
+
+	test('a link to a heading scrolls the textarea to it', async ({ page }) => {
+		await editor(page);
+		const filler = Array.from({ length: 120 }, (_, i) => `Line ${i}.\n`);
+		const sheet = page.locator('.sheet textarea');
+		await sheet.fill(
+			['[down](#middle)', '', ...filler, '## Middle'].join('\n'),
+		);
+
+		// There is no outline on a phone; a link in the proof goes the same way.
+		await page.locator('.proof a').click();
+		const seen = await sheet.evaluate((area: HTMLTextAreaElement) => ({
+			caret: area.selectionStart,
+			line: area.value.indexOf('## Middle'),
+			top: area.scrollTop,
+		}));
+		expect(seen.caret).toBe(seen.line);
+		expect(seen.top).toBeGreaterThan(0);
+	});
 });

@@ -1,9 +1,10 @@
 <script lang="ts">
 	/*
 	 * THE TEXT EDITOR, with vscode.dev as the reference for what is underneath,
-	 * so it behaves as somebody who knows VS Code expects. The workspace, the
-	 * proof and the outline are real; the sheet is still a textarea, standing in
-	 * for Monaco, which is VS Code's own editor and the one planned for it.
+	 * so it behaves as somebody who knows VS Code expects: Monaco for the sheet
+	 * on a computer, markdown-it for the proof and the outline, and the explorer's
+	 * verbs on the workspace. A phone keeps a textarea, which Monaco does not
+	 * support.
 	 *
 	 * Nothing here is imported from the first site's editor. That one is worth
 	 * reading and is not worth copying: its answers were reached against a
@@ -24,6 +25,7 @@
 
 	import { bar, type BarStatus } from '$lib/bar.svelte';
 	import ConnectDrive from '$lib/components/ConnectDrive.svelte';
+	import MonacoSheet from '$lib/components/MonacoSheet.svelte';
 	import Placeholder from '$lib/components/Placeholder.svelte';
 	import Seo from '$lib/components/Seo.svelte';
 	import {
@@ -39,6 +41,7 @@
 	import { name as scratchName, PERMANENT, scratch } from '$lib/scratch.svelte';
 	import { dirOf, type Row } from '$lib/workspace';
 	import { tick } from 'svelte';
+	import { MediaQuery } from 'svelte/reactivity';
 
 	/*
 	 * WHAT IS ON THE DESK. A scratch note and a document in a folder are not the
@@ -199,6 +202,15 @@
 	);
 
 	let sheetText = $state<HTMLTextAreaElement | null>(null);
+	let monacoSheet = $state<MonacoSheet | null>(null);
+
+	/*
+	 * MONACO WHERE THE POINTER IS A MOUSE OR A TRACKPAD, and the textarea where
+	 * it is a finger: Monaco's README answers "is the editor supported in mobile
+	 * browsers?" with "No." False until the page is in a browser, so the
+	 * prerendered sheet is the textarea and Monaco takes over once it has loaded.
+	 */
+	const computer = new MediaQuery('(pointer: fine)', false);
 	let proof = $state<HTMLElement | null>(null);
 
 	/*
@@ -208,7 +220,9 @@
 	 * the file may not have.
 	 */
 	function goTo(line: number) {
-		if (sheetText) {
+		if (monacoSheet) {
+			monacoSheet.goTo(line);
+		} else if (sheetText) {
 			const offset = sheetText.value
 				.split('\n')
 				.slice(0, line)
@@ -1334,14 +1348,37 @@
 			{:else}
 				<div class="area" data-view={view.current}>
 					{#if view.current !== 'preview'}
-						<!--
-						A SCRATCH NOTE CAN BE TYPED IN and a placeholder file cannot,
-						because one of them exists. The textarea is deliberately plain
-						and deliberately temporary — it is standing in for an editor, and
-						the whole reason for the scratch notes is to have somewhere real
-						to put one when it arrives.
-					-->
-						{#if openScratch !== null}
+						{#if computer.current && source !== null}
+							<!--
+							ON A COMPUTER, MONACO: VS Code's own editor, for every kind of
+							document, read-only where the folder is. One model per document,
+							so each keeps its undo history — see $lib/monaco.
+						-->
+							<div class="sheet">
+								<MonacoSheet
+									bind:this={monacoSheet}
+									key={open.kind === 'file'
+										? `file:${open.path}`
+										: `scratch:${open.id}`}
+									value={source}
+									language={markdown ? 'markdown' : 'plaintext'}
+									label="{open.kind === 'file'
+										? open.path
+										: scratchName(open.id)}, the document"
+									readOnly={open.kind === 'file' && !folder.writable}
+									placeholder={open.kind === 'scratch' ? 'Type something.' : ''}
+									oninput={(words) =>
+										open.kind === 'scratch'
+											? scratch.write(open.id, words)
+											: folder.edit(words)}
+								/>
+							</div>
+						{:else if openScratch !== null}
+							<!--
+							ON A PHONE, A TEXTAREA, which Monaco's README says it does not
+							support. A scratch note can be typed in; a document from a folder
+							can be where the folder can be written to.
+						-->
 							<div class="sheet">
 								<textarea
 									bind:this={sheetText}
