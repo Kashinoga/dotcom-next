@@ -13,6 +13,7 @@
 	 */
 	import File from '@lucide/svelte/icons/file';
 	import FileText from '@lucide/svelte/icons/file-text';
+	import FileInput from '@lucide/svelte/icons/file-input';
 	import NotepadText from '@lucide/svelte/icons/notepad-text';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
@@ -41,6 +42,7 @@
 	import Placeholder from '$lib/components/Placeholder.svelte';
 	import Seo from '$lib/components/Seo.svelte';
 	import {
+		canPickFile,
 		canPickFolder,
 		folder,
 		type Made,
@@ -132,6 +134,31 @@
 	function cancelSnapshot() {
 		picking = false;
 		gathering = false;
+	}
+
+	/*
+	 * ONE DOCUMENT, WITHOUT ITS FOLDER. Chromium hands over a file it can save
+	 * back to; elsewhere the input hands over what the file was when picked, view
+	 * only. Either way it lands with the scratch notes and opens on the sheet.
+	 */
+	let fileInput = $state<HTMLInputElement | null>(null);
+
+	async function openLoose() {
+		if (!canPickFile()) {
+			fileInput?.click();
+			return;
+		}
+		const key = await folder.pickFile();
+		if (key) await openFile(key);
+	}
+
+	async function takeLoose(event: Event & { currentTarget: HTMLInputElement }) {
+		const picked = event.currentTarget.files?.[0];
+		// Cleared so choosing the SAME file twice fires a change the second time.
+		event.currentTarget.value = '';
+		if (!picked) return;
+		const key = await folder.takeFile(picked);
+		if (key) await openFile(key);
 	}
 
 	async function takeFolder(
@@ -614,7 +641,7 @@
 	 * and stays folded between visits. Read after the first paint, so the
 	 * prerendered rail and the hydrated one agree.
 	 */
-	type Section = 'scratch' | 'files';
+	type Section = 'scratch' | 'loose' | 'files';
 	const SECTIONS = 'text-editor.sections';
 	let shut = $state<Section[]>([]);
 
@@ -1021,7 +1048,14 @@
 	async function showExplorer() {
 		if (!workspace.open) workspace.toggle();
 		// The open one is shown, as VS Code's `explorer.autoReveal` shows it.
-		toggleSection(open.kind === 'file' ? 'files' : 'scratch', true);
+		toggleSection(
+			open.kind === 'scratch'
+				? 'scratch'
+				: folder.isLoose(open.path)
+					? 'loose'
+					: 'files',
+			true,
+		);
 		if (open.kind === 'file') folder.reveal(open.path);
 		await tick();
 		// One after the other: a list of selectors answers in page order, not in
@@ -1064,6 +1098,13 @@
 				label: scratchName(note.id),
 				detail: 'Scratch',
 				run: () => show({ kind: 'scratch', id: note.id }),
+			})),
+			// A document opened on its own is found by its name, like a note.
+			...folder.loose.map((file) => ({
+				key: `file:${file.key}`,
+				label: file.key,
+				detail: 'Files',
+				run: () => void openFile(file.key),
 			})),
 			...folder.files
 				.filter((file) => file.openable !== false)
@@ -1245,7 +1286,9 @@
 	 * and a drop is easy to make by accident.
 	 */
 	type Asking =
-		{ kind: 'delete'; row: Row } | { kind: 'move'; row: Row; dir: string };
+		| { kind: 'delete'; row: Row }
+		| { kind: 'move'; row: Row; dir: string }
+		| { kind: 'forget'; drive: { id: string; name: string } };
 
 	let asking = $state<Asking | null>(null);
 	let askFailed = $state<string | null>(null);
@@ -1253,7 +1296,7 @@
 	let confirmEl = $state<HTMLDialogElement | null>(null);
 
 	async function ask(next: Asking) {
-		chosen = next.row;
+		if (next.kind !== 'forget') chosen = next.row;
 		asking = next;
 		askFailed = null;
 		dontAsk = false;
@@ -1271,6 +1314,14 @@
 	async function confirmAsk() {
 		const now = asking;
 		if (!now) return;
+
+		/* Forgetting takes the drive's address and password out of this browser
+		 * and nothing else; there is no row on the rail for it to fail over. */
+		if (now.kind === 'forget') {
+			await folder.dropDrive(now.drive.id);
+			confirmEl?.close('done');
+			return;
+		}
 
 		if (now.kind === 'move') {
 			if (dontAsk) {
@@ -1475,6 +1526,110 @@
 			</section>
 
 			<!--
+				FILES OPENED ON THEIR OWN, without their folder: one document each,
+				saved back where it came from, and closed with its own ×. A section of
+				their own, because they are neither notes kept in this browser nor a
+				folder with a tree under it.
+			-->
+			<section class="section bounded" aria-label="Files">
+				<h2>
+					{@render twisty('loose', 'Files')}
+					<button
+						type="button"
+						class="add"
+						title={canPickFile()
+							? 'Open a file from this device'
+							: 'Open a file from this device, as it is now. Nothing leaves this device.'}
+						aria-label={canPickFile()
+							? 'Open a file from this device'
+							: 'Open a file from this device, read-only'}
+						onclick={openLoose}
+					>
+						<FileInput aria-hidden="true" />
+					</button>
+					{#if !canPickFile()}
+						<!-- The mechanism, out of the reading; the button above is the control. -->
+						<input
+							bind:this={fileInput}
+							class="visually-hidden"
+							type="file"
+							tabindex="-1"
+							aria-hidden="true"
+							onchange={takeLoose}
+						/>
+					{/if}
+				</h2>
+
+				<div id="loose-body" class="body" hidden={shut.includes('loose')}>
+					<!--
+						DOCUMENTS FROM LAST TIME, named and offered as the folders are: a
+						browser lets one back in only in answer to a press.
+					-->
+					{#each folder.waitingFiles as handle (handle)}
+						<p class="note">Last time you had {handle.name}.</p>
+						<button
+							type="button"
+							class="file"
+							aria-label="Open {handle.name} again"
+							onclick={async () => {
+								const key = await folder.resumeFile(handle);
+								if (key) await openFile(key);
+							}}
+						>
+							<FileText aria-hidden="true" />
+							<span class="name">Open it again</span>
+						</button>
+					{/each}
+
+					{#if folder.loose.length}
+						<ol>
+							<!--
+							DOCUMENTS OPENED ON THEIR OWN: one document each, open, closed
+							with its own ×, and saved where it came from. Kept for the next
+							visit where the browser gives a handle, as a folder is.
+						-->
+							{#each folder.loose as file (file.key)}
+								<li class="row">
+									<button
+										type="button"
+										class="file"
+										aria-current={open.kind === 'file' && open.path === file.key
+											? 'true'
+											: undefined}
+										title={file.writable
+											? `${file.key} — on this device`
+											: `${file.key} — a copy from this device. This browser can’t save to it.`}
+										onclick={() => void openFile(file.key)}
+									>
+										<FileText aria-hidden="true" />
+										<span class="name">{file.key}</span>
+										{#if !file.writable}
+											<PencilOff aria-hidden="true" />
+											<span class="visually-hidden">View only</span>
+										{/if}
+									</button>
+
+									<button
+										type="button"
+										class="close"
+										title="Close it"
+										aria-label="Close {file.key}"
+										onclick={() => closeRoot(file.key)}
+									>
+										<X aria-hidden="true" />
+									</button>
+								</li>
+							{/each}
+						</ol>
+					{:else}
+						{#if !folder.waitingFiles.length}
+							<p class="note">No file open.</p>
+						{/if}
+					{/if}
+				</div>
+			</section>
+
+			<!--
 				THE FILES ARE REAL NOW, and until somebody hands over a folder there
 				are none. Each folder that is open heads its own rows by name, so the
 				rail says WHICH folders rather than just "Files" — and a person with
@@ -1488,12 +1643,12 @@
 				class="section"
 				class:drop={dropDir === ''}
 				role="group"
-				aria-label="Files"
+				aria-label="Folders"
 				ondragover={(event) => dragOver(event, null)}
 				ondrop={(event) => drop(event, null)}
 			>
 				<h2>
-					{@render twisty('files', 'Files')}
+					{@render twisty('files', 'Folders')}
 
 					<!--
 						THE WAYS IN, always offered: a folder on this device and a drive on a
@@ -1911,7 +2066,11 @@
 										class="close"
 										title="Forget it"
 										aria-label="Forget {drive.name}"
-										onclick={() => folder.dropDrive(drive.id)}
+										onclick={() =>
+											ask({
+												kind: 'forget',
+												drive: { id: drive.id, name: drive.name },
+											})}
 									>
 										<X aria-hidden="true" />
 									</button>
@@ -2056,7 +2215,11 @@
 					onclose={() => {
 						const was = asking;
 						asking = null;
-						if (was && confirmEl?.returnValue !== 'done') {
+						if (
+							was &&
+							was.kind !== 'forget' &&
+							confirmEl?.returnValue !== 'done'
+						) {
 							void focusRow(was.row.path);
 						}
 					}}
@@ -2067,6 +2230,19 @@
 								.name}’{asking.row.kind === 'dir' ? ' and its contents' : ''}?
 						</p>
 						<p class="detail">This action is irreversible.</p>
+					{:else if asking?.kind === 'forget'}
+						<!--
+							WHAT FORGETTING TAKES, said before it is done: a drive whose
+							password was made by signing in cannot be got back by typing
+							one, so somebody should know it is gone from here.
+						-->
+						<p id="confirm-question">
+							Are you sure you want to forget ‘{asking.drive.name}’?
+						</p>
+						<p class="detail">
+							Its address and app password are removed from this browser.
+							Nothing on the server is changed, and it can be connected again.
+						</p>
 					{:else if asking}
 						<p id="confirm-question">
 							Are you sure you want to move ‘{asking.row.name}’ into ‘{dirName(
@@ -2086,7 +2262,11 @@
 							Cancel
 						</button>
 						<button type="button" class="primary" onclick={confirmAsk}>
-							{asking?.kind === 'move' ? 'Move' : 'Delete'}
+							{asking?.kind === 'move'
+								? 'Move'
+								: asking?.kind === 'forget'
+									? 'Forget'
+									: 'Delete'}
 						</button>
 					</div>
 				</dialog>
@@ -3411,6 +3591,48 @@
 
 	.actions .add {
 		margin-inline-start: 0;
+	}
+
+	/*
+	 * AN OPEN FOLDER'S VERBS COME WITH THE POINTER, as VS Code's do on a root:
+	 * New File, New Folder and the close fold away until the row is pointed at or
+	 * stepped into, and the name has the row until then. The same morph as a
+	 * scratch note's close, for the same reasons — see `.close` — and the view-
+	 * only mark stays, because it is a fact about the folder, not a thing to press.
+	 */
+	.row.root .actions .add {
+		visibility: hidden;
+		overflow: hidden;
+
+		inline-size: 0;
+		opacity: 0;
+
+		transition:
+			inline-size var(--motion-morph),
+			opacity var(--motion-morph),
+			visibility var(--motion-morph);
+	}
+
+	.row.root:hover .actions .add,
+	.row.root:focus-within .actions .add {
+		visibility: visible;
+
+		inline-size: var(--rail-control-block-size);
+		opacity: 1;
+	}
+
+	/* A keyboard gets them at once, and a finger always has them. */
+	.row.root:focus-within .actions .add {
+		transition: none;
+	}
+
+	@media (any-pointer: coarse) {
+		.row.root .actions .add {
+			visibility: visible;
+
+			inline-size: var(--rail-control-block-size);
+			opacity: 1;
+		}
 	}
 
 	/* A root reads as the head of what is under it, as VS Code sets one. */

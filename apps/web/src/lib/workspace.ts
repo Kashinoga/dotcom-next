@@ -838,3 +838,58 @@ export function snapshotStore(
 		removeDir: async () => false,
 	};
 }
+
+// ── One document on its own ──────────────────────────────────────────────────
+
+/*
+ * A SINGLE FILE, opened without its folder. It is a store with one document in
+ * it at the top, so saving, closing and the sheet's words all go the way they
+ * go for a folder; what it cannot do is be a place, so every verb that makes,
+ * renames, moves or copies something in it refuses.
+ *
+ * A HANDLE can be written through, where the browser grants it; a bare `File`
+ * from `<input type="file">` is what it was when it was picked, and read-only,
+ * as a snapshot of a folder is.
+ */
+export function fileStore(from: FileSystemFileHandle | File): Store {
+	const handle = from instanceof File ? null : from;
+
+	return {
+		kind: handle ? 'local' : 'snapshot',
+		name: from.name,
+		writable: Boolean(handle),
+		list: async () => ({ files: [], dirs: [] }),
+
+		async read(path) {
+			if (path) return null;
+			try {
+				return await (handle ? await handle.getFile() : (from as File)).text();
+			} catch {
+				return null;
+			}
+		},
+
+		/* A picture beside it is in a folder this was not handed. */
+		picture: async () => null,
+
+		async write(path, body) {
+			if (!handle || path) return notWritten('denied');
+			try {
+				const writable = await handle.createWritable();
+				await writable.write(body);
+				await writable.close();
+				return WROTE;
+			} catch (error) {
+				return notWritten(whyLocal(error));
+			}
+		},
+
+		create: async () => null,
+		rename: async () => null,
+		move: async () => null,
+		remove: async () => false,
+		createDir: async () => null,
+		removeDir: async () => false,
+		copy: async () => null,
+	};
+}

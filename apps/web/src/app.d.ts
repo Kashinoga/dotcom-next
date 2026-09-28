@@ -31,6 +31,12 @@ declare global {
 			startIn?: string;
 			id?: string;
 		}) => Promise<FileSystemDirectoryHandle>;
+		/* The same, for one document: Chromium's, and absent everywhere else. */
+		showOpenFilePicker?: (options?: {
+			multiple?: boolean;
+			excludeAcceptAllOption?: boolean;
+			id?: string;
+		}) => Promise<FileSystemFileHandle[]>;
 	}
 
 	interface FileSystemFileHandle {

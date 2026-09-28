@@ -1,6 +1,7 @@
 /*
- * THE FOLDERS THIS BROWSER HAD OPEN LAST, kept so a visit does not begin by asking
- * for them again.
+ * THE FOLDERS THIS BROWSER HAD OPEN LAST, and the documents opened on their own,
+ * kept so a visit does not begin by asking for them again. One list for both, in
+ * the order they were opened; a handle's `kind` says which it is.
  *
  * ONLY A HANDLE CAN BE KEPT, and that is the whole shape of this file. A
  * `FileSystemDirectoryHandle` is a structured-cloneable object, so IndexedDB will
@@ -67,15 +68,31 @@ function open(): Promise<IDBDatabase | null> {
 
 		request.onsuccess = () => {
 			const db = request.result;
-			/* Nothing has created it yet — see the note above. */
-			if (!db.objectStoreNames.contains(STORE)) return resolve(null);
+			/*
+			 * Nothing has created it yet — see the note above. NOT KEPT as the
+			 * answer: $lib/drives.ts creates the store a moment after the page
+			 * arrives, and a miss held for the whole visit meant the first thing a
+			 * new browser opened was never remembered. Closed, too, so the upgrade
+			 * that creates it is not blocked behind this connection.
+			 */
+			if (!db.objectStoreNames.contains(STORE)) {
+				db.close();
+				opening = null;
+				return resolve(null);
+			}
 			resolve(db);
 		};
-		request.onerror = () => resolve(null);
+		request.onerror = () => {
+			opening = null;
+			resolve(null);
+		};
 		/* Another tab holds an older version open. Answering null rather than waiting
 		 * means this visit simply has no remembered folder, which is a state the rail
 		 * already draws. */
-		request.onblocked = () => resolve(null);
+		request.onblocked = () => {
+			opening = null;
+			resolve(null);
+		};
 	});
 
 	return opening;
@@ -92,9 +109,8 @@ function transact(mode: IDBTransactionMode): Promise<IDBObjectStore | null> {
 	});
 }
 
-const isHandle = (value: unknown): value is FileSystemDirectoryHandle =>
-	typeof FileSystemDirectoryHandle !== 'undefined' &&
-	value instanceof FileSystemDirectoryHandle;
+const isHandle = (value: unknown): value is FileSystemHandle =>
+	typeof FileSystemHandle !== 'undefined' && value instanceof FileSystemHandle;
 
 function get(store: IDBObjectStore, key: string): Promise<unknown> {
 	return new Promise((resolve) => {
@@ -104,8 +120,8 @@ function get(store: IDBObjectStore, key: string): Promise<unknown> {
 	});
 }
 
-/** The folders this browser had open last, still pointing at them. */
-export async function recall(): Promise<FileSystemDirectoryHandle[]> {
+/** The folders and documents this browser had open last, still pointing at them. */
+export async function recall(): Promise<FileSystemHandle[]> {
 	const store = await transact('readonly');
 	if (!store) return [];
 
@@ -121,10 +137,8 @@ export async function recall(): Promise<FileSystemDirectoryHandle[]> {
 	return isHandle(last) ? [last] : [];
 }
 
-/** Keep these folders as the ones to offer next visit. Silent if it cannot. */
-export async function remember(
-	handles: FileSystemDirectoryHandle[],
-): Promise<void> {
+/** Keep these as the ones to offer next visit. Silent if it cannot. */
+export async function remember(handles: FileSystemHandle[]): Promise<void> {
 	const store = await transact('readwrite');
 	if (!store) return;
 

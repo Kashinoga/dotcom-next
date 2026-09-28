@@ -31,6 +31,7 @@ import { recall, remember } from '$lib/remembered';
 import {
 	dirOf,
 	foldersOf,
+	fileStore,
 	isOpenable,
 	join,
 	localStore,
@@ -76,6 +77,14 @@ export function canPickFolder() {
 	);
 }
 
+/* The same question for one document: a handle, or the input's snapshot. */
+export function canPickFile() {
+	return (
+		typeof window !== 'undefined' &&
+		typeof window.showOpenFilePicker === 'function'
+	);
+}
+
 /*
  * WHAT WENT WRONG LAST, if anything. `idle` is the state a visit opens in and is
  * not a failure; the other two are about a folder that was asked for and did not
@@ -98,6 +107,13 @@ type Root = {
 	listing: Listing;
 	handle: FileSystemDirectoryHandle | null;
 	drive: string | null;
+	/*
+	 * A DOCUMENT OPENED ON ITS OWN, not a folder: a root with one document at its
+	 * top, whose path is its key. Listed with the scratch notes rather than in
+	 * the tree, and never folded, expanded or walked. Its handle, where there is
+	 * one, is how the same file picked twice is found.
+	 */
+	loose: FileSystemFileHandle | File | null;
 };
 
 /* Replaced whole on every change rather than proxied: a store is a bag of
@@ -111,7 +127,12 @@ let roots = $state.raw<Root[]>([]);
  * again in answer to a click. So these are not folders that are open — they are
  * folders that could be, and the rail offers each by name.
  */
-let waiting = $state.raw<FileSystemDirectoryHandle[]>([]);
+let waiting = $state.raw<FileSystemHandle[]>([]);
+
+/* A document opened on its own through a handle, which can be kept; a bare
+ * `File` from the input is what it was and cannot. */
+const keptFile = (root: Root) =>
+	root.loose && !(root.loose instanceof File) ? root.loose : null;
 
 /* Whether `look` has answered. Until it has, "no folder open" may not be true. */
 let looked = $state(false);
@@ -281,10 +302,14 @@ function clearSheet() {
 
 // ── Roots arriving and leaving ───────────────────────────────────────────────
 
-/* The folders on this device that are open or offered, to come back next visit. */
+/* The folders and documents on this device that are open or offered, to come
+ * back next visit. */
 function persist() {
 	return remember([
-		...roots.flatMap((root) => (root.handle ? [root.handle] : [])),
+		...roots.flatMap((root): FileSystemHandle[] => {
+			const file = keptFile(root);
+			return root.handle ? [root.handle] : file ? [file] : [];
+		}),
 		...waiting,
 	]);
 }
@@ -293,14 +318,19 @@ function persist() {
  * READ A FOLDER AND ADD IT. It is added only once it has read, so a folder that
  * would not is never a root with nothing under it — it is trouble, said once.
  *
- * EVERY FOLDER OPENS SHUT, whichever kind of store it came from, and the root
- * itself opens open. A workspace of thirty folders unrolled is a column nobody
- * can find anything in, and a folder on this device and one on a server are the
- * same thing to somebody looking at a list of them.
+ * EVERY FOLDER OPENS SHUT, whichever kind of store it came from, the root
+ * itself with them: it arrives as its name, beside the others, and is opened
+ * when somebody wants what is in it. A workspace of thirty folders unrolled is
+ * a column nobody can find anything in, and a folder on this device and one on
+ * a server are the same thing to somebody looking at a list of them.
  */
 async function adopt(
 	next: Store,
-	from: { handle?: FileSystemDirectoryHandle; drive?: string } = {},
+	from: {
+		handle?: FileSystemDirectoryHandle;
+		drive?: string;
+		loose?: FileSystemFileHandle | File;
+	} = {},
 ) {
 	reading += 1;
 	const read = await next.list();
@@ -318,19 +348,16 @@ async function adopt(
 		listing: qualify({ key }, read),
 		handle: from.handle ?? null,
 		drive: from.drive ?? null,
+		loose: from.loose ?? null,
 	};
 	roots = [...roots, root];
-	expanded = new Set(expanded).add(key);
 	if (next.listDir) loaded = new Set(loaded).add(key);
 	trouble = 'idle';
 	return root;
 }
 
 /* Is this handle's folder open already? Picked twice, it is shown, not doubled. */
-async function sameEntry(
-	one: FileSystemDirectoryHandle,
-	other: FileSystemDirectoryHandle,
-) {
+async function sameEntry(one: FileSystemHandle, other: FileSystemHandle) {
 	if (one === other) return true;
 	if (typeof one.isSameEntry !== 'function') return false;
 	try {
@@ -348,10 +375,30 @@ async function openAlready(handle: FileSystemDirectoryHandle) {
 	return null;
 }
 
+/* The same, for a document opened on its own. */
+async function fileAlready(handle: FileSystemFileHandle) {
+	for (const root of roots) {
+		const file = keptFile(root);
+		if (file && (await sameEntry(file, handle))) return root;
+	}
+	return null;
+}
+
+/* A document through a handle, written to where the grant allows it, and view
+ * only where it does not. */
+async function adoptFile(handle: FileSystemFileHandle, granted: boolean) {
+	const from = granted ? handle : await handle.getFile().catch(() => null);
+	if (!from) {
+		trouble = 'unreadable';
+		return null;
+	}
+	return adopt(fileStore(from), { loose: from });
+}
+
 /* A folder opened some other way is no longer one to offer: left there, it
  * would be remembered twice and offered back as a second copy of itself. */
-async function unoffer(handle: FileSystemDirectoryHandle) {
-	const kept: FileSystemDirectoryHandle[] = [];
+async function unoffer(handle: FileSystemHandle) {
+	const kept: FileSystemHandle[] = [];
 	for (const one of waiting) {
 		if (!(await sameEntry(one, handle))) kept.push(one);
 	}
@@ -482,6 +529,7 @@ async function load(path: string) {
 function folderPaths() {
 	const all = new Set<string>();
 	for (const root of roots) {
+		if (root.loose) continue;
 		all.add(root.key);
 		for (const dir of foldersOf(root.listing)) all.add(dir);
 	}
@@ -507,12 +555,14 @@ function added(root: Root, entry: { files?: FolderEntry[]; dirs?: string[] }) {
 export const folder = {
 	/* The open folders, in the order they were opened, as the rail lists them. */
 	get roots() {
-		return roots.map((root) => ({
-			key: root.key,
-			kind: root.store.kind,
-			writable: root.store.writable,
-			drive: root.drive,
-		}));
+		return roots
+			.filter((root) => !root.loose)
+			.map((root) => ({
+				key: root.key,
+				kind: root.store.kind,
+				writable: root.store.writable,
+				drive: root.drive,
+			}));
 	},
 
 	/* Which root a path is in, by key — or null for one in none. */
@@ -550,12 +600,14 @@ export const folder = {
 	/* The rail's rows: each root, and under it, when it is open, its folders and
 	 * documents in one flat list, each carrying how far in it sits. See `toRows`. */
 	get rows(): Row[] {
-		return roots.flatMap((root): Row[] => [
-			{ kind: 'dir', name: root.key, path: root.key, depth: 0, root: true },
-			...(expanded.has(root.key)
-				? toRows(root.listing, expanded, root.key)
-				: []),
-		]);
+		return roots
+			.filter((root) => !root.loose)
+			.flatMap((root): Row[] => [
+				{ kind: 'dir', name: root.key, path: root.key, depth: 0, root: true },
+				...(expanded.has(root.key)
+					? toRows(root.listing, expanded, root.key)
+					: []),
+			]);
 	},
 
 	isClosed(path: string) {
@@ -688,8 +740,17 @@ export const folder = {
 		}
 	},
 
+	/* The folders from last time, and the documents, each for its own section. */
 	get waiting() {
-		return waiting;
+		return waiting.filter(
+			(one): one is FileSystemDirectoryHandle => one.kind === 'directory',
+		);
+	},
+
+	get waitingFiles() {
+		return waiting.filter(
+			(one): one is FileSystemFileHandle => one.kind === 'file',
+		);
 	},
 
 	get drives() {
@@ -789,13 +850,26 @@ export const folder = {
 		try {
 			if (roots.length || waiting.length) return;
 
-			const offered: FileSystemDirectoryHandle[] = [];
+			const offered: FileSystemHandle[] = [];
 			for (const handle of await recall()) {
-				/* Kept twice by an older visit: once is enough. */
-				if (await openAlready(handle)) continue;
 				let twice = false;
 				for (const one of offered) twice ||= await sameEntry(one, handle);
 				if (twice) continue;
+
+				/* A document on its own: opened if its grant survived, else offered. */
+				if (handle instanceof FileSystemFileHandle) {
+					if (await fileAlready(handle)) continue;
+					const state = await handle
+						.queryPermission?.({ mode: 'readwrite' })
+						.catch(() => 'prompt' as const);
+					if (state === 'granted') await adoptFile(handle, true);
+					else offered.push(handle);
+					continue;
+				}
+				if (!(handle instanceof FileSystemDirectoryHandle)) continue;
+
+				/* Kept twice by an older visit: once is enough. */
+				if (await openAlready(handle)) continue;
 
 				const next = localStore(handle, isOpenable);
 				if ((await next.permission()) === 'granted') {
@@ -840,6 +914,83 @@ export const folder = {
 		/* Read or not, what is kept is what is open and what is still offered: a
 		 * folder that was granted and still would not read is not there any more. */
 		await persist();
+	},
+
+	/* Whether a path is a document opened on its own rather than in a folder. */
+	isLoose(path: string) {
+		return Boolean(rootOf(path)?.loose);
+	},
+
+	/* The documents opened on their own, in the order they were opened. */
+	get loose() {
+		return roots
+			.filter((root) => root.loose)
+			.map((root) => ({ key: root.key, writable: root.store.writable }));
+	},
+
+	/*
+	 * ASK FOR ONE DOCUMENT. Chromium hands over a handle, and the write grant is
+	 * asked for straight away, while the pick still counts as the gesture; one
+	 * that is refused opens view only rather than failing at the first save.
+	 * Answers with the path to open, or null for a cancel.
+	 */
+	async pickFile() {
+		const ask =
+			typeof window === 'undefined' ? undefined : window.showOpenFilePicker;
+		if (!ask) return null;
+
+		let handle: FileSystemFileHandle;
+		try {
+			[handle] = await ask.call(window);
+		} catch (error) {
+			if (error instanceof DOMException && error.name === 'AbortError') {
+				return null;
+			}
+			trouble = 'unreadable';
+			return null;
+		}
+
+		await unoffer(handle);
+		const already = await fileAlready(handle);
+		if (already) {
+			await persist();
+			return already.key;
+		}
+
+		const granted = await handle
+			.requestPermission?.({ mode: 'readwrite' })
+			.catch(() => 'denied' as const);
+		const root = await adoptFile(handle, granted === 'granted');
+		await persist();
+		return root?.key ?? null;
+	},
+
+	/*
+	 * A DOCUMENT FROM LAST TIME, let back in on a click, as a folder is — see
+	 * `resume`. Answers with the path to open, or null.
+	 */
+	async resumeFile(handle: FileSystemFileHandle) {
+		if (!waiting.includes(handle)) return null;
+
+		const granted = await handle
+			.requestPermission?.({ mode: 'readwrite' })
+			.catch(() => 'denied' as const);
+		waiting = waiting.filter((one) => one !== handle);
+
+		/* Refused: forgotten rather than offered again every visit. */
+		if (granted !== 'granted') {
+			await persist();
+			return null;
+		}
+
+		const root = (await fileAlready(handle)) ?? (await adoptFile(handle, true));
+		await persist();
+		return root?.key ?? null;
+	},
+
+	/* The `<input type="file">` way in: what the file was when it was picked. */
+	async takeFile(picked: File) {
+		return (await adopt(fileStore(picked), { loose: picked }))?.key ?? null;
 	},
 
 	/* The `<input webkitdirectory>` path, handed the files it collected. */
@@ -1163,7 +1314,7 @@ export const folder = {
 		/* Closing is a decision about this folder and not about the browser, so it
 		 * is forgotten as well as put away — otherwise the next visit would open on
 		 * the folder somebody just closed. */
-		if (root.handle) void persist();
+		if (root.handle || keptFile(root)) void persist();
 		return true;
 	},
 };

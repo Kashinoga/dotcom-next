@@ -1192,6 +1192,19 @@ test('every pane in a rail has the same head, and a foot to answer it', async ({
  * absent on another machine, or would mean adding an extension to that list for
  * the sake of four bytes.
  */
+/* An open folder's close comes with the pointer, so the row is pointed at first. */
+async function putAway(page: Page, name: string) {
+	await page.getByRole('button', { name, exact: true }).hover();
+	await page.getByRole('button', { name: `Put ${name} away` }).click();
+}
+
+/* A folder handed over through the input, as Firefox does, and opened: every
+ * folder arrives shut. */
+async function snapshot(page: Page, root: string) {
+	await page.locator('input[webkitdirectory]').setInputFiles(root);
+	await page.getByRole('button', { name: basename(root), exact: true }).click();
+}
+
 function fixtureFolder() {
 	const root = mkdtempSync(join(tmpdir(), 'workspace-'));
 	writeFileSync(
@@ -1228,12 +1241,12 @@ test('a second folder opens beside the first, and each is put away alone', async
 
 	await page.goto('/text-editor');
 	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
-	await page.locator('input[webkitdirectory]').setInputFiles(first);
+	await snapshot(page, first);
 	await expect(
 		page.getByRole('button', { name: 'The Curriculum.md' }),
 	).toBeVisible();
 
-	await page.locator('input[webkitdirectory]').setInputFiles(second);
+	await snapshot(page, second);
 	const roots = page.locator('.workspace .row.root .name');
 	await expect(roots).toHaveText([basename(first), basename(second)]);
 
@@ -1248,9 +1261,7 @@ test('a second folder opens beside the first, and each is put away alone', async
 
 	// The first put away: its rows go, the second stays, and so does the sheet
 	// — it was showing the first, so it lands on the scratch note.
-	await page
-		.getByRole('button', { name: `Put ${basename(first)} away` })
-		.click();
+	await putAway(page, basename(first));
 	await expect(roots).toHaveText([basename(second)]);
 	await expect(
 		page.getByRole('button', { name: 'The Curriculum.md' }),
@@ -1274,15 +1285,17 @@ test('a folder is walked, listed, and read onto the sheet', async ({
 
 	// Before: no folder, and the rail says so rather than showing an empty list.
 	await expect(page.locator('.workspace ol')).toHaveCount(1);
-	/* Scoped to the Files pane: Drives says "nothing here" too, so a bare
-	 * `.workspace .note` matches both. */
+	/* Scoped to the Folders pane: Files and Drives say "nothing here" too, so a
+	 * bare `.workspace .note` matches more than one. */
 	await expect(
-		page.locator('.workspace .section').nth(1).locator('.note'),
+		page.locator('.workspace [aria-label="Folders"] .note'),
 	).toContainText('No folder open');
 
-	await page.locator('input[webkitdirectory]').setInputFiles(root);
+	await snapshot(page, root);
 
-	const files = page.locator('.workspace .section').nth(1).locator('.file');
+	const files = page
+		.locator('.workspace [aria-label="Folders"]')
+		.locator('.file');
 
 	/* The folder's own row, then three documents at its top and the folder the
 	 * fourth is in — SHUT, so what is inside it is not drawn until asked for. */
@@ -1295,7 +1308,7 @@ test('a folder is walked, listed, and read onto the sheet', async ({
 	const seen = await page.evaluate(() =>
 		[
 			...document
-				.querySelectorAll('.workspace .section')[1]
+				.querySelector('.workspace [aria-label="Folders"]')!
 				.querySelectorAll('.file'),
 		].map((row) => ({
 			name: row.querySelector('.name')!.textContent,
@@ -1399,7 +1412,7 @@ test('the tree indents by depth, one step per level', async ({
 	await page.setViewportSize({ width: 1400, height: 800 });
 	await page.goto('/text-editor');
 	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
-	await page.locator('input[webkitdirectory]').setInputFiles(root);
+	await snapshot(page, root);
 
 	await page.getByRole('button', { name: 'Densette' }).click();
 	await page.getByRole('button', { name: 'Library' }).click();
@@ -1407,7 +1420,7 @@ test('the tree indents by depth, one step per level', async ({
 	const seen = await page.evaluate(() =>
 		[
 			...document
-				.querySelectorAll('.workspace .section')[1]
+				.querySelector('.workspace [aria-label="Folders"]')!
 				.querySelectorAll('.file'),
 		].map((row) => ({
 			name: row.querySelector('.name')!.textContent,
@@ -1446,7 +1459,7 @@ test('folding a folder takes its contents with it', async ({
 
 	await page.goto('/text-editor');
 	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
-	await page.locator('input[webkitdirectory]').setInputFiles(root);
+	await snapshot(page, root);
 
 	const inside = page.getByRole('button', { name: 'inside.md' });
 	const deeper = page.getByRole('button', { name: 'Deeper' });
@@ -1492,7 +1505,7 @@ test('folders open shut, and all of them open and shut at once', async ({
 
 	await page.goto('/text-editor');
 	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
-	await page.locator('input[webkitdirectory]').setInputFiles(root);
+	await snapshot(page, root);
 
 	const deeper = page.getByRole('button', { name: 'Deeper' });
 	const deepest = page.getByRole('button', { name: 'Deepest' });
@@ -1548,7 +1561,7 @@ test('a folder that cannot be written to offers no typing', async ({
 
 	await page.goto('/text-editor');
 	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
-	await page.locator('input[webkitdirectory]').setInputFiles(root);
+	await snapshot(page, root);
 	await page.getByRole('button', { name: 'The Curriculum.md' }).click();
 
 	// The document is shown, and shown as something that cannot be typed in.
@@ -1597,7 +1610,9 @@ async function writableFolder(page: Page, files: Record<string, string>) {
 	await page
 		.getByRole('button', { name: 'Open a folder from this device' })
 		.click();
-	await page.getByRole('button', { name: 'Put Notes away' }).waitFor();
+	// Every folder arrives shut, so it is opened to reach what is in it. Its
+	// own verbs come with the pointer, so it is the row that is waited for.
+	await page.getByRole('button', { name: 'Notes', exact: true }).click();
 }
 
 /*
@@ -1652,7 +1667,7 @@ test('putting a folder away saves what was just typed', async ({
 	await freeze(page);
 	await write(page, 'second');
 
-	await page.getByRole('button', { name: 'Put Notes away' }).click();
+	await putAway(page, 'Notes');
 	await expect(page.getByRole('button', { name: 'one.md' })).toHaveCount(0);
 	expect(await onDisk(page, 'one.md')).toBe('second');
 });
@@ -1693,11 +1708,13 @@ test('a folder whose save failed is not put away on the first press', async ({
 	await write(page, 'second');
 
 	const away = page.getByRole('button', { name: 'Put Notes away' });
+	await page.getByRole('button', { name: 'Notes', exact: true }).hover();
 	await away.click();
 	await expect(page.locator('.status')).toHaveAttribute('data-tone', 'alert');
 	await expect(page.getByRole('button', { name: 'one.md' })).toHaveCount(1);
 
 	// The second press is a choice, and it is honoured.
+	await page.getByRole('button', { name: 'Notes', exact: true }).hover();
 	await away.click();
 	await expect(page.getByRole('button', { name: 'one.md' })).toHaveCount(0);
 });
@@ -2143,7 +2160,7 @@ test('the rail stands still; a long list scrolls inside its pane', async ({
 	expect(seen.pageScroll).toBe(0);
 	expect(seen.railScroll).toBe(0);
 	expect(seen.listScroll).toBeGreaterThan(0);
-	expect(seen.heads).toEqual([true, true]);
+	expect(seen.heads).toEqual([true, true, true]);
 
 	// The newest note is scrolled to inside the pane, not off the end of it.
 	await expect(
@@ -2850,7 +2867,7 @@ test('a link to a document in the folder opens it there', async ({
 	writeFileSync(join(root, 'plain.txt'), '# not a heading');
 
 	await editor(page);
-	await page.locator('input[webkitdirectory]').setInputFiles(root);
+	await snapshot(page, root);
 	await page.getByRole('button', { name: 'start.md' }).click();
 	await page.locator('.proof a').click();
 
@@ -2941,6 +2958,8 @@ test('a new folder, and a document made inside it', async ({
 	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
 
 	await writableFolder(page, { 'one.md': 'first' });
+	const notes = page.getByRole('button', { name: 'Notes', exact: true });
+	await notes.hover();
 	await page.getByRole('button', { name: 'New folder' }).click();
 	const box = page.getByRole('textbox', { name: 'Name of the new folder' });
 	await box.fill('Sub');
@@ -2948,6 +2967,7 @@ test('a new folder, and a document made inside it', async ({
 
 	// A folder that was pressed is where the next new thing goes.
 	await page.getByRole('button', { name: 'Sub' }).click();
+	await notes.hover();
 	await page.getByRole('button', { name: 'New file' }).click();
 	const inner = page.getByRole('textbox', { name: 'Name of the new file' });
 	await inner.fill('in.md');
@@ -3073,7 +3093,7 @@ test('a folder that cannot be written to offers none of the verbs', async ({
 	);
 
 	await editor(page);
-	await page.locator('input[webkitdirectory]').setInputFiles(fixtureFolder());
+	await snapshot(page, fixtureFolder());
 	const row = page.getByRole('button', { name: 'Notes.txt' });
 	await expect(row).toBeVisible();
 
@@ -3101,10 +3121,11 @@ async function withSub(page: Page) {
 		await root.getDirectoryHandle('Sub', { create: true });
 	});
 	// Handed over again, so the rail reads the folder made behind its back.
-	await page.getByRole('button', { name: 'Put Notes away' }).click();
+	await putAway(page, 'Notes');
 	await page
 		.getByRole('button', { name: 'Open a folder from this device' })
 		.click();
+	await page.getByRole('button', { name: 'Notes', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Sub' })).toBeVisible();
 }
 
@@ -3138,7 +3159,7 @@ test('a document dragged onto a folder moves into it, once asked', async ({
 	// Told not to ask, it does not: back out to the top, at once.
 	await page
 		.getByRole('button', { name: 'one.md' })
-		.dragTo(page.getByRole('button', { name: 'New file' }));
+		.dragTo(page.getByRole('button', { name: 'Notes', exact: true }));
 	await expect(dialog).toBeHidden();
 	await expect.poll(() => atPath(page, 'one.md')).toBe('first');
 });
@@ -3220,10 +3241,11 @@ async function withPicture(page: Page, doc: string) {
 		await writable.write(bytes);
 		await writable.close();
 	}, PIXEL);
-	await page.getByRole('button', { name: 'Put Notes away' }).click();
+	await putAway(page, 'Notes');
 	await page
 		.getByRole('button', { name: 'Open a folder from this device' })
 		.click();
+	await page.getByRole('button', { name: 'Notes', exact: true }).click();
 }
 
 test('a picture beside a document is shown from the folder', async ({
@@ -3420,10 +3442,11 @@ test('a folder is copied with everything in it', async ({
 		await writable.write('nested');
 		await writable.close();
 	});
-	await page.getByRole('button', { name: 'Put Notes away' }).click();
+	await putAway(page, 'Notes');
 	await page
 		.getByRole('button', { name: 'Open a folder from this device' })
 		.click();
+	await page.getByRole('button', { name: 'Notes', exact: true }).click();
 
 	const sub = page.getByRole('button', { name: 'Sub', exact: true });
 	await sub.click({ button: 'right' });
@@ -3616,4 +3639,132 @@ test('Ctrl+S saves at once, and Ctrl+Shift+E finds the file', async ({
 
 	await page.keyboard.press('Control+Shift+e');
 	await expect(page.getByRole('button', { name: 'one.md' })).toBeFocused();
+});
+
+/*
+ * ONE DOCUMENT, WITHOUT ITS FOLDER. It sits with the scratch notes, opens on
+ * the sheet, saves back to the file it came from, and closes with its own ×.
+ */
+test('a single file opens with the notes, and saves where it came from', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+
+	await page.addInitScript(() => {
+		window.showOpenFilePicker = async () => [
+			await (
+				await navigator.storage.getDirectory()
+			).getFileHandle('alone.md', { create: true }),
+		];
+	});
+	await editor(page);
+	await page
+		.getByRole('button', { name: 'Open a file from this device' })
+		.click();
+
+	const row = page.getByRole('button', { name: 'alone.md' });
+	await expect(row).toHaveAttribute('aria-current', 'true');
+
+	await write(page, 'on its own');
+	await expect
+		.poll(() =>
+			page.evaluate(async () =>
+				(
+					await (
+						await (
+							await navigator.storage.getDirectory()
+						).getFileHandle('alone.md')
+					).getFile()
+				).text(),
+			),
+		)
+		.toContain('on its own');
+
+	// Go to File finds it by name, with its section beside it.
+	await page.keyboard.press('Control+p');
+	await page
+		.getByRole('combobox', { name: 'Search files by name' })
+		.fill('alone');
+	await expect(page.getByRole('option')).toHaveCount(1);
+	await expect(page.getByRole('option')).toContainText('Files');
+	await page.keyboard.press('Escape');
+
+	// Kept for the next visit: its grant here survives, so it is simply back.
+	await page.reload();
+	await expect(row).toBeVisible();
+
+	await row.hover();
+	await page.getByRole('button', { name: 'Close alone.md' }).click();
+	await expect(row).toHaveCount(0);
+
+	// Closed is forgotten, as a folder put away is — once the list is written.
+	await expect
+		.poll(() =>
+			page.evaluate(
+				() =>
+					new Promise<number>((resolve) => {
+						const open = indexedDB.open('text-editor');
+						open.onsuccess = () => {
+							const get = open.result
+								.transaction('folder')
+								.objectStore('folder')
+								.get('roots');
+							get.onsuccess = () => resolve((get.result ?? []).length);
+						};
+					}),
+			),
+		)
+		.toBe(0);
+	await page.reload();
+	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+	await expect(page.getByText('No file open.')).toBeVisible();
+	await expect(row).toHaveCount(0);
+});
+
+/* Forgetting a drive asks first, and a cancel keeps it. */
+test('forgetting a drive asks first', async ({ page }) => {
+	await page.addInitScript(() => {
+		const open = indexedDB.open('text-editor', 2);
+		open.onupgradeneeded = () => {
+			const db = open.result;
+			if (!db.objectStoreNames.contains('drives'))
+				db.createObjectStore('drives');
+			if (!db.objectStoreNames.contains('vault')) db.createObjectStore('vault');
+		};
+		open.onsuccess = () => {
+			const tx = open.result.transaction('drives', 'readwrite');
+			tx.objectStore('drives').put(
+				{
+					id: 'https://cloud.example.com|someone',
+					name: 'cloud.example.com',
+					base: 'https://cloud.example.com',
+					user: 'someone',
+					via: 'proxy',
+					root: '',
+					keep: false,
+				},
+				'https://cloud.example.com|someone',
+			);
+		};
+	});
+	await editor(page);
+
+	const drive = page.getByRole('button', {
+		name: 'cloud.example.com',
+		exact: true,
+	});
+	await expect(drive).toBeVisible();
+	await drive.hover();
+	await page.getByRole('button', { name: 'Forget cloud.example.com' }).click();
+
+	const dialog = page.getByRole('dialog');
+	await expect(dialog).toContainText('forget ‘cloud.example.com’');
+	await dialog.getByRole('button', { name: 'Cancel' }).click();
+	await expect(drive).toBeVisible();
+
+	await drive.hover();
+	await page.getByRole('button', { name: 'Forget cloud.example.com' }).click();
+	await dialog.getByRole('button', { name: 'Forget' }).click();
+	await expect(drive).toHaveCount(0);
 });
