@@ -21,6 +21,7 @@
 	import FilePlus from '@lucide/svelte/icons/file-plus';
 	import FolderOpen from '@lucide/svelte/icons/folder-open';
 	import FolderPlus from '@lucide/svelte/icons/folder-plus';
+	import PencilOff from '@lucide/svelte/icons/pencil-off';
 	import Cloud from '@lucide/svelte/icons/cloud';
 	import Plus from '@lucide/svelte/icons/plus';
 	import X from '@lucide/svelte/icons/x';
@@ -78,14 +79,60 @@
 		await folder.open(path);
 	}
 
+	/* One folder put away. What was on the sheet goes with it if it was in it,
+	 * and the sheet lands on the scratch note, as a closed note's does. */
+	async function closeRoot(key: string) {
+		if (!(await folder.close(key))) return;
+		if (open.kind === 'file' && folder.rootKey(open.path) === null) {
+			open = { kind: 'scratch', id: PERMANENT };
+		}
+		if (chosen && folder.rootKey(chosen.path) === null) chosen = null;
+		if (clipboard && folder.rootKey(clipboard.row.path) === null) {
+			clipboard = null;
+		}
+	}
+
+	/*
+	 * THE GAP BEFORE `change`. Firefox walks the whole folder AFTER its dialog
+	 * closes and only then says anything, which on a big folder is seconds of a
+	 * rail that looks like the press did not land. The page gets its focus back
+	 * the moment the dialog goes, so that is when the rail starts saying it is
+	 * reading; a `cancel` takes it back.
+	 *
+	 * `picking` is the pick itself, and the focus only counts while it is still
+	 * going. Firefox sends `cancel` BEFORE the focus comes back, so a flag set on
+	 * focus alone was set after the cancel had already cleared it — and the rail
+	 * read a folder nobody had chosen forever.
+	 */
+	let gathering = $state(false);
+	let picking = false;
+
+	function pickSnapshot() {
+		if (!dirInput) return;
+		picking = true;
+		window.addEventListener('focus', () => (gathering = picking), {
+			once: true,
+		});
+		dirInput.click();
+	}
+
+	function cancelSnapshot() {
+		picking = false;
+		gathering = false;
+	}
+
 	async function takeFolder(
 		event: Event & { currentTarget: HTMLInputElement },
 	) {
 		const picked = [...(event.currentTarget.files ?? [])];
 		// Cleared so choosing the SAME folder twice fires a change the second time.
 		event.currentTarget.value = '';
-		open = { kind: 'scratch', id: PERMANENT };
-		await folder.take(picked);
+		try {
+			await folder.take(picked);
+		} finally {
+			picking = false;
+			gathering = false;
+		}
 	}
 
 	// The stored notes arrive a tick after the first paint, which is what keeps
@@ -126,7 +173,16 @@
 	// Only for a document that can be written to. A snapshot has nothing to save,
 	// and a scratch note is kept in this browser as it is typed.
 	$effect(() => {
-		if (open.kind !== 'file' || !folder.writable) return;
+		if (open.kind !== 'file') return;
+		/* A snapshot's sheet takes no typing, and says why rather than leaving
+		 * somebody to find out by trying. */
+		if (!folder.writableAt(open.path)) {
+			return bar.report({
+				text: 'View only. This browser can’t save to the folder.',
+				tone: 'quiet',
+				Icon: PencilOff,
+			});
+		}
 		return bar.report(saveStatus());
 	});
 
@@ -148,7 +204,7 @@
 	 * not grant permission except in answer to a click — so what this can produce
 	 * is an offer, and the offer is a button. See `look` and `resume`. */
 	$effect(() => {
-		void folder.look();
+		untrack(() => void folder.look());
 	});
 
 	/* The drives this browser knows, read once. No tokens are touched. */
@@ -158,6 +214,13 @@
 
 	/* The connect form takes the desk while it is up — see the note on it. */
 	let connecting = $state(false);
+
+	/* The drives this browser knows that are not open now: the rest are roots. */
+	const closedDrives = $derived(
+		folder.drives.filter(
+			(drive) => !folder.roots.some((root) => root.drive === drive.id),
+		),
+	);
 
 	function closeScratch(id: number) {
 		scratch.close(id);
@@ -461,11 +524,16 @@
 
 	/* A path written in a document, as a path in the folder: relative to the
 	 * document, or to the top of the folder when it starts with `/` — VS Code's
-	 * reading of both. A URL does the resolving, since dot segments are its job. */
+	 * reading of both. A URL does the resolving, since dot segments are its job.
+	 * Resolved inside the document's own folder, so neither can climb out of it
+	 * into another one open beside it. */
 	function resolveFrom(document: string, href: string) {
-		const dir = document.slice(0, document.lastIndexOf('/') + 1);
+		const key = folder.rootKey(document);
+		const inner = folder.relative(document);
+		const dir = inner.slice(0, inner.lastIndexOf('/') + 1);
 		const url = new URL(href, `file:///${encodeURI(dir)}`);
-		return decodeURIComponent(url.pathname.slice(1));
+		const path = decodeURIComponent(url.pathname.slice(1));
+		return key ? (path ? `${key}/${path}` : key) : path;
 	}
 
 	/*
@@ -499,7 +567,7 @@
 	});
 
 	$effect(() => {
-		void folder.name;
+		void folder.roots;
 		return () => {
 			for (const url of pictures.values()) {
 				void url.then((made) => made && URL.revokeObjectURL(made));
@@ -571,25 +639,37 @@
 		}
 	}
 
-	function startNew(kind: 'file' | 'dir') {
+	/*
+	 * `root` is the folder whose button was pressed. The row last pressed still
+	 * decides where in it, as VS Code's selection does — but only a row in THAT
+	 * folder: a press on one folder's New File is never a file in another.
+	 */
+	function startNew(kind: 'file' | 'dir', root?: string) {
 		notice = null;
 		toggleSection('files', true);
-		const dir = !chosen
-			? ''
+		const picked = !chosen
+			? null
 			: chosen.kind === 'dir'
 				? chosen.path
 				: dirOf(chosen.path);
-		if (dir) {
-			folder.reveal(dir);
-			if (folder.isClosed(dir)) void folder.fold(dir);
-		}
+		const dir =
+			root === undefined
+				? picked
+				: picked && folder.rootKey(picked) === root
+					? picked
+					: root;
+		// Somewhere in a folder that can be written to, or nowhere.
+		if (!dir || !folder.writableAt(dir)) return;
+		folder.reveal(dir);
+		if (folder.isClosed(dir)) void folder.fold(dir);
 		typed = '';
 		naming = { kind, dir, refusal: null };
 	}
 
 	/* A folder moves or takes a new name only where the store can do it in one
-	 * step — see `relocatesDirs`. A document always can. */
-	const movable = (row: Row) => row.kind === 'file' || folder.relocatesDirs;
+	 * step — see `relocatesAt`. A document always can; a root never does. */
+	const movable = (row: Row) =>
+		row.kind === 'file' || (!row.root && folder.relocatesAt(row.path));
 
 	function startRename(row: Row) {
 		if (!movable(row)) return;
@@ -621,7 +701,7 @@
 		await tick();
 		document
 			.querySelector<HTMLElement>(
-				`#workspace button[title="${CSS.escape(path)}"]`,
+				`#workspace button[data-path="${CSS.escape(path)}"]`,
 			)
 			?.focus();
 	}
@@ -713,7 +793,21 @@
 		}
 
 		// Every one of these changes the folder, which a snapshot cannot be.
-		if (!folder.writable) return;
+		if (!folder.writableAt(row.path)) return;
+		// A root is put away, not renamed, cut, copied or deleted; it takes a paste.
+		if (row.kind === 'dir' && row.root) {
+			if (
+				(event.ctrlKey || event.metaKey) &&
+				!event.shiftKey &&
+				!event.altKey &&
+				event.key.toLowerCase() === 'v' &&
+				clipboard
+			) {
+				event.preventDefault();
+				paste(row);
+			}
+			return;
+		}
 		if (event.key === 'F2') {
 			event.preventDefault();
 			startRename(row);
@@ -754,8 +848,7 @@
 	const destination = (row: Row | null) =>
 		!row ? '' : row.kind === 'dir' ? row.path : dirOf(row.path);
 
-	const dirName = (dir: string) =>
-		dir ? dir.slice(dir.lastIndexOf('/') + 1) : (folder.name ?? '');
+	const dirName = (dir: string) => dir.slice(dir.lastIndexOf('/') + 1);
 
 	/* A cut is pasted once and is gone; a copy stays, to be pasted again. */
 	function paste(onto: Row | null) {
@@ -778,7 +871,9 @@
 					? `A file or folder ${row.name} already exists in the destination folder.`
 					: made.refusal === 'into'
 						? 'A folder cannot be moved into itself.'
-						: `Unable to move ${row.name}.`;
+						: made.refusal === 'across'
+							? `${row.name} can’t be moved to another open folder.`
+							: `Unable to move ${row.name}.`;
 			return false;
 		}
 		followMove(row.path, made.path);
@@ -792,9 +887,11 @@
 			notice =
 				made.refusal === 'into'
 					? 'A folder cannot be copied into itself.'
-					: made.refusal === 'partial'
-						? `Only part of ${row.name} could be copied.`
-						: `Unable to copy ${row.name}.`;
+					: made.refusal === 'across'
+						? `${row.name} can’t be copied to another open folder.`
+						: made.refusal === 'partial'
+							? `Only part of ${row.name} could be copied.`
+							: `Unable to copy ${row.name}.`;
 			return;
 		}
 		void focusRow(made.path);
@@ -804,7 +901,9 @@
 	 * browser knows for a folder handed to it, and all a WebDAV drive has. */
 	async function copyPath(row: { path: string }) {
 		try {
-			await navigator.clipboard.writeText(row.path);
+			await navigator.clipboard.writeText(
+				folder.relative(row.path) || row.path,
+			);
 		} catch {
 			notice = 'The path could not be copied.';
 		}
@@ -938,7 +1037,7 @@
 				.map((file) => ({
 					key: `file:${file.path}`,
 					label: file.name,
-					detail: dirOf(file.path) || (folder.name ?? ''),
+					detail: dirOf(file.path),
 					run: () => void openFile(file.path),
 				})),
 		];
@@ -964,7 +1063,11 @@
 	const copying = (event: DragEvent) => (mac ? event.altKey : event.ctrlKey);
 
 	function dragStart(event: DragEvent, row: Row) {
-		if (!folder.writable || !event.dataTransfer) {
+		if (
+			!folder.writableAt(row.path) ||
+			(row.kind === 'dir' && row.root) ||
+			!event.dataTransfer
+		) {
 			event.preventDefault();
 			return;
 		}
@@ -981,11 +1084,13 @@
 		event.stopPropagation();
 		const dir = destination(row);
 		const copy = copying(event);
-		const offered = copy
-			? !(dragging.kind === 'dir' && inside(dir, dragging.path))
-			: movable(dragging) &&
-				dir !== dirOf(dragging.path) &&
-				!inside(dir, dragging.path);
+		const offered =
+			folder.rootKey(dir) === folder.rootKey(dragging.path) &&
+			(copy
+				? !(dragging.kind === 'dir' && inside(dir, dragging.path))
+				: movable(dragging) &&
+					dir !== dirOf(dragging.path) &&
+					!inside(dir, dragging.path));
 		if (!offered) {
 			dropDir = null;
 			return;
@@ -1338,12 +1443,13 @@
 
 			<!--
 				THE FILES ARE REAL NOW, and until somebody hands over a folder there
-				are none. The heading carries the folder's name once there is one, so
-				the rail says WHICH workspace rather than just "Files" — a person with
-				two of them open across two tabs should not have to guess.
+				are none. Each folder that is open heads its own rows by name, so the
+				rail says WHICH folders rather than just "Files" — and a person with
+				several open side by side can tell at a glance which a document is in.
 
-				A drop anywhere in it that is not on a row goes to the top of the folder,
-				as a drop on the empty part of VS Code's explorer does.
+				A drop anywhere in it that is not on a row is refused: with more than
+				one folder there is no single "top" for it to go to, so a drop is made
+				onto a folder, a root among them.
 			-->
 			<section
 				class="section"
@@ -1354,133 +1460,95 @@
 				ondrop={(event) => drop(event, null)}
 			>
 				<h2>
-					{@render twisty('files', folder.name ?? 'Files')}
+					{@render twisty('files', 'Files')}
 
 					<!--
-						TWO WAYS IN, AND ONLY ONE IS OFFERED. Chromium can hand over a
-						folder the app could later write through; every other browser has
-						`<input webkitdirectory>`, which is a snapshot and read-only. The
-						control looks the same either way and the label does not, because
-						what a visitor gets is not the same thing.
-					-->
-					{#if folder.name}
-						<span class="actions">
-							{#if folder.writable}
-								<!-- VS Code's two, in its order, and under its names. -->
-								<button
-									type="button"
-									class="add"
-									title="New File…"
-									aria-label="New file"
-									onclick={() => startNew('file')}
-								>
-									<FilePlus aria-hidden="true" />
-								</button>
-								<button
-									type="button"
-									class="add"
-									title="New Folder…"
-									aria-label="New folder"
-									onclick={() => startNew('dir')}
-								>
-									<FolderPlus aria-hidden="true" />
-								</button>
-							{/if}
+						THE WAYS IN, always offered: a folder on this device and a drive on a
+						server, each opening BESIDE whatever is open already, as a folder
+						added to a VS Code workspace does. The verbs that belong to one
+						folder are on that folder's own row; these belong to all of them.
 
-							{#if folder.hasFolders}
-								<button
-									type="button"
-									class="add"
-									title="Expand All"
-									aria-label="Expand all folders"
-									onclick={() => {
-										toggleSection('files', true);
-										void folder.expandAll();
-									}}
-								>
-									<ChevronsUpDown aria-hidden="true" />
-								</button>
-								<button
-									type="button"
-									class="add"
-									title="Collapse Folders in Explorer"
-									aria-label="Collapse all folders"
-									disabled={!folder.anyExpanded}
-									onclick={() => folder.collapseAll()}
-								>
-									<ChevronsDownUp aria-hidden="true" />
-								</button>
-							{/if}
+						TWO WAYS IN FROM THIS DEVICE, AND ONLY ONE IS OFFERED. Chromium can
+						hand over a folder the app could later write through; every other
+						browser has `<input webkitdirectory>`, which is a snapshot and
+						read-only. The control looks the same either way and the label does
+						not, because what a visitor gets is not the same thing.
+					-->
+					<span class="actions">
+						{#if canPickFolder()}
+							<button
+								type="button"
+								class="add"
+								title="Open a folder from this device"
+								aria-label="Open a folder from this device"
+								onclick={() => folder.pick()}
+							>
+								<FolderOpen aria-hidden="true" />
+							</button>
+						{:else}
+							<button
+								type="button"
+								class="add"
+								title="Open a folder from this device, as it is now. Nothing leaves this device."
+								aria-label="Open a folder from this device, read-only"
+								onclick={pickSnapshot}
+							>
+								<FolderOpen aria-hidden="true" />
+							</button>
 
 							<!--
-								CLOSING IS A DECISION ABOUT THIS FOLDER, so it forgets it too —
-								otherwise the next visit opens on the folder somebody just put
-								away. The scratch notes are untouched: they were never in it.
+								OUT OF THE READING, and not `display: none`, which would take it
+								out of the tab order and out of reach of the click above. The
+								button beside it is the control; this is the mechanism.
 							-->
-							<button
-								type="button"
-								class="add"
-								title="Put this folder away"
-								aria-label="Put {folder.name} away"
-								onclick={() => folder.close()}
-							>
-								<X aria-hidden="true" />
-							</button>
-						</span>
-					{:else}
-						<!--
-							THE WAYS IN, together: a folder on this device, and a drive on a
-							server. Once one is open the other is a close away.
-						-->
-						<span class="actions">
-							{#if canPickFolder()}
-								<button
-									type="button"
-									class="add"
-									title="Open a folder from this device"
-									aria-label="Open a folder from this device"
-									onclick={() => folder.pick()}
-								>
-									<FolderOpen aria-hidden="true" />
-								</button>
-							{:else}
-								<button
-									type="button"
-									class="add"
-									title="Open a folder from this device, as it is now"
-									aria-label="Open a folder from this device, read-only"
-									onclick={() => dirInput?.click()}
-								>
-									<FolderOpen aria-hidden="true" />
-								</button>
+							<input
+								bind:this={dirInput}
+								class="visually-hidden"
+								type="file"
+								tabindex="-1"
+								aria-hidden="true"
+								webkitdirectory
+								multiple
+								onchange={takeFolder}
+								oncancel={cancelSnapshot}
+							/>
+						{/if}
+						<button
+							type="button"
+							class="add"
+							title="Connect a Nextcloud or ownCloud drive"
+							aria-label="Connect a drive"
+							onclick={() => (connecting = true)}
+						>
+							<Cloud aria-hidden="true" />
+						</button>
 
-								<!--
-							OUT OF THE READING, and not `display: none`, which would take it
-							out of the tab order and out of reach of the click above. The
-							button beside it is the control; this is the mechanism.
-						-->
-								<input
-									bind:this={dirInput}
-									class="visually-hidden"
-									type="file"
-									tabindex="-1"
-									aria-hidden="true"
-									webkitdirectory
-									multiple
-									onchange={takeFolder}
-								/>
-							{/if}
+						{#if folder.roots.length}
+							<!-- VS Code's two, in its order, and under its names. -->
 							<button
 								type="button"
 								class="add"
-								title="Connect a Nextcloud or ownCloud drive"
-								aria-label="Connect a drive"
-								onclick={() => (connecting = true)}
+								title="Expand All"
+								aria-label="Expand all folders"
+								onclick={() => {
+									toggleSection('files', true);
+									void folder.expandAll();
+								}}
 							>
-								<Cloud aria-hidden="true" />
+								<ChevronsUpDown aria-hidden="true" />
 							</button>
-						</span>
-					{/if}
+							<button
+								type="button"
+								class="add"
+								title="Collapse Folders in Explorer"
+								aria-label="Collapse all folders"
+								disabled={!folder.anyExpanded}
+								onclick={() => folder.collapseAll()}
+							>
+								<ChevronsDownUp aria-hidden="true" />
+							</button>
+						{/if}
+					</span>
 				</h2>
 
 				<div id="files-body" class="body" hidden={shut.includes('files')}>
@@ -1488,83 +1556,47 @@
 						<p class="refusal notice" role="alert">{notice}</p>
 					{/if}
 
-					{#if folder.reading}
+					{#if !folder.looked}
+						<!-- Not "no folder" until the folders from last time have been asked after. -->
 						<Placeholder
 							shape="rows"
-							label="Reading the folder."
-							widths={[70, 45, 60, 50]}
-						/>
-					{:else if folder.waiting}
-						<!--
-						A FOLDER FROM LAST TIME. Named, because "the folder from last time"
-						is a question nobody can answer and "Notes" is one they can. It is a
-						button because a browser grants the permission again only in answer
-						to a press.
-					-->
-						<p class="note">Last time you had {folder.waiting.name}.</p>
-						<button type="button" class="file" onclick={() => folder.resume()}>
-							<FolderOpen aria-hidden="true" />
-							<span class="name">Open it again</span>
-						</button>
-					{:else if !folder.looked}
-						<!-- Not "no folder" until the folder from last time has been asked after. -->
-						<Placeholder
-							shape="rows"
-							label="Looking for the folder from last time."
+							label="Looking for the folders from last time."
 							widths={[65]}
 						/>
-					{:else if folder.trouble === 'idle' && !folder.name}
+					{:else}
 						<!--
-						NO FOLDER YET, which is not a failure and does not read as one. It
-						says what the control above does, because a mark on its own is a
-						thing to work out and this is the one row a first visit sees.
-					-->
-						<p class="note">
-							No folder open. Open one from this device, or a Nextcloud or
-							ownCloud drive.
-						</p>
-					{:else if folder.trouble === 'empty'}
-						<p class="note">Nothing in {folder.name} this editor can open.</p>
-					{:else if folder.trouble === 'unreadable'}
-						<p class="note">That folder could not be read.</p>
-					{:else if folder.trouble === 'denied'}
-						<p class="note">That folder was not handed over.</p>
-					{/if}
+							FOLDERS FROM LAST TIME. Named, because "the folder from last time"
+							is a question nobody can answer and "Notes" is one they can. Each is
+							a button because a browser grants the permission again only in
+							answer to a press.
+						-->
+						{#each folder.waiting as handle (handle)}
+							<p class="note">Last time you had {handle.name}.</p>
+							<button
+								type="button"
+								class="file"
+								aria-label="Open {handle.name} again"
+								onclick={() => folder.resume(handle)}
+							>
+								<FolderOpen aria-hidden="true" />
+								<span class="name">Open it again</span>
+							</button>
+						{/each}
 
-					<!-- The drives this browser knows, while nothing is open. -->
-					{#if !folder.name && !folder.reading}
-						{#if !folder.drivesRead}
-							<Placeholder
-								shape="rows"
-								label="Reading the drives."
-								widths={[60]}
-							/>
-						{:else if folder.drives.length}
-							<ol aria-label="Drives">
-								{#each folder.drives as drive (drive.id)}
-									<li class="row">
-										<button
-											type="button"
-											class="file"
-											title="{drive.user} at {drive.base}"
-											onclick={() => folder.openDrive(drive.id)}
-										>
-											<Cloud aria-hidden="true" />
-											<span class="name">{drive.name}</span>
-										</button>
-
-										<button
-											type="button"
-											class="close"
-											title="Forget it"
-											aria-label="Forget {drive.name}"
-											onclick={() => folder.dropDrive(drive.id)}
-										>
-											<X aria-hidden="true" />
-										</button>
-									</li>
-								{/each}
-							</ol>
+						{#if folder.trouble === 'unreadable'}
+							<p class="note">That folder could not be read.</p>
+						{:else if folder.trouble === 'denied'}
+							<p class="note">That folder was not handed over.</p>
+						{:else if !folder.roots.length && !folder.waiting.length && !folder.reading && !gathering}
+							<!--
+								NO FOLDER YET, which is not a failure and does not read as one. It
+								says what the controls above do, because a mark on its own is a
+								thing to work out and this is the one row a first visit sees.
+							-->
+							<p class="note">
+								No folder open. Open one from this device, or a Nextcloud or
+								ownCloud drive.
+							</p>
 						{/if}
 					{/if}
 
@@ -1573,14 +1605,108 @@
 					it keeps the step every list holds off what is above it, so the pane
 					that had no rows carried four pixels more foot than the two that did.
 				-->
-					{#if folder.rows.length || naming}
+					{#if folder.rows.length}
 						<ol>
-							{#if naming && naming.kind !== 'rename' && naming.dir === ''}
-								<li>{@render nameBox(naming.kind, 0, '')}</li>
-							{/if}
 							{#each folder.rows as row (row.path)}
 								<li>
-									{#if row.kind === 'dir'}
+									{#if row.kind === 'dir' && row.root}
+										<!--
+										A FOLDER THAT WAS OPENED, at the head of its own rows, as a
+										root heads them in a VS Code workspace. It folds like any
+										folder and takes a drop like one; its own verbs sit on it, and
+										it is put away rather than renamed, moved or deleted — it is
+										the visitor's folder, not something in it.
+									-->
+										{@const writable = folder.writableAt(row.path)}
+										<div
+											class="row root"
+											role="presentation"
+											ondragover={(event) => dragOver(event, row)}
+											ondrop={(event) => drop(event, row)}
+										>
+											<button
+												type="button"
+												class="file folder"
+												class:drop={dropDir === row.path}
+												aria-expanded={!folder.isClosed(row.path)}
+												title={row.name}
+												data-path={row.path}
+												onclick={() => {
+													chosen = row;
+													void folder.fold(row.path);
+												}}
+												oncontextmenu={(event) => openMenu(event, row)}
+												onkeydown={(event) => rowKeys(event, row)}
+											>
+												{#if folder.isClosed(row.path)}
+													<ChevronRight aria-hidden="true" />
+												{:else}
+													<ChevronDown aria-hidden="true" />
+												{/if}
+												<span class="name">{row.name}</span>
+											</button>
+
+											<span class="actions">
+												<!--
+													VIEW ONLY, said where the folder is named, because it is a
+													fact about the folder and not about any one document in it.
+												-->
+												{#if !writable}
+													<span
+														class="view-only"
+														title="A copy of the folder as it was when opened. This browser can’t save to it."
+													>
+														<PencilOff aria-hidden="true" />
+														<span class="visually-hidden">View only</span>
+													</span>
+												{:else}
+													<button
+														type="button"
+														class="add"
+														title="New File…"
+														aria-label="New file in {row.name}"
+														onclick={() => startNew('file', row.path)}
+													>
+														<FilePlus aria-hidden="true" />
+													</button>
+													<button
+														type="button"
+														class="add"
+														title="New Folder…"
+														aria-label="New folder in {row.name}"
+														onclick={() => startNew('dir', row.path)}
+													>
+														<FolderPlus aria-hidden="true" />
+													</button>
+												{/if}
+
+												<!--
+													CLOSING IS A DECISION ABOUT THIS FOLDER, so it forgets it
+													too — otherwise the next visit opens on the folder somebody
+													just put away. The other folders and the scratch notes are
+													untouched: they were never in it.
+												-->
+												<button
+													type="button"
+													class="add"
+													title="Put this folder away"
+													aria-label="Put {row.name} away"
+													onclick={() => closeRoot(row.path)}
+												>
+													<X aria-hidden="true" />
+												</button>
+											</span>
+										</div>
+
+										{#if folder.isOpening(row.path) && !folder.isClosed(row.path)}
+											<Placeholder
+												shape="rows"
+												label="Reading {row.name}."
+												depth={1}
+												widths={[55, 40]}
+											/>
+										{/if}
+									{:else if row.kind === 'dir'}
 										<!--
 										A FOLDER FOLDS. `aria-expanded` is the state and the mark
 										is drawn from it, so the announcement and the drawing are
@@ -1597,9 +1723,9 @@
 													clipboard.row.path === row.path}
 												style="--depth: {row.depth}"
 												aria-expanded={!folder.isClosed(row.path)}
-												title={row.path}
+												title={folder.relative(row.path)}
 												data-path={row.path}
-												draggable={folder.writable}
+												draggable={folder.writableAt(row.path)}
 												onclick={() => {
 													chosen = row;
 													void folder.fold(row.path);
@@ -1648,7 +1774,7 @@
 												? 'true'
 												: undefined}
 											aria-disabled={row.openable ? undefined : 'true'}
-											title={row.path}
+											title={folder.relative(row.path)}
 											data-path={row.path}
 											onclick={() => {
 												chosen = row;
@@ -1656,7 +1782,7 @@
 											}}
 											oncontextmenu={(event) => openMenu(event, row)}
 											onkeydown={(event) => rowKeys(event, row)}
-											draggable={folder.writable}
+											draggable={folder.writableAt(row.path)}
 											ondragstart={(event) => dragStart(event, row)}
 											ondragover={(event) => dragOver(event, row)}
 											ondrop={(event) => drop(event, row)}
@@ -1679,6 +1805,59 @@
 								{#if naming && naming.kind !== 'rename' && naming.dir === row.path && !folder.isClosed(row.path)}
 									<li>{@render nameBox(naming.kind, row.depth + 1, '')}</li>
 								{/if}
+								{#if row.kind === 'dir' && row.root && !folder.isClosed(row.path) && folder.isEmpty(row.path) && !(naming && naming.kind !== 'rename' && naming.dir === row.path)}
+									<li>
+										<p class="note">
+											Nothing in {row.name} this editor can open.
+										</p>
+									</li>
+								{/if}
+							{/each}
+						</ol>
+					{/if}
+
+					<!-- A folder on its way in, under the ones already here. -->
+					{#if folder.reading || gathering}
+						<Placeholder
+							shape="rows"
+							label="Reading the folder."
+							widths={[70, 45, 60, 50]}
+						/>
+					{/if}
+
+					<!-- The drives this browser knows and that are not open now. -->
+					{#if !folder.drivesRead}
+						{#if !folder.roots.length}
+							<Placeholder
+								shape="rows"
+								label="Reading the drives."
+								widths={[60]}
+							/>
+						{/if}
+					{:else if closedDrives.length}
+						<ol aria-label="Drives">
+							{#each closedDrives as drive (drive.id)}
+								<li class="row">
+									<button
+										type="button"
+										class="file"
+										title="{drive.user} at {drive.base}"
+										onclick={() => folder.openDrive(drive.id)}
+									>
+										<Cloud aria-hidden="true" />
+										<span class="name">{drive.name}</span>
+									</button>
+
+									<button
+										type="button"
+										class="close"
+										title="Forget it"
+										aria-label="Forget {drive.name}"
+										onclick={() => folder.dropDrive(drive.id)}
+									>
+										<X aria-hidden="true" />
+									</button>
+								</li>
 							{/each}
 						</ol>
 					{/if}
@@ -1686,6 +1865,8 @@
 
 				{#if menu}
 					{@const row = menu.row}
+					{@const writable = folder.writableAt(row.path)}
+					{@const isRoot = row.kind === 'dir' && row.root}
 					<div
 						bind:this={menuEl}
 						class="menu"
@@ -1709,8 +1890,8 @@
 							}
 						}}
 					>
-						<!-- VS Code's groups, in its order. A snapshot can be read and not changed, so it keeps only the path. -->
-						{#if folder.writable}
+						<!-- VS Code's groups, in its order. A snapshot can be read and not changed, so it keeps only the path; a root is put away rather than changed, so it keeps New, Paste and the path. -->
+						{#if writable}
 							<button
 								type="button"
 								role="menuitem"
@@ -1736,14 +1917,16 @@
 									Cut <kbd>Ctrl+X</kbd>
 								</button>
 							{/if}
-							<button
-								type="button"
-								role="menuitem"
-								onclick={() =>
-									fromMenu(() => (clipboard = { row, mode: 'copy' }))}
-							>
-								Copy <kbd>Ctrl+C</kbd>
-							</button>
+							{#if !isRoot}
+								<button
+									type="button"
+									role="menuitem"
+									onclick={() =>
+										fromMenu(() => (clipboard = { row, mode: 'copy' }))}
+								>
+									Copy <kbd>Ctrl+C</kbd>
+								</button>
+							{/if}
 							{#if clipboard}
 								<button
 									type="button"
@@ -1762,7 +1945,7 @@
 						>
 							Copy Relative Path <kbd>Ctrl+K Ctrl+Shift+C</kbd>
 						</button>
-						{#if folder.writable}
+						{#if writable && !isRoot}
 							<hr />
 							{#if movable(row)}
 								<button
@@ -1841,7 +2024,6 @@
 					<ConnectDrive
 						onconnect={async (drive, token) => {
 							connecting = false;
-							open = { kind: 'scratch', id: PERMANENT };
 							await folder.connect(drive, token);
 						}}
 						oncancel={() => (connecting = false)}
@@ -1867,7 +2049,8 @@
 									label="{open.kind === 'file'
 										? open.path
 										: scratchName(open.id)}, the document"
-									readOnly={open.kind === 'file' && !folder.writable}
+									readOnly={open.kind === 'file' &&
+										!folder.writableAt(open.path)}
 									placeholder={open.kind === 'scratch' ? 'Type something.' : ''}
 									{wrap}
 									{actions}
@@ -1909,7 +2092,7 @@
 									widths={[92, 88, 95, 60, 0, 85, 90, 40]}
 								/>
 							</div>
-						{:else if folder.openText !== null && folder.writable}
+						{:else if open.kind === 'file' && folder.openText !== null && folder.writableAt(open.path)}
 							<!--
 							A WRITABLE FOLDER TAKES TYPING. The sheet keeps the words the
 							moment they are typed and the disk catches up a beat later — see
@@ -3146,6 +3329,35 @@
 
 	.actions .add {
 		margin-inline-start: 0;
+	}
+
+	/* A root reads as the head of what is under it, as VS Code sets one. */
+	.row.root .name {
+		font-weight: 600;
+	}
+
+	/*
+	 * A MARK ONLY, the size of the controls beside it so the row stays even. The
+	 * word cost the folder its name on a narrow rail, and the name is the thing
+	 * worth reading there; the words are in the hover and in the reading.
+	 * Quieter than the controls, because it is a fact to read, not a thing to press.
+	 */
+	.view-only {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex: none;
+
+		inline-size: var(--rail-control-block-size);
+		block-size: var(--rail-control-block-size);
+
+		color: color-mix(in oklab, var(--fg) 60%, transparent);
+		cursor: pointer;
+	}
+
+	.view-only :global(svg) {
+		inline-size: 0.875rem;
+		block-size: 0.875rem;
 	}
 
 	/*

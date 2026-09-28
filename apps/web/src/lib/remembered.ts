@@ -1,6 +1,6 @@
 /*
- * THE FOLDER THIS BROWSER SAW LAST, kept so a visit does not begin by asking for
- * it again.
+ * THE FOLDERS THIS BROWSER HAD OPEN LAST, kept so a visit does not begin by asking
+ * for them again.
  *
  * ONLY A HANDLE CAN BE KEPT, and that is the whole shape of this file. A
  * `FileSystemDirectoryHandle` is a structured-cloneable object, so IndexedDB will
@@ -24,8 +24,13 @@
 const DB = 'text-editor';
 const STORE = 'folder';
 
-/** One row, because there is one folder. A list of them is a different feature. */
-const KEY = 'last';
+/*
+ * ONE ROW HOLDING A LIST, in the order the folders were opened, so they come
+ * back in the rail where they were. `last` is the one-folder row it replaced,
+ * read once and then gone.
+ */
+const KEY = 'roots';
+const OLD_KEY = 'last';
 
 /*
  * The open is shared. Two calls racing would each run `onupgradeneeded`, and only
@@ -87,34 +92,38 @@ function transact(mode: IDBTransactionMode): Promise<IDBObjectStore | null> {
 	});
 }
 
-/** The folder this browser saw last, still pointing at it — or null. */
-export async function recall(): Promise<FileSystemDirectoryHandle | null> {
-	const store = await transact('readonly');
-	if (!store) return null;
+const isHandle = (value: unknown): value is FileSystemDirectoryHandle =>
+	typeof FileSystemDirectoryHandle !== 'undefined' &&
+	value instanceof FileSystemDirectoryHandle;
 
+function get(store: IDBObjectStore, key: string): Promise<unknown> {
 	return new Promise((resolve) => {
-		const request = store.get(KEY);
-		request.onsuccess = () => {
-			const value: unknown = request.result;
-			/*
-			 * Anything at all could be under that key — an older shape of this, or
-			 * something a person put there with devtools. A handle is recognised by
-			 * being one, and not by having been written by us.
-			 */
-			resolve(
-				typeof FileSystemDirectoryHandle !== 'undefined' &&
-					value instanceof FileSystemDirectoryHandle
-					? value
-					: null,
-			);
-		};
-		request.onerror = () => resolve(null);
+		const request = store.get(key);
+		request.onsuccess = () => resolve(request.result);
+		request.onerror = () => resolve(undefined);
 	});
 }
 
-/** Keep this folder as the one to offer next visit. Silent if it cannot. */
+/** The folders this browser had open last, still pointing at them. */
+export async function recall(): Promise<FileSystemDirectoryHandle[]> {
+	const store = await transact('readonly');
+	if (!store) return [];
+
+	/*
+	 * Anything at all could be under either key — an older shape of this, or
+	 * something a person put there with devtools. A handle is recognised by
+	 * being one, and not by having been written by us.
+	 */
+	const kept = await get(store, KEY);
+	if (Array.isArray(kept)) return kept.filter(isHandle);
+
+	const last = await get(store, OLD_KEY);
+	return isHandle(last) ? [last] : [];
+}
+
+/** Keep these folders as the ones to offer next visit. Silent if it cannot. */
 export async function remember(
-	handle: FileSystemDirectoryHandle,
+	handles: FileSystemDirectoryHandle[],
 ): Promise<void> {
 	const store = await transact('readwrite');
 	if (!store) return;
@@ -122,24 +131,13 @@ export async function remember(
 	return new Promise((resolve) => {
 		let request: IDBRequest;
 		try {
-			request = store.put(handle, KEY);
+			request = handles.length ? store.put(handles, KEY) : store.delete(KEY);
+			store.delete(OLD_KEY);
 		} catch {
 			/* A browser that will not clone a handle. Nothing is kept and nothing is
-			 * said: the folder still works for this session. */
+			 * said: the folders still work for this session. */
 			return resolve();
 		}
-		request.onsuccess = () => resolve();
-		request.onerror = () => resolve();
-	});
-}
-
-/** Forget it — when it is closed, or when it turns out not to be there any more. */
-export async function forget(): Promise<void> {
-	const store = await transact('readwrite');
-	if (!store) return;
-
-	return new Promise((resolve) => {
-		const request = store.delete(KEY);
 		request.onsuccess = () => resolve();
 		request.onerror = () => resolve();
 	});

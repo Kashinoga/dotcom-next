@@ -187,7 +187,15 @@ export type Copied = { made: Listing; whole: boolean };
  * thing depth is used for is how far a row is indented.
  */
 export type Row =
-	| { kind: 'dir'; name: string; path: string; depth: number }
+	| {
+			kind: 'dir';
+			name: string;
+			path: string;
+			depth: number;
+			/* The top of a folder that was opened — a workspace root, as VS Code
+			 * calls one. It can be folded and written into, and nothing else. */
+			root?: boolean;
+	  }
 	| {
 			kind: 'file';
 			name: string;
@@ -211,8 +219,13 @@ export function foldersOf(listing: Listing): Set<string> {
 	return folders;
 }
 
-/* A folder is drawn open only if it is in `open`; every other is shut. */
-export function toRows(listing: Listing, open: ReadonlySet<string>): Row[] {
+/* A folder is drawn open only if it is in `open`; every other is shut. The
+ * rows are those under `from`, the top of the tree unless a root is named. */
+export function toRows(
+	listing: Listing,
+	open: ReadonlySet<string>,
+	from = '',
+): Row[] {
 	const folders = foldersOf(listing);
 
 	const depthOf = (path: string) => path.split('/').length - 1;
@@ -259,7 +272,7 @@ export function toRows(listing: Listing, open: ReadonlySet<string>): Row[] {
 		return out;
 	};
 
-	return under('');
+	return under(from);
 }
 
 /** The directory part of a path — '' for a document at the root. */
@@ -743,8 +756,22 @@ export function snapshotStore(
 	 */
 	const root = picked[0]?.webkitRelativePath?.split('/')[0] ?? '';
 
+	/*
+	 * THE WALK'S LIMITS, applied after the fact. The browser has already walked
+	 * everything by the time this sees it — `node_modules` and `.git` included —
+	 * and a listing of every file in them is a rail that takes seconds to fold.
+	 * The local store never walks into them, and this keeps the same folder
+	 * looking the same whichever way it was handed over.
+	 */
+	const skipped = (dir: string) =>
+		dir !== '' &&
+		(dir.split('/').length > MAX_DEPTH ||
+			dir.split('/').some((name) => hidden(name) || SKIP_DIR.test(name)));
+
+	const seen = new Set<string>();
 	let inert = 0;
 	for (const file of picked) {
+		if (out.length > MAX_FILES) break;
 		if (hidden(file.name)) continue;
 
 		const full = file.webkitRelativePath || file.name;
@@ -752,7 +779,11 @@ export function snapshotStore(
 			root && full.startsWith(`${root}/`) ? full.slice(root.length + 1) : full;
 
 		const dir = dirOf(path);
-		if (dir && !dirs.includes(dir)) dirs.push(dir);
+		if (skipped(dir)) continue;
+		if (dir && !seen.has(dir)) {
+			seen.add(dir);
+			dirs.push(dir);
+		}
 
 		if (!openable(file.name)) {
 			if (inert >= MAX_INERT) continue;

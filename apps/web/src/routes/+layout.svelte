@@ -327,9 +327,10 @@
 		before anybody has to notice they are three. Every other control in this bar
 		is a bare mark on the field; this is the only one that is a set.
 
-		FIRST OF THE END CLUSTER, so the order runs outward from the document: how
-		you are looking at it, then what is beside it, then the site. See the
-		margin rules — whichever end-side thing comes first is what splits the bar.
+		AT THE START, beside the workspace's switch, and not in the end cluster:
+		there it shared the free space with the status line and slid whenever the
+		status's words changed length. See the margin rules — the outline's switch,
+		the status or the nav, whichever comes first, is what splits the bar.
 	-->
 	{#if view.present}
 		<!--
@@ -414,7 +415,9 @@
 			data-tone={bar.status.tone}
 			title={bar.status.text}
 		>
-			{#if bar.status.tone === 'busy'}
+			{#if bar.status.Icon}
+				<bar.status.Icon aria-hidden="true" />
+			{:else if bar.status.tone === 'busy'}
 				<LoaderCircle aria-hidden="true" />
 			{:else if bar.status.tone === 'alert'}
 				<CloudOff aria-hidden="true" />
@@ -726,17 +729,27 @@
 	 * panel at all. Every page but the editor lost its right-aligned controls,
 	 * and nothing failed: the bar was still a valid bar, just wrong.
 	 */
-	.views,
 	.panel.end,
 	.status {
 		margin-inline-start: auto;
 	}
 
-	.views ~ .panel.end,
-	.views ~ nav,
+	.panel.end ~ .status,
 	.panel.end ~ nav,
 	.status ~ nav {
 		margin-inline-start: 0;
+	}
+
+	/*
+	 * THE VIEW KEYS STAY AT THE START, beside the workspace's switch, and take no
+	 * part in the split. Given an auto margin of their own they shared the free
+	 * space with the status line and floated between the two ends — so every
+	 * change in the status's words ("Saving…", "All changes saved.") slid them
+	 * along the bar under the pointer. A little more than the bar's gap, so the
+	 * island reads as its own group and not as one more switch.
+	 */
+	.views {
+		margin-inline-start: var(--space-8);
 	}
 
 	/*

@@ -1208,6 +1208,56 @@ function fixtureFolder() {
 	return root;
 }
 
+/*
+ * TWO FOLDERS SIDE BY SIDE, as a VS Code workspace holds them: each heads its
+ * own rows, a document opens from either, and putting one away leaves the
+ * other — and the way in stays offered while one is open.
+ */
+test('a second folder opens beside the first, and each is put away alone', async ({
+	page,
+	browserName,
+}) => {
+	test.skip(
+		browserName !== 'firefox',
+		'the input is the only way in from here',
+	);
+
+	const first = fixtureFolder();
+	const second = mkdtempSync(join(tmpdir(), 'second-'));
+	writeFileSync(join(second, 'other.md'), 'from the second');
+
+	await page.goto('/text-editor');
+	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
+	await page.locator('input[webkitdirectory]').setInputFiles(first);
+	await expect(
+		page.getByRole('button', { name: 'The Curriculum.md' }),
+	).toBeVisible();
+
+	await page.locator('input[webkitdirectory]').setInputFiles(second);
+	const roots = page.locator('.workspace .row.root .name');
+	await expect(roots).toHaveText([basename(first), basename(second)]);
+
+	// Each is a snapshot here, and says so on its own row.
+	await expect(page.locator('.workspace .row.root .view-only')).toHaveCount(2);
+
+	// A document from each, and each onto the sheet.
+	await page.getByRole('button', { name: 'other.md' }).click();
+	await expect.poll(() => words(page)).toContain('from the second');
+	await page.getByRole('button', { name: 'The Curriculum.md' }).click();
+	await expect.poll(() => words(page)).toContain('# The Curriculum');
+
+	// The first put away: its rows go, the second stays, and so does the sheet
+	// — it was showing the first, so it lands on the scratch note.
+	await page
+		.getByRole('button', { name: `Put ${basename(first)} away` })
+		.click();
+	await expect(roots).toHaveText([basename(second)]);
+	await expect(
+		page.getByRole('button', { name: 'The Curriculum.md' }),
+	).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'other.md' })).toBeVisible();
+});
+
 test('a folder is walked, listed, and read onto the sheet', async ({
 	page,
 	browserName,
@@ -1234,13 +1284,13 @@ test('a folder is walked, listed, and read onto the sheet', async ({
 
 	const files = page.locator('.workspace .section').nth(1).locator('.file');
 
-	/* Three documents at the root and the folder the fourth is in — SHUT, so what
-	 * is inside it is not drawn until it is asked for. */
-	await expect(files).toHaveCount(4);
+	/* The folder's own row, then three documents at its top and the folder the
+	 * fourth is in — SHUT, so what is inside it is not drawn until asked for. */
+	await expect(files).toHaveCount(5);
 	await expect(page.getByRole('button', { name: 'inside.md' })).toHaveCount(0);
 
 	await page.getByRole('button', { name: 'Deeper' }).click();
-	await expect(files).toHaveCount(5);
+	await expect(files).toHaveCount(6);
 
 	const seen = await page.evaluate(() =>
 		[
@@ -1268,24 +1318,24 @@ test('a folder is walked, listed, and read onto the sheet', async ({
 	 * so folders sort ahead of documents — and `Deeper` coming before `crest.png`
 	 * is how you can tell the sort is by KIND first and by name second.
 	 */
+	// The head of the tree is the folder that was opened, and names itself.
+	// `basename` and not a split on '/': on Windows the temp folder's path is
+	// written with backslashes, and a split on the wrong separator hands back
+	// the whole path.
 	expect(seen[0].folder).toBe(true);
-	expect(seen[0].name).toBe('Deeper');
+	expect(seen[0].name).toBe(basename(root));
 	expect(seen[0].depth).toBe(0);
-	expect(seen[1].name).toBe('inside.md');
+	expect(seen[1].folder).toBe(true);
+	expect(seen[1].name).toBe('Deeper');
 	expect(seen[1].depth).toBe(1);
-	// Everything after that folder's contents is back at the root.
-	for (const row of seen.slice(2)) expect(row.depth).toBe(0);
+	expect(seen[2].name).toBe('inside.md');
+	expect(seen[2].depth).toBe(2);
+	// Everything after that folder's contents is back at the folder's top.
+	for (const row of seen.slice(3)) expect(row.depth).toBe(1);
 
 	// Listed and plainly dead, rather than dropped — see FolderEntry.openable.
 	expect(seen.find((row) => row.name === 'crest.png')!.inert).toBe(true);
 	expect(seen.find((row) => row.name === 'Notes.txt')!.inert).toBe(false);
-
-	// The head of the tree names itself. `basename` and not a split on '/':
-	// on Windows the temp folder's path is written with backslashes, and a
-	// split on the wrong separator hands back the whole path.
-	await expect(
-		page.locator('.workspace .section').nth(1).locator('h2'),
-	).toContainText(basename(root));
 
 	// And a row puts its own words on the sheet.
 	await page.getByRole('button', { name: 'The Curriculum.md' }).click();
@@ -1681,14 +1731,14 @@ test('a browser is offered the one way it has, and not both', async ({
 });
 
 /*
- * THE VIEW KEYS ARE AN ISLAND IN THE BAR, first of the end cluster, so the order
- * runs outward from the document: how you are looking at it, then what is beside
- * it, then the site.
+ * THE VIEW KEYS ARE AN ISLAND AT THE START OF THE BAR, beside the workspace's
+ * switch, and not in the end cluster. There they shared the free space with the
+ * status line and slid along the bar whenever its words changed length.
  *
  * Position asserted as an ORDER and not as coordinates. What matters is which
  * side of which, and a bar whose controls are resized should not have to be told.
  */
-test('the view keys lead the end cluster, on the app and nowhere else', async ({
+test('the view keys stand at the start, on the app and nowhere else', async ({
 	page,
 }) => {
 	await page.setViewportSize({ width: 1280, height: 800 });
@@ -1711,12 +1761,12 @@ test('the view keys lead the end cluster, on the app and nowhere else', async ({
 		};
 	});
 
-	// After the brand, and pushed to the end rather than sitting in the middle.
+	// After the brand, and close to it rather than floating mid-bar.
 	expect(seen.island).toBeGreaterThan(seen.brandEnd);
-	expect(seen.island - seen.brandEnd).toBeGreaterThan(seen.bar.width / 3);
+	expect(seen.island - seen.brandEnd).toBeLessThan(seen.bar.width / 3);
 
-	// Then the outline's switch, then the site's own two.
-	expect(seen.outline).toBeGreaterThan(seen.islandEnd);
+	// The outline's switch is what splits the bar, then the site's own two.
+	expect(seen.outline - seen.islandEnd).toBeGreaterThan(seen.bar.width / 3);
 	expect(seen.apps).toBeGreaterThan(seen.outline);
 	expect(seen.mode).toBeGreaterThan(seen.apps);
 
@@ -2865,7 +2915,7 @@ test('a taken name is refused as it is typed, in VS Code’s words', async ({
 
 	const box = page.getByRole('textbox', { name: 'Name of the new file' });
 	await box.fill('ONE.md');
-	await expect(page.getByRole('alert')).toHaveText(
+	await expect(page.locator('#name-refusal')).toHaveText(
 		'A file or folder ONE.md already exists at this location. Please choose a different name.',
 	);
 	await box.press('Enter');
@@ -2921,7 +2971,8 @@ test('F2 renames a document, and it stays open under its new name', async ({
 
 	// Taken first, and refused; then free, and done.
 	await box.pressSequentially('two');
-	await expect(page.getByRole('alert')).toContainText('already exists');
+	// The refusal's own alert: Monaco keeps live regions of its own on the page.
+	await expect(page.locator('#name-refusal')).toContainText('already exists');
 	await box.fill('renamed.md');
 	await box.press('Enter');
 

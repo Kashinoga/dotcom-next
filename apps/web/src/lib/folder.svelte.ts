@@ -1,32 +1,33 @@
 /*
- * THE FOLDER THAT IS OPEN, and how it got here.
+ * THE FOLDERS THAT ARE OPEN, and how they got here.
  *
- * $lib/workspace.ts knows what a folder IS; this knows which one the visitor is
- * looking at, whether it has been read yet, and what to say when it cannot be.
- * The split is the same one $lib/scratch.svelte.ts keeps against the page: the
- * rules in a file with no runes in it, and the state that a rail redraws from in
- * a file that is nothing but runes.
+ * $lib/workspace.ts knows what a folder IS; this knows which ones the visitor is
+ * looking at, whether they have been read yet, and what to say when one cannot
+ * be. The split is the same one $lib/scratch.svelte.ts keeps against the page:
+ * the rules in a file with no runes in it, and the state that a rail redraws from
+ * in a file that is nothing but runes.
  *
- * NOTHING IS REMEMBERED BETWEEN VISITS YET. A directory handle survives a reload
- * — it goes in IndexedDB and comes back with its permission to be re-asked for —
- * and a snapshot cannot, because there is no folder behind it to go back to. Two
- * different answers to one question is a thing to build on purpose rather than on
- * the way past, so for now a visit begins with no folder and the rail says so.
+ * SEVERAL AT ONCE, side by side, as VS Code opens a multi-root workspace: a
+ * folder on this device, a snapshot of one, a drive on a server, in any mix.
+ * Each is a ROOT, and every path the page sees starts with its root's key — so
+ * "Notes/Sub/one.md" is `Sub/one.md` in the root keyed "Notes". The page works
+ * in those paths and never has to ask which folder a row is in; this file takes
+ * the key off on the way into a store and puts it back on the way out.
+ *
+ * ONE DOCUMENT IS ON THE SHEET, whichever root it is in, so the words and where
+ * they stand with the disk are held once, here, and not per root.
  */
 
 import { davStore, probe, type DavConfig, type Probe } from '$lib/dav';
 import {
 	configFor,
-	driveId,
 	drives as listDrives,
 	dropDrive,
 	keepDrive,
-	toOrigin,
-	toRoot,
 	tokenFor,
 	type Drive,
 } from '$lib/drives';
-import { forget, recall, remember } from '$lib/remembered';
+import { recall, remember } from '$lib/remembered';
 import {
 	dirOf,
 	foldersOf,
@@ -76,29 +77,52 @@ export function canPickFolder() {
 }
 
 /*
- * WHY THERE IS NO FOLDER. `idle` is the state a visit opens in and is not a
- * failure; the rest are, and each says a different thing to the rail.
+ * WHAT WENT WRONG LAST, if anything. `idle` is the state a visit opens in and is
+ * not a failure; the other two are about a folder that was asked for and did not
+ * arrive, so there is no root to say it beside and the rail says it on its own.
  *
- * `denied` and `empty` are worth telling apart even though both leave the rail
- * with nothing in it. One is a folder that was refused and one is a folder that
- * was read and had nothing in it, and a reader who sees "nothing here" for the
- * second reason will go looking for a bug that is not there.
+ * A folder that arrived with nothing in it is not here: it is a root, and says
+ * so under its own name — see `isEmpty`.
  */
-export type Trouble = 'idle' | 'denied' | 'unreadable' | 'empty';
+export type Trouble = 'idle' | 'denied' | 'unreadable';
 
 /*
- * A FOLDER FROM LAST TIME, WAITING TO BE LET BACK IN. The handle survives a
- * reload; the permission to read through it does not, and a browser will only
- * grant it again in answer to a click. So this is not a folder that is open — it
- * is a folder that could be, and the rail offers it by name.
- *
- * Its name is what makes the offer worth making. "Open the folder from last
- * time" is a question nobody can answer; "Notes" is one they can.
+ * ONE OPEN FOLDER. `key` is its name in the rail and the first segment of every
+ * path in it — its own name, numbered where another root already has that one.
+ * `handle` is kept for a folder on this device, so it can be remembered and so
+ * the same folder picked twice is recognised; `drive` likewise for a drive.
  */
-let waiting = $state<FileSystemDirectoryHandle | null>(null);
+type Root = {
+	key: string;
+	store: Store;
+	listing: Listing;
+	handle: FileSystemDirectoryHandle | null;
+	drive: string | null;
+};
+
+/* Replaced whole on every change rather than proxied: a store is a bag of
+ * closures and a handle is a platform object, and neither wants a proxy around
+ * it. */
+let roots = $state.raw<Root[]>([]);
+
+/*
+ * FOLDERS FROM LAST TIME, WAITING TO BE LET BACK IN. A handle survives a reload;
+ * the permission to read through it does not, and a browser will only grant it
+ * again in answer to a click. So these are not folders that are open — they are
+ * folders that could be, and the rail offers each by name.
+ */
+let waiting = $state.raw<FileSystemDirectoryHandle[]>([]);
 
 /* Whether `look` has answered. Until it has, "no folder open" may not be true. */
 let looked = $state(false);
+
+/*
+ * Whether it has been ASKED, which is not state: `look` runs from an effect, and
+ * a guard the effect could read would be one it re-runs on. It reads the
+ * waiting list and then replaces it, so an effect following that list asked
+ * again every time it answered, for ever.
+ */
+let asked = false;
 
 /*
  * THE DRIVES THIS BROWSER KNOWS. Listed on the page so they can be opened again
@@ -108,28 +132,29 @@ let looked = $state(false);
 let known = $state<Drive[]>([]);
 let drivesRead = $state(false);
 
-let store = $state<Store | null>(null);
-let listing = $state<Listing>({ files: [], dirs: [] });
-
 /*
- * WHICH FOLDERS ARE OPEN. Open rather than shut, so a folder that arrives in a
- * later listing — a drive's, read when its parent opens, or one only named by a
- * document's path — is drawn shut like every other, as VS Code draws it.
+ * WHICH FOLDERS ARE OPEN, roots among them. Open rather than shut, so a folder
+ * that arrives in a later listing — a drive's, read when its parent opens, or one
+ * only named by a document's path — is drawn shut like every other, as VS Code
+ * draws it.
  */
-let expanded = $state<Set<string>>(new Set());
+let expanded = $state.raw<Set<string>>(new Set());
 
 /*
  * WHICH FOLDERS HAVE BEEN READ. Only a LAZY store needs this — one that answered
- * everything in `list` has read them all by definition, and this stays empty.
+ * everything in `list` has read them all by definition.
  *
- * A folder that is being read is in `reading` too, so the row can say so: over a
+ * A folder that is being read is in `opening` too, so the row can say so: over a
  * network, opening a folder is a round trip and a rail that did nothing visible
  * for half a second would read as a press that did not land.
  */
-let loaded = $state<Set<string>>(new Set());
-let opening = $state<Set<string>>(new Set());
+let loaded = $state.raw<Set<string>>(new Set());
+let opening = $state.raw<Set<string>>(new Set());
 let trouble = $state<Trouble>('idle');
-let reading = $state(false);
+
+/* How many folders are being read on their way in. A count, because two can be
+ * asked for before the first has answered. */
+let reading = $state(0);
 
 /* Which document is on the sheet, by path, and its words. Held here rather than
  * on the page because a folder closing has to take them with it. */
@@ -159,18 +184,74 @@ let timer: ReturnType<typeof setTimeout> | null = null;
  * timer would tie the timer to it; this is the value the write actually carries. */
 let pending: { path: string; body: string } | null = null;
 
+// ── Paths, and which root they are in ────────────────────────────────────────
+
+/* A folder and everything under it, or a document on its own. */
+const within = (path: string, root: string) =>
+	path === root || path.startsWith(`${root}/`);
+
+const rootOf = (path: string) => roots.find((root) => within(path, root.key));
+
+/* A path inside its root, as the root's store knows it: '' for the top. */
+const rel = (root: Root, path: string) =>
+	path === root.key ? '' : path.slice(root.key.length + 1);
+
+/* And back: a store's path, as the page knows it. */
+const qual = (root: { key: string }, path: string) =>
+	path ? `${root.key}/${path}` : root.key;
+
+function qualify(root: { key: string }, listing: Listing): Listing {
+	return {
+		files: listing.files.map((file) => ({
+			...file,
+			path: qual(root, file.path),
+		})),
+		dirs: listing.dirs.filter(Boolean).map((dir) => qual(root, dir)),
+	};
+}
+
+/* The same root, as it is now: roots are replaced whole, so the one a slow
+ * answer set out from may have been replaced — or put away — while it was out. */
+const current = (root: Root) => roots.find((one) => one.store === root.store);
+
+function patch(root: Root, change: (listing: Listing) => Listing) {
+	roots = roots.map((one) =>
+		one.store === root.store ? { ...one, listing: change(one.listing) } : one,
+	);
+}
+
+/*
+ * A KEY FOR A NEW ROOT: its own name, or "Notes (2)" where one is already open
+ * under it — two folders called Notes are not unusual, and the rail has to tell
+ * them apart. A slash would read as a folder inside it, so none is kept.
+ */
+function keyFor(name: string) {
+	const base = name.replace(/\//g, '∕').trim() || 'Folder';
+	const used = new Set(roots.map((root) => root.key));
+	let key = base;
+	for (let n = 2; used.has(key); n += 1) key = `${base} (${n})`;
+	return key;
+}
+
+// ── The document on the sheet ────────────────────────────────────────────────
+
 async function flush() {
 	if (timer) {
 		clearTimeout(timer);
 		timer = null;
 	}
-	if (!store || !pending) return;
+	if (!pending) return;
 
 	const { path, body } = pending;
+	const root = rootOf(path);
+	if (!root) {
+		pending = null;
+		return;
+	}
 	pending = null;
 	save = 'saving';
 
-	const result = await store.write(path, body);
+	const result = await root.store.write(rel(root, path), body);
 
 	/* The document may have been closed or another one opened while that was in
 	 * flight, and this answer is about a document nobody is looking at. Reporting
@@ -186,41 +267,100 @@ async function flush() {
 	}
 }
 
-async function adopt(next: Store) {
-	store = next;
+/* Nothing on the sheet from the folders, and nothing waiting to go out. */
+function clearSheet() {
+	if (timer) clearTimeout(timer);
+	timer = null;
+	pending = null;
+	save = 'clean';
+	saveWhy = null;
 	openPath = null;
 	openText = null;
 	fetching = false;
-	reading = true;
+}
 
+// ── Roots arriving and leaving ───────────────────────────────────────────────
+
+/* The folders on this device that are open or offered, to come back next visit. */
+function persist() {
+	return remember([
+		...roots.flatMap((root) => (root.handle ? [root.handle] : [])),
+		...waiting,
+	]);
+}
+
+/*
+ * READ A FOLDER AND ADD IT. It is added only once it has read, so a folder that
+ * would not is never a root with nothing under it — it is trouble, said once.
+ *
+ * EVERY FOLDER OPENS SHUT, whichever kind of store it came from, and the root
+ * itself opens open. A workspace of thirty folders unrolled is a column nobody
+ * can find anything in, and a folder on this device and one on a server are the
+ * same thing to somebody looking at a list of them.
+ */
+async function adopt(
+	next: Store,
+	from: { handle?: FileSystemDirectoryHandle; drive?: string } = {},
+) {
+	reading += 1;
 	const read = await next.list();
-	reading = false;
+	reading -= 1;
 
 	if (!read) {
-		listing = { files: [], dirs: [] };
 		trouble = 'unreadable';
-		return;
+		return null;
 	}
 
-	/*
-	 * EVERY FOLDER OPENS SHUT, whichever kind of store it came from.
-	 *
-	 * It was open for an eager store and shut for a lazy one, on the argument that
-	 * an eager store has already paid for its rows so hiding them hides work
-	 * already done. That argument is about the STORE, and what a rail opens on is
-	 * a question about the READER: a workspace of thirty folders unrolled is a
-	 * column nobody can find anything in, and the cost of the rows was paid whether
-	 * or not they are drawn.
-	 *
-	 * It also makes the two kinds behave the same, which they should: a folder on
-	 * this device and a folder on a server are the same thing to somebody looking
-	 * at a list of them.
-	 */
-	expanded = new Set();
-	loaded = new Set(next.listDir ? [''] : []);
-	opening = new Set();
-	listing = read;
-	trouble = read.files.length || read.dirs.length ? 'idle' : 'empty';
+	const key = keyFor(next.name);
+	const root: Root = {
+		key,
+		store: next,
+		listing: qualify({ key }, read),
+		handle: from.handle ?? null,
+		drive: from.drive ?? null,
+	};
+	roots = [...roots, root];
+	expanded = new Set(expanded).add(key);
+	if (next.listDir) loaded = new Set(loaded).add(key);
+	trouble = 'idle';
+	return root;
+}
+
+/* Is this handle's folder open already? Picked twice, it is shown, not doubled. */
+async function sameEntry(
+	one: FileSystemDirectoryHandle,
+	other: FileSystemDirectoryHandle,
+) {
+	if (one === other) return true;
+	if (typeof one.isSameEntry !== 'function') return false;
+	try {
+		return await one.isSameEntry(other);
+	} catch {
+		// A handle that cannot be compared is not the same one.
+		return false;
+	}
+}
+
+async function openAlready(handle: FileSystemDirectoryHandle) {
+	for (const root of roots) {
+		if (root.handle && (await sameEntry(root.handle, handle))) return root;
+	}
+	return null;
+}
+
+/* A folder opened some other way is no longer one to offer: left there, it
+ * would be remembered twice and offered back as a second copy of itself. */
+async function unoffer(handle: FileSystemDirectoryHandle) {
+	const kept: FileSystemDirectoryHandle[] = [];
+	for (const one of waiting) {
+		if (!(await sameEntry(one, handle))) kept.push(one);
+	}
+	if (kept.length !== waiting.length) waiting = kept;
+}
+
+function show(root: Root) {
+	expanded = new Set(expanded).add(root.key);
+	trouble = 'idle';
 }
 
 /* Two listings, joined. A folder's children arrive knowing only themselves, and
@@ -236,9 +376,11 @@ function merge(into: Listing, extra: Listing, at: string): Listing {
 			...into.files,
 			...extra.files.filter((file) => !paths.has(file.path)),
 		],
-		dirs: [...dirs].filter(Boolean),
+		dirs: [...dirs].filter((dir) => !roots.some((root) => root.key === dir)),
 	};
 }
+
+// ── Names ────────────────────────────────────────────────────────────────────
 
 /*
  * WHAT A NAME THAT WILL NOT DO IS TOLD. VS Code's own refusals, since the
@@ -247,7 +389,7 @@ function merge(into: Listing, extra: Listing, at: string): Listing {
  * stores here do not.
  */
 export type Refusal =
-	'empty' | 'slash' | 'taken' | 'into' | 'partial' | 'failed';
+	'empty' | 'slash' | 'taken' | 'into' | 'partial' | 'failed' | 'across';
 
 /*
  * THE NAME A COPY TAKES WHERE ITS OWN IS TAKEN: VS Code's default,
@@ -271,11 +413,13 @@ export type Made = { path: string } | { refusal: Refusal };
  * underneath may not regard it either, and `except` lets a rename change only
  * the case of its own name. */
 function taken(dir: string, name: string, except?: string) {
+	const root = rootOf(dir);
+	if (!root) return false;
 	const path = join(dir, name).toLowerCase();
 	if (except?.toLowerCase() === path) return false;
 	return (
-		listing.files.some((file) => file.path.toLowerCase() === path) ||
-		listing.dirs.some((one) => one.toLowerCase() === path)
+		root.listing.files.some((file) => file.path.toLowerCase() === path) ||
+		root.listing.dirs.some((one) => one.toLowerCase() === path)
 	);
 }
 
@@ -284,10 +428,6 @@ function refuse(name: string): Refusal | null {
 	if (/[/\\]/.test(name)) return 'slash';
 	return null;
 }
-
-/* A folder and everything under it, or a document on its own. */
-const within = (path: string, root: string) =>
-	path === root || path.startsWith(`${root}/`);
 
 /* A document as the rail lists it, at a path. */
 function entryAt(path: string): FolderEntry {
@@ -299,15 +439,15 @@ function entryAt(path: string): FolderEntry {
  * EVERYTHING AT `from` IS AT `to` NOW — a document, or a folder and all it
  * holds — so the rail, the folds and the open document follow it there.
  */
-function remap(from: string, to: string) {
+function remap(root: Root, from: string, to: string) {
 	const swap = (path: string) =>
 		within(path, from) ? to + path.slice(from.length) : path;
-	listing = {
+	patch(root, (listing) => ({
 		files: listing.files.map((file) =>
 			within(file.path, from) ? entryAt(swap(file.path)) : file,
 		),
 		dirs: listing.dirs.map(swap),
-	};
+	}));
 	expanded = new Set([...expanded].map(swap));
 	loaded = new Set([...loaded].map(swap));
 	if (openPath !== null) openPath = swap(openPath);
@@ -315,29 +455,38 @@ function remap(from: string, to: string) {
 
 /*
  * READ A FOLDER ON A LAZY STORE, the first time it is opened. Its folders
- * arrive shut, as every folder does — see `expanded`.
+ * arrive shut, as every folder does — see `adopt`.
  */
 async function load(path: string) {
-	const from = store;
-	if (!from?.listDir || loaded.has(path) || opening.has(path)) return;
+	const root = rootOf(path);
+	if (!root?.store.listDir || loaded.has(path) || opening.has(path)) return;
 
 	opening = new Set(opening).add(path);
-	const extra = await from.listDir(path);
+	const extra = await root.store.listDir(rel(root, path));
 	opening = new Set([...opening].filter((one) => one !== path));
 
-	/* The whole folder put away, or another taken, while that was in flight:
-	 * this answer is about a tree nobody is looking at. */
-	if (store !== from) return;
+	/* The root put away while that was in flight: this answer is about a tree
+	 * nobody is looking at. */
+	const now = current(root);
+	if (!now) return;
 
 	/* Left UNLOADED, so opening it again tries again. A folder that failed once
 	 * over a network is not a folder that is empty. */
 	if (!extra) return;
 
 	loaded = new Set(loaded).add(path);
-	listing = merge(listing, extra, path);
+	patch(now, (listing) => merge(listing, qualify(now, extra), path));
 }
 
-const folderPaths = () => foldersOf(listing);
+/* Every folder there is to fold: the roots, and every folder in each. */
+function folderPaths() {
+	const all = new Set<string>();
+	for (const root of roots) {
+		all.add(root.key);
+		for (const dir of foldersOf(root.listing)) all.add(dir);
+	}
+	return all;
+}
 
 /* Open every folder above a path, so what was just made is in view. */
 function reveal(path: string) {
@@ -346,29 +495,67 @@ function reveal(path: string) {
 	expanded = next;
 }
 
+/* A new document or folder, in the root it was made in. */
+function added(root: Root, entry: { files?: FolderEntry[]; dirs?: string[] }) {
+	patch(root, (listing) => ({
+		files: [...listing.files, ...(entry.files ?? [])],
+		dirs: [...new Set([...listing.dirs, ...(entry.dirs ?? [])])],
+	}));
+	trouble = 'idle';
+}
+
 export const folder = {
-	get name() {
-		return store?.name ?? null;
+	/* The open folders, in the order they were opened, as the rail lists them. */
+	get roots() {
+		return roots.map((root) => ({
+			key: root.key,
+			kind: root.store.kind,
+			writable: root.store.writable,
+			drive: root.drive,
+		}));
 	},
 
-	get kind() {
-		return store?.kind ?? null;
+	/* Which root a path is in, by key — or null for one in none. */
+	rootKey(path: string) {
+		return rootOf(path)?.key ?? null;
 	},
 
-	get writable() {
-		return store?.writable ?? false;
+	/* A path from the top of its own folder, which is what a person means by
+	 * "the path" and what Copy Relative Path copies. */
+	relative(path: string) {
+		const root = rootOf(path);
+		return root ? rel(root, path) : path;
 	},
 
-	/* The rail's rows: folders and documents in one flat list, each carrying how
-	 * far in it sits. See `toRows`. */
+	/* Whether the folder a path is in can be written to. A snapshot cannot. */
+	writableAt(path: string) {
+		return rootOf(path)?.store.writable ?? false;
+	},
+
+	/* Folders can be renamed and moved only where the store does it in one step
+	 * — see `renameDir` in $lib/workspace. The rail offers it only there. */
+	relocatesAt(path: string) {
+		const store = rootOf(path)?.store;
+		return Boolean(store?.renameDir && store.moveDir);
+	},
+
+	/* A root that read and has nothing in it this editor can open. */
+	isEmpty(key: string) {
+		const root = roots.find((one) => one.key === key);
+		return Boolean(
+			root && !root.listing.files.length && !root.listing.dirs.length,
+		);
+	},
+
+	/* The rail's rows: each root, and under it, when it is open, its folders and
+	 * documents in one flat list, each carrying how far in it sits. See `toRows`. */
 	get rows(): Row[] {
-		return toRows(listing, expanded);
-	},
-
-	/* How many documents there are, whatever is folded away. The rail asks this to
-	 * tell an empty folder from a folded one. */
-	get count() {
-		return listing.files.length;
+		return roots.flatMap((root): Row[] => [
+			{ kind: 'dir', name: root.key, path: root.key, depth: 0, root: true },
+			...(expanded.has(root.key)
+				? toRows(root.listing, expanded, root.key)
+				: []),
+		]);
 	},
 
 	isClosed(path: string) {
@@ -401,9 +588,12 @@ export const folder = {
 		reveal(path);
 	},
 
-	/* Every folder shut, as VS Code's Collapse Folders in Explorer shuts them. */
+	/* Every folder shut, as VS Code's Collapse Folders in Explorer shuts them —
+	 * all but the roots, which stay as they were, so each open folder still shows
+	 * its own top and a reader is not left with a column of names. */
 	collapseAll() {
-		expanded = new Set();
+		const keys = new Set(roots.map((root) => root.key));
+		expanded = new Set([...expanded].filter((path) => keys.has(path)));
 	},
 
 	/*
@@ -412,8 +602,13 @@ export const folder = {
 	 * so the rail fills from the top.
 	 */
 	async expandAll() {
-		const from = store;
-		for (let depth = 0; depth < MAX_DEPTH && store === from; depth += 1) {
+		/* The same folders open, by their stores: `roots` itself is replaced every
+		 * time a level is read in, so comparing the array stopped after one. */
+		const stores = roots.map((root) => root.store);
+		const same = () =>
+			roots.length === stores.length &&
+			roots.every((root, i) => root.store === stores[i]);
+		for (let depth = 0; depth <= MAX_DEPTH && same(); depth += 1) {
 			const shut = [...folderPaths()].filter((path) => !expanded.has(path));
 			if (!shut.length) return;
 			expanded = new Set([...expanded, ...shut]);
@@ -421,14 +616,12 @@ export const folder = {
 		}
 	},
 
-	/* Whether any folder is open, for the heading to offer the one of the two
-	 * that would do something. */
+	/* Whether any folder below a root is open, for the heading to offer the one
+	 * of the two that would do something — see `collapseAll`. */
 	get anyExpanded() {
-		return [...expanded].some((path) => folderPaths().has(path));
-	},
-
-	get hasFolders() {
-		return folderPaths().size > 0;
+		const all = folderPaths();
+		const keys = new Set(roots.map((root) => root.key));
+		return [...expanded].some((path) => all.has(path) && !keys.has(path));
 	},
 
 	get trouble() {
@@ -436,7 +629,7 @@ export const folder = {
 	},
 
 	get reading() {
-		return reading;
+		return reading > 0;
 	},
 
 	get openPath() {
@@ -449,7 +642,7 @@ export const folder = {
 
 	/*
 	 * ASK FOR A FOLDER. Chromium hands over a handle that could be written through
-	 * and remembered; everything else has the input below instead.
+	 * and remembered; everything else has the input the page draws instead.
 	 *
 	 * A visitor who dismisses the picker has not failed at anything — that is what
 	 * a cancel is — so an AbortError leaves the state exactly as it was rather than
@@ -464,12 +657,20 @@ export const folder = {
 		if (!ask) return;
 
 		try {
-			const root = await ask.call(window, { mode: 'readwrite' });
-			waiting = null;
-			await adopt(localStore(root, isOpenable));
+			const handle = await ask.call(window, { mode: 'readwrite' });
+			await unoffer(handle);
+			const already = await openAlready(handle);
+			if (already) {
+				show(already);
+				await persist();
+				return;
+			}
+
 			/* Kept AFTER it read, so a folder that could not be walked is not offered
 			 * back next visit. */
-			if (trouble !== 'unreadable') await remember(root);
+			if (await adopt(localStore(handle, isOpenable), { handle })) {
+				await persist();
+			}
 		} catch (error) {
 			if (error instanceof DOMException && error.name === 'AbortError') return;
 			trouble = 'denied';
@@ -512,14 +713,17 @@ export const folder = {
 	},
 
 	/*
-	 * CONNECT A DRIVE AND OPEN IT. The probe has already happened in the form, so
-	 * what is left is to remember it and read it.
+	 * CONNECT A DRIVE AND OPEN IT beside whatever else is open. The probe has
+	 * already happened in the form, so what is left is to remember it and read it.
 	 */
 	async connect(drive: Drive, token: string) {
 		await keepDrive(drive, token);
 		known = await listDrives();
-		waiting = null;
-		await adopt(davStore(configFor(drive, token), isOpenable));
+		const already = roots.find((root) => root.drive === drive.id);
+		if (already) return show(already);
+		await adopt(davStore(configFor(drive, token), isOpenable), {
+			drive: drive.id,
+		});
 	},
 
 	/*
@@ -528,6 +732,9 @@ export const folder = {
 	 * has to be connected again, which the rail says rather than failing quietly.
 	 */
 	async openDrive(id: string) {
+		const already = roots.find((root) => root.drive === id);
+		if (already) return show(already);
+
 		const drive = known.find((one) => one.id === id);
 		if (!drive) return;
 
@@ -537,8 +744,7 @@ export const folder = {
 			return;
 		}
 
-		waiting = null;
-		await adopt(davStore(configFor(drive, token), isOpenable));
+		await adopt(davStore(configFor(drive, token), isOpenable), { drive: id });
 	},
 
 	async dropDrive(id: string) {
@@ -547,62 +753,71 @@ export const folder = {
 	},
 
 	/*
-	 * ASK WHETHER THERE IS ONE, without asking for it. Called from an effect on the
-	 * page, and it must not do anything a browser would refuse outside a gesture —
-	 * so it reads the handle and stops there.
+	 * ASK WHETHER THERE ARE ANY, without asking for them. Called from an effect on
+	 * the page, and it must not do anything a browser would refuse outside a
+	 * gesture — so it reads the handles and stops there.
 	 *
 	 * A handle whose grant HAS survived is opened straight away, because there is
 	 * nothing to ask: `queryPermission` answering `granted` means a click would add
 	 * nothing but a click. Anything else waits for one.
 	 */
 	async look() {
+		if (asked) return;
+		asked = true;
 		try {
-			if (store || waiting) return;
+			if (roots.length || waiting.length) return;
 
-			const handle = await recall();
-			if (!handle) return;
+			const offered: FileSystemDirectoryHandle[] = [];
+			for (const handle of await recall()) {
+				/* Kept twice by an older visit: once is enough. */
+				if (await openAlready(handle)) continue;
+				let twice = false;
+				for (const one of offered) twice ||= await sameEntry(one, handle);
+				if (twice) continue;
 
-			const next = localStore(handle, isOpenable);
-			if ((await next.permission()) === 'granted') {
-				await adopt(next);
-				return;
+				const next = localStore(handle, isOpenable);
+				if ((await next.permission()) === 'granted') {
+					await adopt(next, { handle });
+				} else {
+					offered.push(handle);
+				}
 			}
-
-			waiting = handle;
+			waiting = offered;
 		} finally {
 			looked = true;
 		}
 	},
 
 	/*
-	 * LET IT BACK IN. From a click, because `requestPermission` outside a gesture is
-	 * refused by every browser that has it — which is the whole reason this is two
-	 * steps and not one.
+	 * LET ONE BACK IN. From a click, because `requestPermission` outside a gesture
+	 * is refused by every browser that has it — which is the whole reason this is
+	 * two steps and not one.
 	 *
 	 * A folder that is gone, or refused, is FORGOTTEN rather than offered again
 	 * next visit: an offer that cannot be taken up is worse than none, and it would
 	 * be made on every visit for ever.
 	 */
-	async resume() {
-		const handle = waiting;
-		if (!handle) return;
+	async resume(handle: FileSystemDirectoryHandle) {
+		if (!waiting.includes(handle)) return;
 
 		const next = localStore(handle, isOpenable);
 		const granted = await next.requestPermission();
+		waiting = waiting.filter((one) => one !== handle);
 
 		if (granted !== 'granted') {
-			waiting = null;
 			trouble = 'denied';
-			await forget();
+			await persist();
 			return;
 		}
 
-		waiting = null;
-		await adopt(next);
+		/* Opened some other way since it was offered: shown, not doubled. */
+		const already = await openAlready(handle);
+		if (already) show(already);
+		else await adopt(next, { handle });
 
-		/* The grant was given and the folder still would not read, so it is not
-		 * there any more. */
-		if (trouble === 'unreadable') await forget();
+		/* Read or not, what is kept is what is open and what is still offered: a
+		 * folder that was granted and still would not read is not there any more. */
+		await persist();
 	},
 
 	/* The `<input webkitdirectory>` path, handed the files it collected. */
@@ -611,12 +826,6 @@ export const folder = {
 		await adopt(snapshotStore(picked, isOpenable));
 	},
 
-	/*
-	 * PUT A DOCUMENT ON THE SHEET. A row that cannot be read leaves the path set
-	 * and the words null, which is what the sheet needs to say so — the difference
-	 * between "nothing is open" and "this would not open" is the whole of what a
-	 * reader wants to know there.
-	 */
 	get save() {
 		return save;
 	},
@@ -625,8 +834,15 @@ export const folder = {
 		return saveWhy;
 	},
 
+	/*
+	 * PUT A DOCUMENT ON THE SHEET. A row that cannot be read leaves the path set
+	 * and the words null, which is what the sheet needs to say so — the difference
+	 * between "nothing is open" and "this would not open" is the whole of what a
+	 * reader wants to know there.
+	 */
 	async open(path: string) {
-		if (!store) return;
+		const root = rootOf(path);
+		if (!root) return;
 
 		/* Whatever was on the sheet goes out BEFORE the sheet changes. A debounce
 		 * that is still counting when a row is clicked would otherwise write the old
@@ -638,7 +854,7 @@ export const folder = {
 		save = 'clean';
 		saveWhy = null;
 		fetching = true;
-		const text = await store.read(path);
+		const text = await root.store.read(rel(root, path));
 
 		/* Another document was asked for while this one was on its way, and its
 		 * own answer is the one the sheet is waiting for. */
@@ -653,7 +869,7 @@ export const folder = {
 	 * a write is a round trip and a keystroke is not.
 	 */
 	edit(body: string) {
-		if (!store || openPath === null || !store.writable) return;
+		if (openPath === null || !rootOf(openPath)?.store.writable) return;
 
 		openText = body;
 		pending = { path: openPath, body };
@@ -682,14 +898,16 @@ export const folder = {
 		return flush();
 	},
 
-	/* Every document listed, folded away or not: what Go to File searches. */
+	/* Every document listed in every root, folded away or not: what Go to File
+	 * searches. */
 	get files() {
-		return listing.files;
+		return roots.flatMap((root) => root.listing.files);
 	},
 
 	/* A file's bytes, for a picture in the proof. */
 	picture(path: string) {
-		return store ? store.picture(path) : Promise.resolve(null);
+		const root = rootOf(path);
+		return root ? root.store.picture(rel(root, path)) : Promise.resolve(null);
 	},
 
 	/* The refusal a name would meet, asked as it is typed, as VS Code asks. */
@@ -707,22 +925,21 @@ export const folder = {
 		name = name.trim();
 		const no = refuse(name) ?? (taken(dir, name) ? 'taken' : null);
 		if (no) return { refusal: no };
-		if (!store?.writable) return { refusal: 'failed' };
+		const root = rootOf(dir);
+		if (!root?.store.writable) return { refusal: 'failed' };
 
+		const at = rel(root, dir);
 		const dot = name.lastIndexOf('.');
 		const made =
 			dot > 0
-				? await store.create(dir, name.slice(0, dot), name.slice(dot), '')
-				: await store.create(dir, name, '', '');
+				? await root.store.create(at, name.slice(0, dot), name.slice(dot), '')
+				: await root.store.create(at, name, '', '');
 		if (!made) return { refusal: 'failed' };
 
-		const entry: FolderEntry = isOpenable(made.name)
-			? made
-			: { ...made, openable: false };
-		listing = { files: [...listing.files, entry], dirs: listing.dirs };
-		trouble = 'idle';
-		reveal(made.path);
-		return { path: made.path };
+		const path = qual(root, made.path);
+		added(root, { files: [entryAt(path)] });
+		reveal(path);
+		return { path };
 	},
 
 	/* A NEW FOLDER, drawn shut as VS Code draws it, and known to be empty so a
@@ -731,64 +948,67 @@ export const folder = {
 		name = name.trim();
 		const no = refuse(name) ?? (taken(dir, name) ? 'taken' : null);
 		if (no) return { refusal: no };
-		if (!store?.writable) return { refusal: 'failed' };
+		const root = rootOf(dir);
+		if (!root?.store.writable) return { refusal: 'failed' };
 
-		const path = await store.createDir(dir, name);
-		if (!path) return { refusal: 'failed' };
+		const made = await root.store.createDir(rel(root, dir), name);
+		if (!made) return { refusal: 'failed' };
 
-		listing = { files: listing.files, dirs: [...listing.dirs, path] };
-		if (store.listDir) loaded = new Set(loaded).add(path);
-		trouble = 'idle';
+		const path = qual(root, made);
+		added(root, { dirs: [path] });
+		if (root.store.listDir) loaded = new Set(loaded).add(path);
 		reveal(path);
 		return { path };
-	},
-
-	/* Folders can be renamed and moved only where the store does it in one step
-	 * — see `renameDir` in $lib/workspace. The rail offers it only here. */
-	get relocatesDirs() {
-		return Boolean(store?.renameDir && store.moveDir);
 	},
 
 	/*
 	 * A NEW NAME. The words on the sheet go out first, under the name they were
 	 * typed under, if the open document is the one being renamed or is inside it.
+	 * A root keeps its name: it is the folder's own, and not this editor's to change.
 	 */
 	async rename(path: string, to: string): Promise<Made> {
 		to = to.trim();
 		const no = refuse(to) ?? (taken(dirOf(path), to, path) ? 'taken' : null);
 		if (no) return { refusal: no };
-		if (!store?.writable) return { refusal: 'failed' };
+		const root = rootOf(path);
+		if (!root?.store.writable || path === root.key)
+			return { refusal: 'failed' };
 		if (to === path.slice(path.lastIndexOf('/') + 1)) return { path };
 
-		const isDir = listing.dirs.includes(path);
-		if (isDir && !store.renameDir) return { refusal: 'failed' };
+		const isDir = root.listing.dirs.includes(path);
+		if (isDir && !root.store.renameDir) return { refusal: 'failed' };
 		if (openPath !== null && within(openPath, path)) await flush();
 
 		const moved = isDir
-			? await store.renameDir!(path, to)
-			: ((await store.rename(path, to))?.path ?? null);
+			? await root.store.renameDir!(rel(root, path), to)
+			: ((await root.store.rename(rel(root, path), to))?.path ?? null);
 		if (!moved) return { refusal: 'failed' };
 
-		remap(path, moved);
-		return { path: moved };
+		const next = qual(root, moved);
+		remap(root, path, next);
+		return { path: next };
 	},
 
-	/*
-	 * INTO ANOTHER FOLDER, from a drag or a cut and paste. A taken name is
-	 * refused rather than replaced, and a folder is not put inside itself.
-	 */
 	/*
 	 * A COPY, from a paste or a drag with Ctrl held. It keeps its name where that
 	 * is free and takes a "copy" name where it is not — into its own folder, a
 	 * duplicate. The words on the sheet go out first, so the copy is of what is
 	 * on the screen. A folder copy that stopped part way is still listed, as far
 	 * as it got.
+	 *
+	 * WITHIN ONE ROOT. Across two it would be a read out of one store and a write
+	 * into another, a different operation with different ways to fail — refused
+	 * in words until it is built on purpose.
 	 */
 	async copy(
 		row: { kind: 'dir' | 'file'; path: string },
 		dir: string,
 	): Promise<Made> {
-		if (!store?.writable) return { refusal: 'failed' };
+		const root = rootOf(row.path);
+		if (!root?.store.writable || row.path === root.key) {
+			return { refusal: 'failed' };
+		}
+		if (rootOf(dir) !== root) return { refusal: 'across' };
 		if (row.kind === 'dir' && within(dir, row.path)) {
 			return { refusal: 'into' };
 		}
@@ -800,18 +1020,23 @@ export const folder = {
 		}
 
 		if (openPath !== null && within(openPath, row.path)) await flush();
-		const copied = await store.copy(row.path, row.kind, dir, name);
+		const copied = await root.store.copy(
+			rel(root, row.path),
+			row.kind,
+			rel(root, dir),
+			name,
+		);
 		if (!copied) return { refusal: 'failed' };
 
-		const known = new Set(listing.files.map((file) => file.path));
-		listing = {
-			files: [
-				...listing.files,
-				...copied.made.files.filter((file) => !known.has(file.path)),
-			],
-			dirs: [...new Set([...listing.dirs, ...copied.made.dirs])],
-		};
-		trouble = 'idle';
+		const made = qualify(root, copied.made);
+		const now = current(root);
+		if (now) {
+			const had = new Set(now.listing.files.map((file) => file.path));
+			added(now, {
+				files: made.files.filter((file) => !had.has(file.path)),
+				dirs: made.dirs,
+			});
+		}
 
 		/* Every folder a copy made lands shut, as every folder opens shut — see
 		 * `adopt`. On a lazy store it is read when it is opened, like any other. */
@@ -821,92 +1046,102 @@ export const folder = {
 		return copied.whole ? { path: top } : { refusal: 'partial' };
 	},
 
+	/* INTO ANOTHER FOLDER, from a drag or a cut and paste. A taken name is
+	 * refused rather than replaced, a folder is not put inside itself, and
+	 * nothing crosses from one root to another — see `copy`. */
 	async move(path: string, dir: string): Promise<Made> {
-		if (!store?.writable) return { refusal: 'failed' };
+		const root = rootOf(path);
+		if (!root?.store.writable || path === root.key) {
+			return { refusal: 'failed' };
+		}
+		if (rootOf(dir) !== root) return { refusal: 'across' };
 		if (dirOf(path) === dir) return { path };
 		if (within(dir, path)) return { refusal: 'into' };
 		if (taken(dir, path.slice(path.lastIndexOf('/') + 1))) {
 			return { refusal: 'taken' };
 		}
 
-		const isDir = listing.dirs.includes(path);
-		if (isDir && !store.moveDir) return { refusal: 'failed' };
+		const isDir = root.listing.dirs.includes(path);
+		if (isDir && !root.store.moveDir) return { refusal: 'failed' };
 		if (openPath !== null && within(openPath, path)) await flush();
 
 		const moved = isDir
-			? await store.moveDir!(path, dir)
-			: ((await store.move(path, dir))?.path ?? null);
+			? await root.store.moveDir!(rel(root, path), rel(root, dir))
+			: ((await root.store.move(rel(root, path), rel(root, dir)))?.path ??
+				null);
 		if (!moved) return { refusal: 'failed' };
 
-		remap(path, moved);
-		reveal(moved);
-		return { path: moved };
+		const next = qual(root, moved);
+		remap(root, path, next);
+		reveal(next);
+		return { path: next };
 	},
 
 	/*
 	 * GONE FOR GOOD: there is no bin to put it in from a web page. The page asks
 	 * first, in VS Code's words. A document open on the sheet goes with it, and
-	 * so do its unsaved words, which have nowhere left to be written.
+	 * so do its unsaved words, which have nowhere left to be written. A root is
+	 * put away, not deleted — see `close`.
 	 */
 	async remove(row: { kind: 'dir' | 'file'; path: string }) {
-		if (!store?.writable) return false;
+		const root = rootOf(row.path);
+		if (!root?.store.writable || row.path === root.key) return false;
+		const at = rel(root, row.path);
 		const gone =
 			row.kind === 'dir'
-				? await store.removeDir(row.path)
-				: await store.remove(row.path);
+				? await root.store.removeDir(at)
+				: await root.store.remove(at);
 		if (!gone) return false;
 
 		const kept = (path: string) => !within(path, row.path);
-		listing = {
-			files: listing.files.filter((file) => kept(file.path)),
-			dirs: listing.dirs.filter(kept),
-		};
+		const now = current(root);
+		if (now) {
+			patch(now, (listing) => ({
+				files: listing.files.filter((file) => kept(file.path)),
+				dirs: listing.dirs.filter(kept),
+			}));
+		}
 		expanded = new Set([...expanded].filter(kept));
 		loaded = new Set([...loaded].filter(kept));
-		if (!listing.files.length && !listing.dirs.length) trouble = 'empty';
 
-		if (openPath !== null && !kept(openPath)) {
-			if (timer) clearTimeout(timer);
-			timer = null;
-			pending = null;
-			save = 'clean';
-			saveWhy = null;
-			openPath = null;
-			openText = null;
-		}
+		if (openPath !== null && !kept(openPath)) clearSheet();
 		return true;
 	},
 
-	/* Put the folder away. The scratch notes are untouched: they were never in it. */
-	async close() {
+	/*
+	 * PUT ONE FOLDER AWAY. The others, and the scratch notes, are untouched.
+	 * Answers whether it went.
+	 */
+	async close(key: string) {
+		const root = roots.find((one) => one.key === key);
+		if (!root) return false;
+		const holdsSheet = openPath !== null && within(openPath, key);
+
 		/*
-		 * THE LAST WORDS GO OUT FIRST. They were dropped here, which lost anything
-		 * typed in the 600ms before the press. A save that fails keeps the folder
-		 * open, once, so the bar can say so; a second press closes it anyway,
-		 * because by then losing them is a choice.
+		 * THE LAST WORDS GO OUT FIRST, if they are this folder's. They were dropped
+		 * here once, which lost anything typed in the 600ms before the press. A save
+		 * that fails keeps the folder open, once, so the bar can say so; a second
+		 * press closes it anyway, because by then losing them is a choice.
 		 */
-		const unsaved = pending !== null;
-		await flush();
-		if (unsaved && save === 'trouble') return;
+		if (holdsSheet) {
+			const unsaved = pending !== null;
+			await flush();
+			if (unsaved && save === 'trouble') return false;
+			clearSheet();
+		}
+
+		const kept = (path: string) => !within(path, key);
+		/* By store: the root may have been replaced while its words went out. */
+		roots = roots.filter((one) => one.store !== root.store);
+		expanded = new Set([...expanded].filter(kept));
+		loaded = new Set([...loaded].filter(kept));
+		opening = new Set([...opening].filter(kept));
+		trouble = 'idle';
 
 		/* Closing is a decision about this folder and not about the browser, so it
 		 * is forgotten as well as put away — otherwise the next visit would open on
 		 * the folder somebody just closed. */
-		void forget();
-		waiting = null;
-		if (timer) clearTimeout(timer);
-		timer = null;
-		pending = null;
-		save = 'clean';
-		saveWhy = null;
-		store = null;
-		listing = { files: [], dirs: [] };
-		expanded = new Set();
-		loaded = new Set();
-		opening = new Set();
-		trouble = 'idle';
-		openPath = null;
-		openText = null;
-		fetching = false;
+		if (root.handle) void persist();
+		return true;
 	},
 };

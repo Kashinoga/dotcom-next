@@ -13,6 +13,8 @@
  * — "Kashinoga | GG in Hawaii '26" — and the site's name never leaves.
  */
 
+import type { Component } from 'svelte';
+
 export type BarTone = 'quiet' | 'busy' | 'alert';
 
 export interface BarStatus {
@@ -23,6 +25,11 @@ export interface BarStatus {
 	 * way to a mark, an alert keeps its words.
 	 */
 	tone: BarTone;
+	/*
+	 * A mark of the page's own, for a status the tone's cloud does not describe —
+	 * "view only" is quiet, but it is not about anything being saved.
+	 */
+	Icon?: Component;
 }
 
 let title = $state<string | null>(null);
