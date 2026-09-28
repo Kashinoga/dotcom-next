@@ -84,7 +84,7 @@ export function canPickFolder() {
  * A folder that arrived with nothing in it is not here: it is a root, and says
  * so under its own name — see `isEmpty`.
  */
-export type Trouble = 'idle' | 'denied' | 'unreadable';
+export type Trouble = 'idle' | 'denied' | 'unreadable' | 'signed-out';
 
 /*
  * ONE OPEN FOLDER. `key` is its name in the rail and the first segment of every
@@ -588,20 +588,27 @@ export const folder = {
 		reveal(path);
 	},
 
-	/* Every folder shut, as VS Code's Collapse Folders in Explorer shuts them —
-	 * all but the roots, which stay as they were, so each open folder still shows
-	 * its own top and a reader is not left with a column of names. */
-	collapseAll() {
-		const keys = new Set(roots.map((root) => root.key));
-		expanded = new Set([...expanded].filter((path) => keys.has(path)));
+	/*
+	 * EVERY FOLDER SHUT, the roots with them, so what is left is a column of the
+	 * folders that are open and nothing under any of them.
+	 *
+	 * GIVEN A FOLDER, that folder and everything in it: every folder beside it is
+	 * left as it was.
+	 */
+	collapseAll(under?: string) {
+		expanded = new Set(
+			under === undefined
+				? []
+				: [...expanded].filter((path) => !within(path, under)),
+		);
 	},
 
 	/*
-	 * EVERY FOLDER OPEN, down to what the walk would reach. A lazy store reads
-	 * each level as it is opened, one round trip a folder, and a level at a time
-	 * so the rail fills from the top.
+	 * EVERY FOLDER OPEN, down to what the walk would reach, or every folder in one
+	 * and the folder itself. A lazy store reads each level as it is opened, one
+	 * round trip a folder, and a level at a time so the rail fills from the top.
 	 */
-	async expandAll() {
+	async expandAll(under?: string) {
 		/* The same folders open, by their stores: `roots` itself is replaced every
 		 * time a level is read in, so comparing the array stopped after one. */
 		const stores = roots.map((root) => root.store);
@@ -609,19 +616,23 @@ export const folder = {
 			roots.length === stores.length &&
 			roots.every((root, i) => root.store === stores[i]);
 		for (let depth = 0; depth <= MAX_DEPTH && same(); depth += 1) {
-			const shut = [...folderPaths()].filter((path) => !expanded.has(path));
+			const shut = [...folderPaths()].filter(
+				(path) =>
+					!expanded.has(path) && (under === undefined || within(path, under)),
+			);
 			if (!shut.length) return;
 			expanded = new Set([...expanded, ...shut]);
 			await Promise.all(shut.map(load));
 		}
 	},
 
-	/* Whether any folder below a root is open, for the heading to offer the one
-	 * of the two that would do something — see `collapseAll`. */
-	get anyExpanded() {
+	/* Whether any folder is open, or the folder given or any in it, for the
+	 * Collapse All that would do something — see `collapseAll`. */
+	anyExpandedUnder(under?: string) {
 		const all = folderPaths();
-		const keys = new Set(roots.map((root) => root.key));
-		return [...expanded].some((path) => all.has(path) && !keys.has(path));
+		return [...expanded].some(
+			(path) => all.has(path) && (under === undefined || within(path, under)),
+		);
 	},
 
 	get trouble() {
@@ -717,6 +728,17 @@ export const folder = {
 	 * already happened in the form, so what is left is to remember it and read it.
 	 */
 	async connect(drive: Drive, token: string) {
+		/* The same folder remembered under the id from before the folder was in
+		 * it — see `driveId` — goes, rather than staying as a second row of it. */
+		const older = known.find(
+			(one) =>
+				one.id !== drive.id &&
+				one.base === drive.base &&
+				one.user === drive.user &&
+				one.root === drive.root &&
+				!roots.some((root) => root.drive === one.id),
+		);
+		if (older) await dropDrive(older.id);
 		await keepDrive(drive, token);
 		known = await listDrives();
 		const already = roots.find((root) => root.drive === drive.id);
@@ -740,7 +762,7 @@ export const folder = {
 
 		const token = await tokenFor(id);
 		if (!token) {
-			trouble = 'denied';
+			trouble = 'signed-out';
 			return;
 		}
 

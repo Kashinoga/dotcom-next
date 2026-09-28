@@ -1498,8 +1498,10 @@ test('folders open shut, and all of them open and shut at once', async ({
 	const deepest = page.getByRole('button', { name: 'Deepest' });
 	const bottom = page.getByRole('button', { name: 'bottom.md' });
 	const collapse = page.getByRole('button', { name: 'Collapse all folders' });
+	const top = page.getByRole('button', { name: basename(root), exact: true });
 
-	await expect(collapse).toBeDisabled();
+	// The folder itself opens open, so there is already something to shut.
+	await expect(collapse).toBeEnabled();
 	await deeper.click();
 	await expect(deepest).toHaveAttribute('aria-expanded', 'false');
 	await expect(bottom).toHaveCount(0);
@@ -1507,10 +1509,12 @@ test('folders open shut, and all of them open and shut at once', async ({
 	await page.getByRole('button', { name: 'Expand all folders' }).click();
 	await expect(bottom).toBeVisible();
 
+	// Every folder shut, the one that was opened with them.
 	await collapse.click();
-	await expect(deeper).toHaveAttribute('aria-expanded', 'false');
-	await expect(deepest).toHaveCount(0);
+	await expect(top).toHaveAttribute('aria-expanded', 'false');
+	await expect(deeper).toHaveCount(0);
 	await expect(collapse).toBeDisabled();
+	await top.click();
 
 	// VS Code's tree keys: Right opens, Left shuts, and Left again goes up.
 	await deeper.focus();
@@ -1754,7 +1758,8 @@ test('the view keys stand at the start, on the app and nowhere else', async ({
 			brandEnd: document.querySelector('.brand')!.getBoundingClientRect().right,
 			island: island.x,
 			islandEnd: island.right,
-			outline: x('.panel.end'),
+			workspace: x('[aria-controls="workspace"]'),
+			outline: x('[aria-controls="outline"]'),
 			apps: x('header nav a'),
 			mode: x('header > button.control:not(.panel)'),
 			bar: document.querySelector('header')!.getBoundingClientRect(),
@@ -1765,9 +1770,12 @@ test('the view keys stand at the start, on the app and nowhere else', async ({
 	expect(seen.island).toBeGreaterThan(seen.brandEnd);
 	expect(seen.island - seen.brandEnd).toBeLessThan(seen.bar.width / 3);
 
-	// The outline's switch is what splits the bar, then the site's own two.
-	expect(seen.outline - seen.islandEnd).toBeGreaterThan(seen.bar.width / 3);
-	expect(seen.apps).toBeGreaterThan(seen.outline);
+	// The two panel switches side by side, the workspace's first, then the keys.
+	expect(seen.outline).toBeGreaterThan(seen.workspace);
+	expect(seen.island).toBeGreaterThan(seen.outline);
+
+	// The site's own two are what the bar is split for.
+	expect(seen.apps - seen.islandEnd).toBeGreaterThan(seen.bar.width / 3);
 	expect(seen.mode).toBeGreaterThan(seen.apps);
 
 	// It belongs to the app, so a letter has none.
@@ -3180,7 +3188,9 @@ test('a folder on this device is not offered a rename or a move', async ({
 	const sub = page.getByRole('button', { name: 'Sub' });
 	await sub.click({ button: 'right' });
 	// Copied, as vscode.dev copies a folder here; not cut, renamed or moved.
+	// Nothing in it is open, so it offers Expand All and not Collapse All.
 	await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText([
+		'Expand All',
 		'New File…',
 		'New Folder…',
 		'Copy Ctrl+C',

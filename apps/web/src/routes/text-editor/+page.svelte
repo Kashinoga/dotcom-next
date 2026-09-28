@@ -23,6 +23,7 @@
 	import FolderPlus from '@lucide/svelte/icons/folder-plus';
 	import PencilOff from '@lucide/svelte/icons/pencil-off';
 	import Cloud from '@lucide/svelte/icons/cloud';
+	import HardDrive from '@lucide/svelte/icons/hard-drive';
 	import Plus from '@lucide/svelte/icons/plus';
 	import X from '@lucide/svelte/icons/x';
 
@@ -74,8 +75,20 @@
 	 * be a button and the input can stay out of the reading. */
 	let dirInput = $state<HTMLInputElement | null>(null);
 
+	/*
+	 * A DOCUMENT CHOSEN, and the desk given back to it. The connect form holds the
+	 * desk while it is up, so a document picked from the rail or the palette
+	 * would otherwise be open behind it — the outline following, the sheet not.
+	 * Only for a choice somebody makes: a rename or a close that moves `open`
+	 * along leaves the form where it is.
+	 */
+	function show(next: Open) {
+		open = next;
+		connecting = false;
+	}
+
 	async function openFile(path: string) {
-		open = { kind: 'file', path };
+		show({ kind: 'file', path });
 		await folder.open(path);
 	}
 
@@ -214,6 +227,26 @@
 
 	/* The connect form takes the desk while it is up — see the note on it. */
 	let connecting = $state(false);
+
+	/*
+	 * WHERE EACH OPEN FOLDER LIVES, said on its row: side by side, a folder on
+	 * this device and one on a server are otherwise two names in a column, and
+	 * which one a save goes to is exactly what somebody needs to know.
+	 */
+	const whereRoots = $derived(
+		new Map(
+			folder.roots.map((root) => {
+				const drive = folder.drives.find((one) => one.id === root.drive);
+				const where =
+					root.kind === 'dav'
+						? `on ${drive ? new URL(drive.base).hostname : 'a drive'}${drive?.root ? `, in ${drive.root}` : ''}`
+						: root.kind === 'snapshot'
+							? 'a copy from this device'
+							: 'on this device';
+				return [root.key, { cloud: root.kind === 'dav', where }];
+			}),
+		),
+	);
 
 	/* The drives this browser knows that are not open now: the rest are roots. */
 	const closedDrives = $derived(
@@ -732,7 +765,7 @@
 			open.kind === 'file' &&
 			open.path === now.path
 		) {
-			open = { kind: 'file', path: made.path };
+			show({ kind: 'file', path: made.path });
 		}
 		// A new document opens, as it does in VS Code.
 		if (now.kind === 'file') await openFile(made.path);
@@ -928,7 +961,7 @@
 		// A scratch note is kept as it is typed; there is nothing to save.
 		save: () => void folder.saveNow(),
 		quickOpen: () => void quick?.show(),
-		newFile: () => (open = { kind: 'scratch', id: scratch.open() }),
+		newFile: () => show({ kind: 'scratch', id: scratch.open() }),
 		copyRelativePath: () => {
 			const row = (
 				document.activeElement as HTMLElement | null
@@ -1030,7 +1063,7 @@
 				key: `scratch:${note.id}`,
 				label: scratchName(note.id),
 				detail: 'Scratch',
-				run: () => (open = { kind: 'scratch' as const, id: note.id }),
+				run: () => show({ kind: 'scratch', id: note.id }),
 			})),
 			...folder.files
 				.filter((file) => file.openable !== false)
@@ -1397,7 +1430,7 @@
 						class="add"
 						title="A new ephemeral note"
 						aria-label="Open a new ephemeral note"
-						onclick={() => (open = { kind: 'scratch', id: scratch.open() })}
+						onclick={() => show({ kind: 'scratch', id: scratch.open() })}
 					>
 						<Plus aria-hidden="true" />
 					</button>
@@ -1411,7 +1444,7 @@
 									type="button"
 									class="file"
 									aria-current={openScratch === note.id ? 'true' : undefined}
-									onclick={() => (open = { kind: 'scratch', id: note.id })}
+									onclick={() => show({ kind: 'scratch', id: note.id })}
 								>
 									<NotepadText aria-hidden="true" />
 									<span class="name">{scratchName(note.id)}</span>
@@ -1542,7 +1575,7 @@
 								class="add"
 								title="Collapse Folders in Explorer"
 								aria-label="Collapse all folders"
-								disabled={!folder.anyExpanded}
+								disabled={!folder.anyExpandedUnder()}
 								onclick={() => folder.collapseAll()}
 							>
 								<ChevronsDownUp aria-hidden="true" />
@@ -1587,6 +1620,15 @@
 							<p class="note">That folder could not be read.</p>
 						{:else if folder.trouble === 'denied'}
 							<p class="note">That folder was not handed over.</p>
+						{:else if folder.trouble === 'signed-out'}
+							<!--
+								A DRIVE WHOSE PASSWORD WAS KEPT FOR THE SESSION ONLY, and the
+								session is over. Not "not handed over", which is about a folder
+								on this device and sends somebody looking for a dialog.
+							-->
+							<p class="note">
+								That drive’s app password was not kept. Connect it again.
+							</p>
 						{:else if !folder.roots.length && !folder.waiting.length && !folder.reading && !gathering}
 							<!--
 								NO FOLDER YET, which is not a failure and does not read as one. It
@@ -1618,6 +1660,7 @@
 										the visitor's folder, not something in it.
 									-->
 										{@const writable = folder.writableAt(row.path)}
+										{@const where = whereRoots.get(row.path)}
 										<div
 											class="row root"
 											role="presentation"
@@ -1629,7 +1672,10 @@
 												class="file folder"
 												class:drop={dropDir === row.path}
 												aria-expanded={!folder.isClosed(row.path)}
-												title={row.name}
+												aria-describedby="where-{encodeURIComponent(row.path)}"
+												title={where
+													? `${row.name} — ${where.where}`
+													: row.name}
 												data-path={row.path}
 												onclick={() => {
 													chosen = row;
@@ -1643,8 +1689,18 @@
 												{:else}
 													<ChevronDown aria-hidden="true" />
 												{/if}
+												<!-- Where it lives, drawn as the ways in above draw it. -->
+												{#if where?.cloud}
+													<Cloud aria-hidden="true" />
+												{:else}
+													<HardDrive aria-hidden="true" />
+												{/if}
 												<span class="name">{row.name}</span>
 											</button>
+											<span
+												id="where-{encodeURIComponent(row.path)}"
+												class="visually-hidden">{where?.where}</span
+											>
 
 											<span class="actions">
 												<!--
@@ -1841,7 +1897,9 @@
 									<button
 										type="button"
 										class="file"
-										title="{drive.user} at {drive.base}"
+										title="{drive.user} at {drive.base}{drive.root
+											? `/${drive.root}`
+											: ''}"
 										onclick={() => folder.openDrive(drive.id)}
 									>
 										<Cloud aria-hidden="true" />
@@ -1891,6 +1949,30 @@
 						}}
 					>
 						<!-- VS Code's groups, in its order. A snapshot can be read and not changed, so it keeps only the path; a root is put away rather than changed, so it keeps New, Paste and the path. -->
+						<!--
+							THE HEADING'S TWO, FOR ONE FOLDER. Folding changes nothing in the
+							folder, so a snapshot keeps them; Collapse All is offered only where
+							it or something in it is open, as the heading's is.
+						-->
+						{#if row.kind === 'dir'}
+							<button
+								type="button"
+								role="menuitem"
+								onclick={() => fromMenu(() => void folder.expandAll(row.path))}
+							>
+								Expand All
+							</button>
+							{#if folder.anyExpandedUnder(row.path)}
+								<button
+									type="button"
+									role="menuitem"
+									onclick={() => fromMenu(() => folder.collapseAll(row.path))}
+								>
+									Collapse All
+								</button>
+							{/if}
+							<hr />
+						{/if}
 						{#if writable}
 							<button
 								type="button"

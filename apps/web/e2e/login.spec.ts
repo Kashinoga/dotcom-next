@@ -143,7 +143,9 @@ test('signing in is offered only where the requests can be made', async ({
 	await page.getByRole('button', { name: 'Connect a drive' }).click();
 	await expect(page.locator('.connect')).toBeVisible();
 
-	const signIn = page.getByRole('button', { name: /Sign in instead/ });
+	const signIn = page.getByRole('button', { name: 'Sign in', exact: true });
+	// The way the requests go is folded under the other ways in.
+	await page.getByText('Other ways to connect').click();
 	const [relayed, direct] = await page.getByRole('radio').all();
 
 	// Relayed is the default, so the button is there — and dead until it knows
@@ -250,7 +252,7 @@ test('a granted sign-in fills the form in', async ({ page, context }) => {
 	await page.getByLabel('Server', { exact: true }).fill('cloud.example.com');
 
 	const opened = context.waitForEvent('page');
-	await page.getByRole('button', { name: /Sign in instead/ }).click();
+	await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 
 	// A tab really is opened, and it is sent to the server's own login page.
 	const tab = await opened;
@@ -258,7 +260,7 @@ test('a granted sign-in fills the form in', async ({ page, context }) => {
 
 	// And while it waits, it says what it is waiting for.
 	await expect(
-		page.getByRole('button', { name: /Waiting for you to grant it/ }),
+		page.getByRole('button', { name: /Waiting for your server/ }),
 	).toBeVisible();
 
 	/*

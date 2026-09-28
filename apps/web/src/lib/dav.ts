@@ -328,7 +328,39 @@ export async function probe(cfg: DavConfig): Promise<Probe> {
 		headers: { depth: '0', 'content-type': XML },
 		body: PROPS,
 	});
+	return answered(answer);
+}
 
+/*
+ * THE FOLDERS IN ONE FOLDER OF THE DRIVE, for the connect form to offer rather
+ * than asking somebody to know a path by heart. `at` is from the top of the
+ * user's files, whatever the form's Folder says; a failure answers in the
+ * form's words, as `probe` does.
+ */
+export async function folders(
+	cfg: DavConfig,
+	at: string,
+): Promise<string[] | Exclude<Probe, 'ok'>> {
+	const top = { ...cfg, root: at };
+	const answer = await dav(cfg, 'PROPFIND', target(top), {
+		headers: { depth: '1', 'content-type': XML },
+		body: PROPS,
+	});
+	if (!answer) return 'blocked';
+	const said = answered(answer);
+	if (said !== 'ok') return said;
+
+	return parseMultistatus(await answer.text(), rootSegments(top))
+		.filter(
+			(entry) =>
+				entry.dir && !entry.path.includes('/') && !entry.name.startsWith('.'),
+		)
+		.map((entry) => entry.name)
+		.sort((a, b) => a.localeCompare(b));
+}
+
+/* A PROPFIND's answer in the form's words. See `Probe`. */
+function answered(answer: Response | null): Probe {
 	if (!answer) return 'blocked';
 	if (answer.status === 207) return 'ok';
 	/* THROUGH THE RELAY a dead server is not a dead fetch — the route answers 502

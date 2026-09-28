@@ -315,6 +315,29 @@
 	{/if}
 
 	<!--
+		AND THE OUTLINE'S, BESIDE IT. The two panels are the app's, and a person
+		looking for one switch finds the other where their eye already is; the
+		drawing still says which edge each one moves.
+	-->
+	{#if outline.present}
+		<button
+			type="button"
+			class="control panel"
+			aria-expanded={outline.open}
+			aria-controls="outline"
+			aria-label="Outline"
+			title={outline.open ? 'Put the outline away' : 'Show the outline'}
+			onclick={() => outline.toggle()}
+		>
+			{#if outline.open}
+				<PanelRightClose />
+			{:else}
+				<PanelRightOpen />
+			{/if}
+		</button>
+	{/if}
+
+	<!--
 		THE VIEW KEYS, AND THEY LEAD THE END CLUSTER. They were on the desk, in a
 		row over the sheet; the argument for that was that a control belonging to
 		the document should not sit among controls belonging to the site. On a
@@ -329,8 +352,8 @@
 
 		AT THE START, beside the workspace's switch, and not in the end cluster:
 		there it shared the free space with the status line and slid whenever the
-		status's words changed length. See the margin rules — the outline's switch,
-		the status or the nav, whichever comes first, is what splits the bar.
+		status's words changed length. See the margin rules — the status or the
+		nav, whichever comes first, is what splits the bar.
 	-->
 	{#if view.present}
 		<!--
@@ -371,32 +394,6 @@
 				</button>
 			{/each}
 		</div>
-	{/if}
-
-	<!--
-		AND THE OUTLINE'S, for the same reason the workspace's stands beside the
-		brand: each switch is on the side of the bar that its panel is on, so the
-		drawing and the position say the same thing.
-
-		It comes BEFORE the site's own controls. Apps and the display mode belong
-		to the site and are on every page; this belongs to the app and is on one.
-	-->
-	{#if outline.present}
-		<button
-			type="button"
-			class="control panel end"
-			aria-expanded={outline.open}
-			aria-controls="outline"
-			aria-label="Outline"
-			title={outline.open ? 'Put the outline away' : 'Show the outline'}
-			onclick={() => outline.toggle()}
-		>
-			{#if outline.open}
-				<PanelRightClose />
-			{:else}
-				<PanelRightOpen />
-			{/if}
-		</button>
 	{/if}
 
 	<!--
@@ -719,8 +716,8 @@
 
 	/*
 	 * WHAT SPLITS THE BAR is whichever thing on the end side comes first. The nav
-	 * carries the auto margin by default, and where an end-side switch stands in
-	 * front of it, the switch takes the job and the nav gives it up.
+	 * carries the auto margin by default, and where the status stands in front
+	 * of it, the status takes the job and the nav gives it up.
 	 *
 	 * Two plain rules, and they replaced a clever one that was wrong: it tried to
 	 * say "the nav, unless a panel precedes it" with `:not(.panel ~ nav)`, and
@@ -729,13 +726,10 @@
 	 * panel at all. Every page but the editor lost its right-aligned controls,
 	 * and nothing failed: the bar was still a valid bar, just wrong.
 	 */
-	.panel.end,
 	.status {
 		margin-inline-start: auto;
 	}
 
-	.panel.end ~ .status,
-	.panel.end ~ nav,
 	.status ~ nav {
 		margin-inline-start: 0;
 	}

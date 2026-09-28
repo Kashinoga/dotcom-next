@@ -86,11 +86,17 @@ export const toRoot = (typed: string) =>
 		.replace(/\/{2,}/g, '/');
 
 /*
- * ONE DRIVE PER SERVER AND USER. Derived rather than random, so connecting to the
- * same place twice replaces the first rather than making a second row that looks
- * identical and holds a different password.
+ * ONE DRIVE PER SERVER, USER AND FOLDER. Derived rather than random, so connecting
+ * to the same place twice replaces the first rather than making a second row that
+ * looks identical and holds a different password.
+ *
+ * THE FOLDER IS IN IT because folders open side by side: two folders of one
+ * account are two drives, and with the account alone the second replaced the
+ * first and the first stayed on the rail. The whole drive keeps the id it has
+ * always had, so a drive remembered before this still finds its password.
  */
-export const driveId = (base: string, user: string) => `${base}|${user}`;
+export const driveId = (base: string, user: string, root = '') =>
+	root ? `${base}|${user}|${root}` : `${base}|${user}`;
 
 // ── Where they are kept ──────────────────────────────────────────────────────
 
