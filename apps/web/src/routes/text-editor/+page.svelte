@@ -3148,6 +3148,24 @@
 		.area > :last-child {
 			padding-block-end: var(--fab-reserve);
 		}
+	}
+
+	/*
+	 * SPLIT IS DRAWN AS THE SHEET on a phone held upright, where the corner
+	 * button does not offer it — see `upright` in Fab.svelte, which moves the
+	 * state to `edit` once it runs. This is what the prerendered page shows
+	 * before then, so it arrives as the sheet rather than as two short rows
+	 * that close up a moment later. The sheet is the pane at the foot then, so
+	 * it takes the strip.
+	 */
+	@media (hover: none) and (pointer: coarse) and (width < 48rem) {
+		.area[data-view='split'] > .proof {
+			display: none;
+		}
+
+		.area[data-view='split'] > .sheet {
+			padding-block-end: var(--fab-reserve);
+		}
 
 		.workbench[data-sheet='workspace'] .workspace,
 		.workbench[data-sheet='outline'] .outline {

@@ -456,8 +456,14 @@
 	document on its desk: see the component. It is here on every width and the
 	stylesheets choose between the two, so the page is the same page before and
 	after hydration.
+
+	`fullscreen` and not `view.present`, though the two name the same app today.
+	The claim is made in an effect, which runs only in a browser, so gated on it
+	the button was missing from the prerendered page and a phone painted the bar
+	first and swapped it for the button a moment later. Whether a page is a
+	fullscreen app is known on the server.
 -->
-{#if fullscreen && view.present}
+{#if fullscreen}
 	<Fab />
 {/if}
 

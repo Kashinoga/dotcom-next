@@ -61,6 +61,10 @@
 	 * read, and the big key moving between writing and reading does the same
 	 * job better. So below 48rem split is not offered, and a page that arrives
 	 * in it — split is where the editor opens — lands on the sheet instead.
+	 *
+	 * The Text Editor's stylesheet already DRAWS split as the sheet there, so
+	 * the prerendered page is right before this runs; this makes the state agree
+	 * with what is drawn, and nothing on the screen moves when it does.
 	 */
 	const upright = new MediaQuery(
 		'(hover: none) and (pointer: coarse) and (width < 48rem)',
@@ -79,6 +83,10 @@
 	 * thing a person looking at a list of files wants from the corner. Otherwise
 	 * it goes between writing and reading, and wears where it GOES — the eye to
 	 * read, the pen to write — as a switch between two places does.
+	 *
+	 * From split it goes to reading, and that is decided by what the first paint
+	 * needs: the page is prerendered in split, which an upright phone shows as
+	 * the sheet, so the key has to say "read" before `upright` has been asked.
 	 */
 	const main = $derived(
 		sheet.current
@@ -90,13 +98,13 @@
 							: 'Put the outline away',
 					run: () => sheet.hide(),
 				}
-			: view.current === 'edit'
-				? { Icon: Eye, label: 'Read it set', run: () => view.show('preview') }
-				: {
+			: view.current === 'preview'
+				? {
 						Icon: SquarePen,
 						label: 'Back to writing',
 						run: () => view.show('edit'),
-					},
+					}
+				: { Icon: Eye, label: 'Read it set', run: () => view.show('preview') },
 	);
 
 	const ModeIcon = $derived(
