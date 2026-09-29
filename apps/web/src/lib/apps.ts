@@ -1,5 +1,5 @@
 /*
- * THE APPS, and none of them are built yet.
+ * THE APPS, and most of them are not built yet.
  *
  * The names and the descriptions are taken verbatim from the list already
  * standing at kashinoga.com/apps, so the page here shows the real shape of the
@@ -18,6 +18,7 @@
 import type { Component } from 'svelte';
 // One deep import per icon, as everywhere else — the root `@lucide/svelte`
 // makes the dev server pre-bundle all 1600.
+import CloudSun from '@lucide/svelte/icons/cloud-sun';
 import FaceSlightlySmiling from '@lucide/svelte/icons/face-slightly-smiling';
 import SquarePen from '@lucide/svelte/icons/square-pen';
 
@@ -119,5 +120,7 @@ export const apps: App[] = [
 		name: 'Weather',
 		description:
 			'A National Oceanic and Atmospheric Administration data viewer.',
+		href: '/weather',
+		icon: CloudSun,
 	},
 ];
