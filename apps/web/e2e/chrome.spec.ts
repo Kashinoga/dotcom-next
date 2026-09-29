@@ -1848,15 +1848,19 @@ test('the pressed key is drawn a step inside the island, all round', async ({
 		const pressed = document.querySelector('.view[aria-pressed="true"]')!;
 
 		// A pseudo-element has no box to ask for, so its edges are worked out from
-		// the key it is drawn in and the insets it is given.
+		// the key it is drawn in and the size it is given. It is centred on the
+		// key's height and starts at the key's start.
 		const ground = (el: Element) => {
 			const g = getComputedStyle(el, '::before');
 			const k = el.getBoundingClientRect();
+			const height = parseFloat(g.height);
+			const top = k.top + (k.height - height) / 2;
+			const left = k.left + parseFloat(g.insetInlineStart);
 			return {
-				top: k.top + parseFloat(g.insetBlockStart),
-				bottom: k.bottom - parseFloat(g.insetBlockEnd),
-				left: k.left + parseFloat(g.insetInlineStart),
-				right: k.right - parseFloat(g.insetInlineEnd),
+				top,
+				bottom: top + height,
+				left,
+				right: left + parseFloat(g.width),
 			};
 		};
 
@@ -3365,7 +3369,31 @@ test.describe('on a phone', () => {
 		expect(ground).toBe('rgba(0, 0, 0, 0)');
 	});
 
-	test('a link to a heading scrolls the textarea to it', async ({ page }) => {
+	/*
+	 * THE BAR IS A BUTTON IN THE CORNER here: see src/lib/components/Fab.svelte.
+	 * Split is not offered upright, the big key goes between writing and
+	 * reading, and the button steps aside while somebody types.
+	 */
+	test('the bar gives way to a button that switches views', async ({
+		page,
+	}) => {
+		await editor(page);
+		await expect(page.locator('header')).toBeHidden();
+		await expect(page.locator('.area')).toHaveAttribute('data-view', 'edit');
+
+		await page.getByRole('button', { name: 'Read it set' }).tap();
+		await expect(page.locator('.area')).toHaveAttribute('data-view', 'preview');
+		await page.getByRole('button', { name: 'Back to writing' }).tap();
+
+		await page.locator('.sheet textarea').tap();
+		await page.keyboard.type('a');
+		await expect(page.locator('.fab')).toHaveCSS('visibility', 'hidden');
+		await expect(page.locator('.fab')).toHaveCSS('visibility', 'visible');
+	});
+
+	test('a heading in the outline scrolls the textarea to it', async ({
+		page,
+	}) => {
 		await editor(page);
 		const filler = Array.from({ length: 120 }, (_, i) => `Line ${i}.\n`);
 		const sheet = page.locator('.sheet textarea');
@@ -3373,8 +3401,12 @@ test.describe('on a phone', () => {
 			['[down](#middle)', '', ...filler, '## Middle'].join('\n'),
 		);
 
-		// There is no outline on a phone; a link in the proof goes the same way.
-		await page.locator('.proof a').click();
+		// The outline is a sheet on a phone, asked for from the corner button,
+		// and it goes away once a heading is chosen.
+		await page.getByRole('button', { name: 'More' }).tap();
+		await page.getByRole('button', { name: 'Outline' }).tap();
+		await page.getByRole('button', { name: 'Middle', exact: true }).tap();
+		await expect(page.locator('#outline')).toBeHidden();
 		const seen = await sheet.evaluate((area: HTMLTextAreaElement) => ({
 			caret: area.selectionStart,
 			line: area.value.indexOf('## Middle'),

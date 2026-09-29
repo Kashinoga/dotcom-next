@@ -62,3 +62,30 @@ function side() {
 
 export const workspace = side();
 export const outline = side();
+
+/*
+ * ON A PHONE A PANEL IS A SHEET, laid over the desk rather than standing beside
+ * it, because there is no room beside it. One at a time, and none until asked
+ * for: the columns' own `open` says whether a column is kept on a wide window,
+ * and that is a different question from whether this one is up right now.
+ *
+ * The floating button asks for one, and the page puts it away once something
+ * in it has been chosen.
+ */
+export type SheetId = 'workspace' | 'outline';
+
+let sheetShown = $state<SheetId | null>(null);
+
+export const sheet = {
+	get current() {
+		return sheetShown;
+	},
+
+	show(id: SheetId) {
+		sheetShown = id;
+	},
+
+	hide() {
+		sheetShown = null;
+	},
+};

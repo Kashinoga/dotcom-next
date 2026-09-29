@@ -311,6 +311,52 @@ body {
 	}
 }
 
+/*
+ * A PHONE IS HELD CLOSER AND READ SMALLER, so the text below a heading goes up
+ * a pixel there. VS Code's ramp is made for a desk, where 13px is comfortable
+ * at arm's length.
+ *
+ * `hover: none` and `pointer: coarse`, and not the `any-pointer` above: this
+ * asks whether the device IS a handheld, not whether a finger is available. A
+ * laptop with a touchscreen keeps the desk sizes. The large headings stay as
+ * they are; they were never the ones hard to read.
+ */
+/*
+ * THE BAR GIVES WAY TO A BUTTON on a phone, where an app has put one in the
+ * corner — see src/lib/components/Fab.svelte, whose PHONE this repeats.
+ *
+ * The bar's height goes to nothing rather than the bar being merely hidden, so
+ * everything measured off it — the app's own height first — takes the row back.
+ *
+ * `--fab-reserve` is the strip a pane keeps clear at its foot for the button to
+ * stand in: the button's island, a key and a step each side, and the step it
+ * stands off the window's edge, twice. With it, the last line of a document can
+ * always be scrolled out from under the button.
+ */
+@media (hover: none) and (pointer: coarse) and (width < 64rem) {
+	:root:has(.fab) {
+		--bar-block-size: 0px;
+		--fab-reserve: calc(
+			var(--control-block-size) + var(--space-4) * 2 + var(--space-12) * 2
+		);
+	}
+
+	:root:has(.fab) header {
+		display: none;
+	}
+}
+
+@media (hover: none) and (pointer: coarse) {
+	:root {
+		--text-heading3: 0.875rem;
+		--text-body1: 0.875rem;
+		--text-body2: 0.75rem;
+		--text-label1: 0.8125rem;
+		--text-label2: 0.75rem;
+		--text-label3: 0.6875rem;
+	}
+}
+
 :root {
 	/*
 	 * CORNERS, Modern UI's scale. `s` for a control, an input or a row; `l` for

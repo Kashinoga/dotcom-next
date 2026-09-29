@@ -48,7 +48,7 @@
 		type Made,
 		type Refusal,
 	} from '$lib/folder.svelte';
-	import { outline as outlinePanel, workspace } from '$lib/panel.svelte';
+	import { outline as outlinePanel, sheet, workspace } from '$lib/panel.svelte';
 	import { view } from '$lib/view.svelte';
 	import { isMarkdown, NAMED_FENCE, set } from '$lib/markdown';
 	import type { HLJSApi } from 'highlight.js';
@@ -87,6 +87,8 @@
 	function show(next: Open) {
 		open = next;
 		connecting = false;
+		// On a phone the files were a sheet over the desk; the choice is made.
+		sheet.hide();
 	}
 
 	async function openFile(path: string) {
@@ -353,6 +355,8 @@
 	 * the file may not have.
 	 */
 	function goTo(line: number) {
+		// The outline was a sheet over the desk on a phone; the desk is wanted.
+		sheet.hide();
 		if (monacoSheet) {
 			monacoSheet.goTo(line);
 		} else if (sheetText) {
@@ -1437,6 +1441,7 @@
 		class="workbench"
 		data-workspace={workspace.open ? 'open' : 'closed'}
 		data-outline={outlinePanel.open ? 'open' : 'closed'}
+		data-sheet={sheet.current}
 	>
 		<!--
 			THE WORKSPACE AND THE OUTLINE ARE COLUMNS NOW, not things hung in the
@@ -3117,6 +3122,46 @@
 	 * the workspace on the other side" while the rules say 15 and 13. The material
 	 * is shared; the width is not, and the widths are the part that was measured.)
 	 */
+	/*
+	 * ON A PHONE THE BAR IS A BUTTON IN THE CORNER — see
+	 * src/lib/components/Fab.svelte, whose PHONE this repeats — and three things
+	 * here follow from that.
+	 *
+	 * The app takes the top step the bar used to draw, since there is no bar.
+	 *
+	 * The last pane keeps `--fab-reserve` clear at its foot for the button to
+	 * stand in. The LAST one, because that is the one reaching the corner: the
+	 * sheet in `edit`, the proof in `preview` and in `split`. On the proof it is
+	 * padding inside the scroll, so the end of a document scrolls up past the
+	 * button; the textarea fills the sheet's content box, so there the strip is
+	 * simply not text.
+	 *
+	 * And a rail, which has no column below 64rem, becomes a sheet over the whole
+	 * window when the button asks for one. It keeps the strip too, because the
+	 * button stays — it is what puts the sheet away.
+	 */
+	@media (hover: none) and (pointer: coarse) and (width < 64rem) {
+		.app {
+			padding-block-start: var(--gap-panel);
+		}
+
+		.area > :last-child {
+			padding-block-end: var(--fab-reserve);
+		}
+
+		.workbench[data-sheet='workspace'] .workspace,
+		.workbench[data-sheet='outline'] .outline {
+			display: flex;
+
+			position: fixed;
+			inset: 0;
+			z-index: 2;
+
+			padding: var(--gap-panel) var(--gap-panel) var(--fab-reserve);
+			background-color: var(--surface);
+		}
+	}
+
 	@media (min-width: 64rem) {
 		.workbench {
 			grid-template-columns: 15rem minmax(0, 1fr) 13rem;

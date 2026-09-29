@@ -44,6 +44,7 @@
 	import { apps } from '$lib/apps';
 	import { bar } from '$lib/bar.svelte';
 	import DisplayModeButton from '$lib/components/DisplayModeButton.svelte';
+	import Fab from '$lib/components/Fab.svelte';
 	import { outline, workspace } from '$lib/panel.svelte';
 	import { view, VIEWS } from '$lib/view.svelte';
 	import { site } from '$lib/site';
@@ -98,6 +99,10 @@
 	 */
 	let scrolledPast = $state(false);
 
+	// The page has no title of its own, so its name shows without any scrolling
+	// and there is no top to return to.
+	let untitled = $state(false);
+
 	$effect(() => {
 		// Named so the effect re-runs when a navigation changes the heading. A
 		// page claiming a name in the bar — see $lib/bar.svelte — needs the same
@@ -127,6 +132,7 @@
 			 * on a page that still is not saying it.
 			 */
 			const title = document.querySelector('[data-page-title]');
+			untitled = !title;
 			if (!title) {
 				scrolledPast = true;
 				return;
@@ -174,8 +180,12 @@
 	 */
 	const canHover = new MediaQuery('(hover: hover)', true);
 
-	// The page's name is showing AND there is no way to have checked first.
-	const scrollsToTop = $derived(!!here && scrolledPast && !canHover.current);
+	// The page's name is showing because of a scroll AND there is no way to have
+	// checked first. A page without a title, like the Text Editor, shows its name
+	// from the start, and there the brand stays a link home.
+	const scrollsToTop = $derived(
+		!!here && scrolledPast && !untitled && !canHover.current,
+	);
 
 	/*
 	 * THE YEAR IS THE BUILD'S, and that is a consequence of prerendering rather
@@ -440,6 +450,16 @@
 
 	<DisplayModeButton />
 </header>
+
+<!--
+	ON A PHONE THE BAR BECOMES A BUTTON in the corner, for an app with a
+	document on its desk: see the component. It is here on every width and the
+	stylesheets choose between the two, so the page is the same page before and
+	after hydration.
+-->
+{#if fullscreen && view.present}
+	<Fab />
+{/if}
 
 <!--
 	`data-fullscreen` IS FOR THE STYLESHEET TO READ, and it is on <main> because
@@ -961,13 +981,16 @@
 	 */
 	.thumb {
 		position: absolute;
-		inset-block: var(--space-4);
+		inset-block-start: 50%;
 		inset-inline-start: var(--space-4);
 		inline-size: calc(
 			(100% - var(--space-4) * 2 - var(--space-4) * (var(--count) - 1)) /
 				var(--count)
 		);
-		translate: calc(var(--slot) * (100% + var(--space-4)));
+		/* The same shape as a key's own ground; see `.view::before`. */
+		aspect-ratio: 1;
+		max-block-size: calc(100% - var(--space-4) * 2);
+		translate: calc(var(--slot) * (100% + var(--space-4))) -50%;
 
 		border-radius: var(--radius-s);
 		background-color: var(--accent);
@@ -1037,13 +1060,26 @@
 		content: '';
 		position: absolute;
 		z-index: -1;
-		inset-block: var(--space-4);
-		inset-inline: 0;
+		/*
+		 * NEVER TALLER THAN IT IS WIDE. On a phone the key is 44px high for the
+		 * finger and a mark's width across, and a ground a step inside that height
+		 * was a 29-by-36 slab standing on its end. Square until it reaches the
+		 * step inside the key, which is where every wider key stops, as before.
+		 */
+		inset-block-start: 50%;
+		inset-inline-start: 0;
+		/* A width GIVEN and not left to the insets, or the height's cap would
+		 * carry across the ratio and narrow a labelled key's ground too. */
+		inline-size: 100%;
+		aspect-ratio: 1;
+		max-block-size: calc(100% - var(--space-4) * 2);
+		translate: 0 -50%;
 
 		border-radius: var(--radius-s);
 	}
 
 	.view :global(svg) {
+		flex-shrink: 0;
 		inline-size: 1em;
 		block-size: 1em;
 	}
