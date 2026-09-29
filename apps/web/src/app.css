@@ -198,11 +198,17 @@ h6 {
  * the use of it belongs where the text is. `font: inherit` in the reset above
  * is what carries it into a button and every other control.
  *
- * ONE token today, named for what it is FOR and not for what it looks like. A
- * site with long prose on it may want a second, and the two may well differ.
+ * Named for what each is FOR and not for what it looks like.
+ *
+ * THE SECOND IS A SERIF, for the words a tagline marks — see Letter.svelte.
+ * Merriweather, hosted the same way: one of the most used serifs on the web,
+ * drawn for screens, and carrying an optical size axis as Inter does, so the
+ * same `font-optical-sizing: auto` gives it a drawing suited to its size.
+ * Georgia is the fallback because it is the nearest thing most machines have.
  */
 :root {
 	--font-ui: 'Inter Variable', system-ui, sans-serif;
+	--font-tagline: 'Merriweather Variable', Georgia, serif;
 }
 
 /* Modern UI sets its headings semi-bold; the browser's default is bold. */

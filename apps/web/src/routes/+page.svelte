@@ -22,7 +22,12 @@
 	The signoff uses <br> rather than two paragraphs, because "Take care," and the
 	name are one closing and not two thoughts.
 -->
-<Letter title={site.name} tagline={site.tagline} optical="-0.042em">
+<Letter
+	title={site.name}
+	tagline={site.tagline}
+	serif={['Alive', 'Disguise']}
+	optical="-0.042em"
+>
 	<!--
 		An em dash, and not the two hyphens a keyboard offers. `--` is what a
 		typewriter did when it had no dash key. A browser has the character, so

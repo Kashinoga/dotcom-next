@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { page } from '$app/state';
+	import { apps } from '$lib/apps';
 
 	/*
 	 * THE LETTER, which is the shape every page on this site takes: a marked
@@ -17,10 +19,20 @@
 		tagline,
 		optical = '0em',
 		wide = false,
+		serif = [],
 		children,
 	}: {
 		title: string;
 		tagline?: string;
+		/*
+		 * THE WORDS OF THE TAGLINE THAT ARE SET IN THE SERIF, and only those —
+		 * the nouns that carry its meaning, chosen by whoever wrote it. A list
+		 * beside the tagline and not markup inside it, because the tagline is
+		 * also a page's <title> and a line in a shared link, where an asterisk
+		 * would be printed. A word listed here that the tagline does not hold
+		 * marks nothing, which is the harmless way for the two to disagree.
+		 */
+		serif?: string[];
 		optical?: string;
 		/*
 		 * A LETTER THAT IS NOT MOSTLY PROSE. The measure exists to keep a line of
@@ -31,6 +43,33 @@
 		wide?: boolean;
 		children: Snippet;
 	} = $props();
+
+	/*
+	 * AN APP WEARS ITS MARK beside its name, in a tile of the accent, as an
+	 * extension's page does in Modern UI. The mark is looked up in $lib/apps by
+	 * the page's address, which is how the bar finds it too, so no page passes
+	 * one and none can pass the wrong one.
+	 *
+	 * A page with no mark has its name underlined in the accent instead. Either way the yellow sits on one thing per masthead, and never
+	 * as a block behind the words — which is what the accent means everywhere
+	 * else on the site: this one is selected.
+	 */
+	const Icon = $derived(
+		apps.find((app) => app.href === page.url.pathname)?.icon,
+	);
+
+	/*
+	 * THE TAGLINE CUT AT THE MARKED WORDS. A split on a pattern with one
+	 * capturing group keeps what it cut on, so the odd parts are the marked
+	 * words and the even parts are everything between them. Whole words only,
+	 * so marking "art" leaves "start" alone.
+	 */
+	const words = $derived.by(() => {
+		if (!tagline) return [];
+		if (!serif.length) return [tagline];
+		const escaped = serif.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+		return tagline.split(new RegExp(`\\b(${escaped.join('|')})\\b`));
+	});
 </script>
 
 <!--
@@ -45,7 +84,7 @@
 		"relevant to what the reader is doing right now" — a search hit, the
 		passage under discussion — and a name is not that. Some screen readers
 		announce "highlight" around it, which would put a word with no meaning
-		into the reading of the title. The highlight here is decoration, and
+		into the reading of the title. The underline here is decoration, and
 		decoration belongs in an element that claims nothing.
 	-->
 		<!--
@@ -59,17 +98,26 @@
 		h1 in it — a rendered document in a preview, say — must not have that
 		mistaken for its masthead. Marking the real one answers both.
 	-->
-		<div class="masthead">
-			<h1 data-page-title><span class="highlight">{title}</span></h1>
-			{#if tagline}
-				<!--
+		<div class="masthead" class:marked={Icon}>
+			{#if Icon}
+				<span class="tile" aria-hidden="true"><Icon /></span>
+			{/if}
+			<div class="words">
+				<h1 data-page-title><span class="name">{title}</span></h1>
+				{#if tagline}
+					<!--
 				A <p> and not an <h2>. A heading opens a SECTION, and this opens
 				nothing: a visitor moving through the page by heading would be sent
 				into a section that does not exist. It reads as a heading because of
 				its size, which is a matter for the stylesheet and not for the markup.
 			-->
-				<p class="tagline">{tagline}</p>
-			{/if}
+					<p class="tagline">
+						{#each words as part, i (i)}{#if i % 2}<span class="serif"
+									>{part}</span
+								>{:else}{part}{/if}{/each}
+					</p>
+				{/if}
+			</div>
 		</div>
 
 		<div class="prose">
@@ -86,11 +134,22 @@
 	 * other.
 	 */
 	.hero {
+		/*
+		 * THE SPACE EACH SIDE OF THE HEADER'S RULE, written once. It is the gap
+		 * below the rule and the padding above it, and the two must match — so
+		 * neither holds its own number to drift from the other.
+		 */
+		--rule-space: var(--space-32);
+
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-32);
+		gap: var(--rule-space);
 
-		padding: var(--space-36) var(--space-16);
+		/*
+		 * The top takes the rule's space too, so the sheet's edge, the header and
+		 * the rule under it stand the same distance apart all the way down.
+		 */
+		padding: var(--rule-space) var(--space-16) var(--space-36);
 	}
 
 	/*
@@ -112,13 +171,73 @@
 		box-shadow: inset 0 0 0 1px var(--frame);
 	}
 
-	/* The name and the tagline are one unit, so they sit closer to each other than
-	 * to anything else. Proximity is what says "these two belong together" — it
-	 * needs no line, no box and no colour. */
+	/*
+	 * The mark and the words are one unit, and the name and the tagline are one
+	 * unit inside it, so each sits closer to its partner than to anything else.
+	 * Proximity is what says "these belong together" — it needs no line, no box
+	 * and no colour.
+	 */
 	.masthead {
+		display: flex;
+		align-items: center;
+		gap: var(--space-12);
+
+		/*
+		 * THE HEADER IS AN AREA, ruled off from the page under it, as the header
+		 * of an extension's page is in VS Code. The rule stops where the text
+		 * does, inside the hero's padding, so it keeps the same margin from the
+		 * frame on both sides as every line of the page below it.
+		 *
+		 * EVEN SPACE EACH SIDE: this padding above the rule and the hero's gap
+		 * below it are one token, `--rule-space`, set on the hero.
+		 */
+		padding-block-end: var(--rule-space);
+		border-block-end: 1px solid var(--frame);
+	}
+
+	.words {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
+		min-inline-size: 0;
+	}
+
+	/*
+	 * THE TILE: the app's mark on the accent, square with the large radius, as
+	 * Modern UI draws an extension's icon. The icon takes `--accent-fg` for the
+	 * reason the pressed controls do — yellow is too light to carry a line drawn
+	 * in it, so the yellow is the ground and the line is black.
+	 *
+	 * EXACTLY AS TALL AS THE WORDS BESIDE IT: the title's line, the gap, and
+	 * the tagline's line, from the same tokens the words are set with. A round
+	 * 3rem stood a couple of pixels short of them, centred, and so sat a
+	 * couple of pixels in from both — which made the space above the header
+	 * and the space below it each read wider than the rule's. Written from the
+	 * tokens, it follows the words to a phone's larger sizes by itself.
+	 *
+	 * Every app page has a tagline. One without would get a tile taller than
+	 * its title, centred on it, which is the lesser fault.
+	 */
+	.tile {
+		--tile-size: calc(
+			var(--text-heading1) * var(--leading-tight) + var(--space-4) +
+				var(--text-heading2) * var(--leading-tight)
+		);
+
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex: none;
+		inline-size: var(--tile-size);
+		block-size: var(--tile-size);
+		border-radius: var(--radius-l);
+		background-color: var(--accent);
+		color: var(--accent-fg);
+	}
+
+	.tile :global(svg) {
+		inline-size: 1.75rem;
+		block-size: 1.75rem;
 	}
 
 	h1 {
@@ -127,76 +246,55 @@
 		letter-spacing: var(--tracking-tight);
 
 		/*
-		 * OPTICAL ALIGNMENT. THE TEXT IS THE EDGE, and the highlight hangs off it.
+		 * OPTICAL ALIGNMENT. `--title-optical` is the correction for THIS page's
+		 * title against its tagline, and it is a measurement rather than a rule:
+		 * a letter's side bearing differs by face and by size, so another word
+		 * wants another number, and a page that has not been measured passes
+		 * nothing and gets zero.
 		 *
-		 * A highlighter does not respect a margin. Someone drawing one over a word
-		 * starts a little before the first letter and stops a little after the
-		 * last, and the WORDS stay where the words were. So the first letter meets
-		 * the first letter of the tagline, and the yellow runs out past both —
-		 * which is the whole effect: a real stroke, drawn by a machine that never
-		 * wobbles.
-		 *
-		 * `--title-optical` is the correction for THIS page's title, and it is a
-		 * measurement rather than a rule: on the home page the K carries 3px of
-		 * side bearing at 72px against the tagline's 1px, so that title comes left
-		 * by the 2px difference. Another word begins with another letter and wants
-		 * another number, and a page that has not been measured passes nothing and
-		 * gets zero.
-		 *
-		 * The box then adds its own padding in front of the first letter, and the
-		 * calc takes it back. Written against the SAME property the box uses, so
-		 * changing the padding moves the alignment with it instead of leaving a
-		 * number behind that used to be right.
-		 *
-		 * CSS has no property for any of this. `text-box-trim` answers the same
-		 * problem on the vertical axis and there is no horizontal equal.
+		 * CSS has no property for this. `text-box-trim` answers the same problem
+		 * on the vertical axis and there is no horizontal equal.
 		 */
-		--highlight-pad: 0.11em;
-		margin-left: calc(var(--title-optical) - var(--highlight-pad));
+		margin-inline-start: var(--title-optical);
 	}
 
 	/*
-	 * THE HIGHLIGHT. Solid accent, the way a real highlighter lays down ink, and
-	 * the same thing a selection does on this site.
+	 * A NAME WITH NO MARK BESIDE IT has the accent under it rather than
+	 * behind it. The underline is thick and pulled up into the
+	 * letters' feet, so it reads as a highlighter's stroke along the baseline —
+	 * the pen-and-paper the site began with, drawn at a weight that leaves the
+	 * words themselves in plain ink.
 	 *
-	 * There was a rule of accent around a wash of it, and this replaces both. A
-	 * border is a frame and says "a box is here"; a highlighter says "read this",
-	 * and leaves no edge behind. The second is what the title wanted.
-	 *
-	 * 0.11em of padding and not 0.08em. The border it replaces was 0.03em, and
-	 * the yellow has to reach as far past the first letter as it did before —
-	 * that overhang IS the stroke. In `em`, so it holds its proportion to the
-	 * letters as --text-heading1 moves between 40px and 56px.
-	 *
-	 * The padding is declared on the h1 above rather than here, because the
-	 * alignment of the title has to subtract it and a value that two rules depend
-	 * on should be written once.
+	 * `skip-ink: none`, because a stroke of ink does not lift for descenders.
+	 * In `em`, so it keeps its proportion as the heading size moves.
 	 */
-	.highlight {
-		background-color: var(--accent);
-		color: var(--accent-fg);
-		padding-inline: var(--highlight-pad);
+	.masthead:not(.marked) .name {
+		text-decoration-line: underline;
+		text-decoration-color: var(--accent);
+		text-decoration-thickness: 0.3em;
+		text-underline-offset: -0.08em;
+		text-decoration-skip-ink: none;
 	}
 
 	/*
-	 * The title wears the same yellow the selection does, so a selection over it
-	 * would be a change of nothing at all. This inverts instead — the page's own
-	 * foreground and background, swapped — which reads against yellow in either
-	 * display mode and still says "these letters are caught".
-	 *
-	 * The padding stays yellow at each end, because a selection covers the TEXT
-	 * and not the box around it. That is kept and not worked around: the two ends
-	 * are what separate the mark from the title still lying under it.
+	 * STEPPED BACK, because the line under a name reads second, so it is drawn
+	 * second. Mixed from --fg, so it flips with the display mode.
 	 */
-	.highlight::selection {
-		background-color: var(--fg);
-		color: var(--bg);
-	}
-
 	.tagline {
 		font-size: var(--text-heading2);
-		font-style: italic;
 		line-height: var(--leading-tight);
+		color: color-mix(in oklab, var(--fg) 60%, transparent);
+	}
+
+	/*
+	 * THE MARKED WORDS, in the serif's italic: the pen-and-paper the site
+	 * began with, kept to the words that carry the line — the italic is the
+	 * hand, and the serif is the ink. Everything around them stays upright in
+	 * the interface's own face, so the tagline still reads as part of it.
+	 */
+	.serif {
+		font-family: var(--font-tagline);
+		font-style: italic;
 	}
 
 	.prose {

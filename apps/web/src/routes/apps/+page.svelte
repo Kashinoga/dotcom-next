@@ -19,7 +19,7 @@
 	another and no one has measured the A of "Apps" against the M of "Making", so
 	this title takes zero until somebody looks at it.
 -->
-<Letter title="Apps" tagline="Making data fun to use.">
+<Letter title="Apps" tagline="Making data fun to use." serif={['fun to use']}>
 	<p>A collection of apps that I've built for personal use, shared with you.</p>
 
 	<!--

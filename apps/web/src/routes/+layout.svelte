@@ -12,6 +12,12 @@
 	 */
 	import '@fontsource-variable/inter/opsz.css';
 	import '@fontsource-variable/inter/opsz-italic.css';
+	/*
+	 * The serif for the words a tagline marks; see `--font-tagline`. Italic
+	 * only, because those words are set in nothing else — the upright file
+	 * would be declared and never fetched, so it is not declared.
+	 */
+	import '@fontsource-variable/merriweather/opsz-italic.css';
 
 	// The reset and the display-mode tokens, in front of every page.
 	import '../app.css';

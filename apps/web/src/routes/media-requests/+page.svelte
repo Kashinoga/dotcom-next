@@ -39,7 +39,11 @@
 	No `optical` is passed: the R of "Requests" has not been measured against the
 	A of "Ask", so this title takes zero until somebody looks at it.
 -->
-<Letter title="Requests" tagline="Ask for something to watch.">
+<Letter
+	title="Requests"
+	tagline="Ask for something to watch."
+	serif={['something to watch']}
+>
 	<p>Pick the server you watch on and sign in with the same account.</p>
 
 	<ul class="servers">

@@ -1,10 +1,9 @@
 <script lang="ts">
-	import { blur } from 'svelte/transition';
 	import Letter from '$lib/components/Letter.svelte';
+	import Morph from '$lib/components/Morph.svelte';
 	import SearchField from '$lib/components/SearchField.svelte';
 	import Seo from '$lib/components/Seo.svelte';
 	import { EMOJI_GROUPS } from '$lib/emoji';
-	import { morphDuration } from '$lib/motion';
 
 	let query = $state('');
 
@@ -175,7 +174,11 @@
 	icon="/favicon-emoji-viewer.svg"
 />
 
-<Letter title="Emoji Viewer" tagline="Drawn by your own device.">
+<Letter
+	title="Emoji Viewer"
+	tagline="Drawn by your own device."
+	serif={['your own device']}
+>
 	<!--
 		The field STAYS, directly under the bar, because the wall below it is some
 		three thousand pixels tall and the search was otherwise a scroll back to
@@ -201,28 +204,18 @@
 		does not reach it: a live region announces what was ADDED, and the line on
 		its way out is a removal, which `aria-relevant` ignores by default.
 
-		`{#key}` and not a bare `{#if}`, because a swap of words in place leaves
-		nothing on the page to animate. Keying on the character makes each copy a
-		new block, so one emoji following another morphs too.
+		The words MORPH as they change; see $lib/components/Morph for how. Keyed
+		on the character, so one emoji following another morphs too, and not
+		only the swap between the hint and a copy.
 	-->
 	<p class="note" role="status">
-		{#key copied}
-			<span
-				class="note-line"
-				in:blur={{
-					duration: morphDuration(),
-					delay: morphDuration() / 2,
-					amount: '0.25rem',
-				}}
-				out:blur={{ duration: morphDuration(), amount: '0.25rem' }}
-			>
-				{#if copied}
-					<span class="note-char">{copied}</span> copied.
-				{:else}
-					<span class="note-dim">Select an emoji to copy it.</span>
-				{/if}
-			</span>
-		{/key}
+		<Morph key={copied}>
+			{#if copied}
+				<span class="note-char">{copied}</span> copied.
+			{:else}
+				<span class="note-dim">Select an emoji to copy it.</span>
+			{/if}
+		</Morph>
 	</p>
 
 	{#if total === 0}
@@ -526,22 +519,6 @@
 		font-size: var(--text-label1);
 		/* Held at one line, so the wall does not move when the words change. */
 		block-size: 1lh;
-
-		/*
-		 * BOTH LINES STAND IN THE SAME CELL, which is what lets the one leaving
-		 * still be on the page while the one arriving is already there. A grid of
-		 * one row and one column, with both children put on it.
-		 *
-		 * Not `position: absolute` on the outgoing line. That would take it out of
-		 * the flow and hand the paragraph a height of nothing at the exact moment
-		 * two things are drawn in it; the grid keeps every line measured.
-		 */
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-	}
-
-	.note-line {
-		grid-area: 1 / 1;
 	}
 
 	.note-char {

@@ -90,7 +90,11 @@
 		/>
 	</Letter>
 {:else}
-	<Letter title="For Your Eyes Only" tagline="Are you a Gorly Gorl?">
+	<Letter
+		title="For Your Eyes Only"
+		tagline="Are you a Gorly Gorl?"
+		serif={['Gorly Gorl']}
+	>
 		{#if data.state === 'unconfigured'}
 			<p>
 				This page has no passcode or no database yet, so it stays locked. Set

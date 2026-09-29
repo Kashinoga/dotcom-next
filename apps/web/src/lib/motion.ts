@@ -22,3 +22,21 @@ export function morphDuration() {
 	const ms = Number.parseFloat(raw);
 	return Number.isFinite(ms) ? ms : 0;
 }
+
+/*
+ * THE MORPH'S TWO HALVES, for Svelte's `blur`: what leaves blurs out at once,
+ * and what arrives blurs in half a beat behind it, so the two cross rather
+ * than queue. The same quarter-rem of blur both ways. Functions and not
+ * constants, because the duration is read off the page when a transition
+ * starts — see `morphDuration` — and not once when this module loads.
+ */
+export const morphIn = () => ({
+	duration: morphDuration(),
+	delay: morphDuration() / 2,
+	amount: '0.25rem',
+});
+
+export const morphOut = () => ({
+	duration: morphDuration(),
+	amount: '0.25rem',
+});
