@@ -2114,6 +2114,11 @@
 
 	/* ─── The forms ─── */
 
+	/*
+	 * ON THE DOCUMENT'S GROUND, as the Text Editor's sheet is: a form is where
+	 * something is written, and it has to stand off the card it opens in. With
+	 * no ground of its own it was the card's colour under a hairline.
+	 */
 	.editor {
 		grid-column: 1 / -1;
 		display: flex;
@@ -2122,6 +2127,7 @@
 		margin-block: var(--space-16);
 		padding: var(--space-16);
 		border-radius: var(--radius-l);
+		background-color: var(--bg);
 		box-shadow: inset 0 0 0 1px var(--edge);
 	}
 
