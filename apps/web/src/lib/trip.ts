@@ -86,19 +86,43 @@ export interface Day {
 }
 
 /*
- * THE TRIP'S MARK, the tile beside its name: how everybody is getting there.
+ * THE TRIP'S MARK, the tile beside its name: how everybody is getting there,
+ * or what kind of trip it is.
  * Ids and not components, because the seed script runs this file in plain
  * Node; $lib/trip-icons draws them.
  */
 export const TRIP_ICONS = [
-	{ id: 'plane', name: 'Plane' },
-	{ id: 'car', name: 'Car' },
-	{ id: 'train', name: 'Train' },
-	{ id: 'bus', name: 'Bus' },
-	{ id: 'ship', name: 'Ship' },
-	{ id: 'sailboat', name: 'Sailboat' },
-	{ id: 'bike', name: 'Bike' },
-	{ id: 'walk', name: 'On foot' },
+	{ id: 'plane', name: 'Plane', group: 'travel' },
+	{ id: 'car', name: 'Car', group: 'travel' },
+	{ id: 'train', name: 'Train', group: 'travel' },
+	{ id: 'bus', name: 'Bus', group: 'travel' },
+	{ id: 'ship', name: 'Ship', group: 'travel' },
+	{ id: 'sailboat', name: 'Sailboat', group: 'travel' },
+	{ id: 'bike', name: 'Bike', group: 'travel' },
+	{ id: 'walk', name: 'On foot', group: 'travel' },
+	{ id: 'beach', name: 'Beach', group: 'kind' },
+	{ id: 'parasol', name: 'Parasol', group: 'kind' },
+	{ id: 'forest', name: 'Forest', group: 'kind' },
+	{ id: 'mountains', name: 'Mountains', group: 'kind' },
+	{ id: 'camping', name: 'Camping', group: 'kind' },
+	{ id: 'snow', name: 'Snow', group: 'kind' },
+	{ id: 'road-trip', name: 'Road trip', group: 'kind' },
+	{ id: 'backpacking', name: 'Backpacking', group: 'kind' },
+	{ id: 'wildlife', name: 'Wildlife', group: 'kind' },
+	{ id: 'fishing', name: 'Fishing', group: 'kind' },
+	{ id: 'city', name: 'City', group: 'kind' },
+	{ id: 'sights', name: 'Sights', group: 'kind' },
+	{ id: 'castles', name: 'Castles', group: 'kind' },
+	{ id: 'wine', name: 'Wine country', group: 'kind' },
+	{ id: 'festival', name: 'Festival', group: 'kind' },
+	{ id: 'music', name: 'Music', group: 'kind' },
+	{ id: 'theme-park', name: 'Theme park', group: 'kind' },
+] as const;
+
+/* The picker's two rows: how everybody gets there, and what kind of trip it is. */
+export const TRIP_ICON_GROUPS = [
+	{ id: 'travel', name: 'Getting there' },
+	{ id: 'kind', name: 'Kind of trip' },
 ] as const;
 
 export type TripIconId = (typeof TRIP_ICONS)[number]['id'];

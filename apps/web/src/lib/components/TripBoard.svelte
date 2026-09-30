@@ -42,6 +42,7 @@
 		NICKNAME_MAX,
 		type Revision,
 		type Trip,
+		TRIP_ICON_GROUPS,
 		TRIP_ICONS,
 	} from '$lib/trip';
 	import { tripIcons } from '$lib/trip-icons';
@@ -1038,46 +1039,56 @@
 
 						<!--
 						RADIOS, so the arrow keys move between them and a screen reader
-						hears one choice of nine. The names are hidden but read out;
-						the tile beside the trip's name is where the choice shows.
+						hears one choice of many. One group, in two rows under their own
+						names; the tile beside the trip's name is where the choice shows.
 					-->
 						<fieldset class="field marks">
 							<legend>Mark</legend>
-							<div class="mark-options">
-								<label class="control" data-open={!trip.icon || undefined}>
-									<input
-										class="visually-hidden"
-										type="radio"
-										name="trip-mark"
-										checked={!trip.icon}
-										onchange={() =>
-											sync.do({ type: 'editTrip', fields: { icon: '' } })}
-									/>
-									<StickyNote aria-hidden="true" />
-									<span class="visually-hidden">None</span>
-								</label>
-								{#each TRIP_ICONS as option (option.id)}
-									{@const Icon = tripIcons[option.id]}
-									<label
-										class="control"
-										data-open={trip.icon === option.id || undefined}
-									>
-										<input
-											class="visually-hidden"
-											type="radio"
-											name="trip-mark"
-											checked={trip.icon === option.id}
-											onchange={() =>
-												sync.do({
-													type: 'editTrip',
-													fields: { icon: option.id },
-												})}
-										/>
-										<Icon aria-hidden="true" />
-										<span class="visually-hidden">{option.name}</span>
-									</label>
-								{/each}
-							</div>
+							{#each TRIP_ICON_GROUPS as group, g (group.id)}
+								<p class="mark-group" aria-hidden="true">{group.name}</p>
+								<div class="mark-options">
+									{#if g === 0}
+										<label
+											class="control"
+											title="None"
+											data-open={!trip.icon || undefined}
+										>
+											<input
+												class="visually-hidden"
+												type="radio"
+												name="trip-mark"
+												checked={!trip.icon}
+												onchange={() =>
+													sync.do({ type: 'editTrip', fields: { icon: '' } })}
+											/>
+											<StickyNote aria-hidden="true" />
+											<span class="visually-hidden">None</span>
+										</label>
+									{/if}
+									{#each TRIP_ICONS.filter((o) => o.group === group.id) as option (option.id)}
+										{@const Icon = tripIcons[option.id]}
+										<label
+											class="control"
+											title={option.name}
+											data-open={trip.icon === option.id || undefined}
+										>
+											<input
+												class="visually-hidden"
+												type="radio"
+												name="trip-mark"
+												checked={trip.icon === option.id}
+												onchange={() =>
+													sync.do({
+														type: 'editTrip',
+														fields: { icon: option.id },
+													})}
+											/>
+											<Icon aria-hidden="true" />
+											<span class="visually-hidden">{option.name}</span>
+										</label>
+									{/each}
+								</div>
+							{/each}
 						</fieldset>
 					</div>
 				</section>
@@ -1692,18 +1703,9 @@
 	}
 
 	/*
-	 * THE PAGE'S RHYTHM, one space per level of heading and nothing else:
-	 *
-	 *   · `--space-36` between one SECTION and the next — the widest step, so
-	 *     "Schedule" reads as the start of something and not as one more card;
-	 *   · `--space-32` between one CARD and the next, in either direction, in
-	 *     every section — a card is a card, so the air around it does not change;
-	 *   · `--space-16` from a section's name to its first row of cards;
-	 *   · `--space-8` inside a card, from its header to its list and from its list
-	 *     to its button.
-	 *
-	 * Each step is larger than the one inside it, which is what lets proximity say
-	 * which heading a thing belongs to without a line drawn anywhere.
+	 * THE PAGE'S RHYTHM. Sections and cards are framed, so the frames do the
+	 * separating and the space only has to match: `--space-12` inside a pane,
+	 * under its name and between its cards, and `--space-8` inside a card.
 	 */
 	/* Panes 4px apart, under the masthead's pane, as the Text Editor's are. */
 	.board {
@@ -1739,7 +1741,8 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(min(20rem, 100%), 1fr));
 		align-items: start;
-		gap: var(--space-32) var(--space-24);
+		/* The pane's padding, so a card is as far from the next as from the edge. */
+		gap: var(--space-12);
 	}
 
 	/*
@@ -1941,11 +1944,11 @@
 	}
 
 	/* A name for a group of cards, a step above the cards' own. */
-	/* A section: its name, then its grid, closer to each other than to the next. */
+	/* A section: its name, then its grid, as far apart as the pane's padding. */
 	.section {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-16);
+		gap: var(--space-12);
 	}
 
 	.section-title {
@@ -2266,7 +2269,8 @@
 	.prep {
 		background-color: var(--accent);
 		color: var(--accent-fg);
-		padding-inline: var(--space-4);
+		padding: var(--space-2) var(--space-6);
+		border-radius: var(--radius-s);
 	}
 
 	.away {
@@ -2386,6 +2390,11 @@
 	.marks legend {
 		padding: 0;
 		margin-block-end: var(--space-4);
+	}
+
+	.mark-group {
+		margin-block-start: var(--space-4);
+		color: color-mix(in oklab, var(--fg) 60%, transparent);
 	}
 
 	.mark-options {
