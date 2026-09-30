@@ -698,6 +698,14 @@ test.describe('unlocked', () => {
 			await page.reload();
 			const row = page.locator('[data-item="e2e-one"]');
 			await expect(row).toContainText('1.4 mi from E2E Hotel');
+
+			// And the base is on the map under its name. The seeded trip may have
+			// pins of its own, so this counts only what the test put there.
+			const map = page.locator('.map-section');
+			await expect(map.locator('path.pin.base')).not.toHaveCount(0);
+			await expect(
+				map.locator('.leaflet-tooltip', { hasText: 'E2E Hotel' }),
+			).toHaveCount(1);
 		} finally {
 			await page.request.post(API, {
 				data: { type: 'removeBase', id: 'e2e-base' },

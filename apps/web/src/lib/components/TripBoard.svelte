@@ -24,6 +24,7 @@
 
 	import { enhance } from '$app/forms';
 	import Morph from '$lib/components/Morph.svelte';
+	import TripMap, { type Pin } from '$lib/components/TripMap.svelte';
 	import { morphDuration, morphIn, morphOut } from '$lib/motion';
 	import {
 		basesOf,
@@ -292,17 +293,48 @@
 
 	const bases = $derived(basesOf(trip));
 
-	/* "3.1 mi from Hotel · 12 mi from Airport", nearest first. */
+	/* "3.1 mi from Hotel", "12 mi from Airport", nearest first. */
 	function distances(item: Item) {
 		const at = item.at;
-		if (!at) return '';
+		if (!at) return [];
 		return bases
 			.filter((b) => b.id !== item.id)
 			.map((b) => ({ label: b.label, d: miles(at, b.at) }))
 			.sort((a, b) => a.d - b.d)
-			.map(({ label, d }) => `${formatMiles(d)} from ${label}`)
-			.join(' · ');
+			.map(({ label, d }) => `${formatMiles(d)} from ${label}`);
 	}
+
+	/* Everything found, bases included; an item marked as a base is drawn as one. */
+	const pins = $derived.by((): Pin[] => {
+		const placed = [
+			...trip.days.flatMap((day) =>
+				day.items.map((item) => ({ item, where: day.id })),
+			),
+			...trip.ideas.map((item) => ({ item, where: IDEAS })),
+		];
+		return [
+			...(trip.bases ?? []).flatMap((b) =>
+				b.at
+					? [{ id: b.id, title: b.label, at: b.at, base: true, lines: [] }]
+					: [],
+			),
+			...placed.flatMap(({ item, where }) =>
+				item.at
+					? [
+							{
+								id: item.id,
+								title: item.title,
+								at: item.at,
+								base: !!item.base,
+								lines: [listName(where), ...distances(item)],
+							},
+						]
+					: [],
+			),
+		];
+	});
+
+	let tripMap = $state<ReturnType<typeof TripMap>>();
 
 	/* A new base is the hotel, then the airport, then whatever it is renamed to. */
 	function addBase() {
@@ -746,6 +778,24 @@
 			</section>
 		</div>
 	</section>
+
+	<!-- ─── Map ───────────────────────────────────────────────────────────────── -->
+
+	<!--
+		ONLY ONCE SOMETHING IS ON IT. An empty map of the ocean says nothing, and
+		the lookups fill it in on their own as places are added.
+	-->
+	{#if pins.length}
+		<section class="section map-section" aria-labelledby="map-heading">
+			<div class="drawer-head">
+				<h2 id="map-heading" class="section-title">Map</h2>
+				<button type="button" class="pill" onclick={() => tripMap?.fit()}>
+					Show everything
+				</button>
+			</div>
+			<TripMap bind:this={tripMap} {pins} />
+		</section>
+	{/if}
 
 	<!-- ─── Schedule ──────────────────────────────────────────────────────────── -->
 
@@ -1341,6 +1391,7 @@
 
 {#snippet row(item: Item, list: string)}
 	{@const Icon = ICONS[item.category]}
+	{@const away = distances(item)}
 	{@const timed =
 		list !== IDEAS &&
 		!!trip.days.find((day) => day.id === list)?.items.some((i) => i.time)}
@@ -1402,8 +1453,8 @@
 				<MapPin aria-hidden="true" />{item.place ? item.place : 'Map'}
 				<span class="visually-hidden">(opens in a new tab)</span>
 			</a>
-			{#if distances(item)}
-				<span class="away" title="As the crow flies">{distances(item)}</span>
+			{#if away.length}
+				<span class="away" title="As the crow flies">{away.join(' · ')}</span>
 			{/if}
 			{#if item.prep && !item.prepDone}
 				<span class="prep">To do: {item.prep}</span>
@@ -1821,8 +1872,9 @@
 		.board {
 			display: grid;
 			grid-template-columns: minmax(0, 1fr) 22rem;
-			grid-template-rows: auto 1fr;
+			grid-template-rows: auto auto 1fr;
 			grid-template-areas:
+				'map map'
 				'schedule before'
 				'schedule ideas';
 			align-items: stretch;
@@ -1831,6 +1883,10 @@
 
 		.schedule {
 			grid-area: schedule;
+		}
+
+		.map-section {
+			grid-area: map;
 		}
 
 		.before {
