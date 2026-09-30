@@ -42,3 +42,20 @@ The trip's end-to-end tests need the same two values:
 ```sh
 TRIP_SLUG=local-trip TRIP_PASSCODE=local pnpm test:e2e trip
 ```
+
+## The End-to-End Tests
+
+`e2e/` holds one spec per part of the site: `chrome.spec.ts` for the bar,
+footer and frame every page wears, `text-editor.spec.ts`, `trip.spec.ts`, and so
+on. `helpers.ts` is what more than one of them needs.
+
+They run in Chromium and Firefox, which Playwright keeps apart from the
+browsers on the machine. Install them once:
+
+```sh
+pnpm --filter web exec playwright install chromium firefox
+pnpm test:e2e
+```
+
+A spec or a line narrows the run: `pnpm test:e2e text-editor`. Shortcuts are
+pressed as `ControlOrMeta`, so the suite passes on a Mac as well as on Windows.
