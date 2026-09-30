@@ -35,6 +35,7 @@ blob-report/
 !.node-version
 !.tool-versions
 !.env.example
+!.dev.vars.example
 !README.md
 !LICENSE
 !package.json

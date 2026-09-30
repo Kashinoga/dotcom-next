@@ -21,3 +21,24 @@ pnpm --filter web gen
 Its content changes with the state of the build directory, so do not compare it
 with `wrangler types --check`. The template did this in `build` and in `check`,
 and the two wanted different content.
+
+## The Shared Trip, Locally
+
+The trip at `/shared/<TRIP_SLUG>` answers only when its address and passcode are
+set, and shows only what is in the database. For local work there is a dummy
+trip, so nothing real has to leave the machine it lives on.
+
+```sh
+cp apps/web/.dev.vars.example apps/web/.dev.vars
+pnpm --filter web trip:seed scripts/dummy-trip.json
+```
+
+Then open `http://localhost:5173/shared/local-trip`; the passcode is `local`.
+The seed will not write over a trip already in the local database. Add
+`--replace` to put the dummy back after a change.
+
+The trip's end-to-end tests need the same two values:
+
+```sh
+TRIP_SLUG=local-trip TRIP_PASSCODE=local pnpm test:e2e trip
+```

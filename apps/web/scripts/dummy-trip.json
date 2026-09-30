@@ -1,0 +1,166 @@
+{
+	"title": "The Estuaries",
+	"tagline": "A dummy trip, for looking at the page",
+	"days": [
+		{
+			"id": "d1",
+			"date": "2026-10-16",
+			"title": "Arrival",
+			"items": [
+				{
+					"id": "i1",
+					"title": "Land at the regional airport",
+					"category": "logistics",
+					"time": "10:45",
+					"place": "Example Regional Airport",
+					"notes": "Terminal B. The rental desk is past baggage claim.",
+					"prep": "Print the rental confirmation",
+					"prepDone": true
+				},
+				{
+					"id": "i2",
+					"title": "Check in at the cabin",
+					"category": "logistics",
+					"time": "15:00",
+					"place": "",
+					"notes": "Key is in the lockbox; the code arrives by text the morning of.",
+					"prep": "",
+					"prepDone": false
+				},
+				{
+					"id": "i3",
+					"title": "Dinner at the harbour",
+					"category": "food",
+					"time": "",
+					"place": "",
+					"notes": "",
+					"prep": "Book a table for six",
+					"prepDone": false
+				}
+			]
+		},
+		{
+			"id": "d2",
+			"date": "2026-10-17",
+			"title": "The Water",
+			"items": [
+				{
+					"id": "i4",
+					"title": "Kayak the inlet",
+					"category": "water",
+					"time": "08:30",
+					"place": "",
+					"notes": "Two hours, guided. Wear something that can get wet, and bring a dry bag for phones.",
+					"prep": "Pay the deposit",
+					"prepDone": true
+				},
+				{
+					"id": "i5",
+					"title": "Lighthouse tour",
+					"category": "tours",
+					"time": "14:00",
+					"place": "",
+					"notes": "",
+					"prep": "",
+					"prepDone": false
+				},
+				{
+					"id": "i6",
+					"title": "Night market",
+					"category": "shopping",
+					"time": "19:30",
+					"place": "",
+					"notes": "Cash only at most stalls.",
+					"prep": "",
+					"prepDone": false
+				}
+			]
+		},
+		{
+			"id": "d3",
+			"date": "2026-10-18",
+			"title": "The Highlands",
+			"items": [
+				{
+					"id": "i7",
+					"title": "Ridge trail loop",
+					"category": "nature",
+					"time": "07:00",
+					"place": "",
+					"notes": "Eleven kilometres, about four hours with stops. The last stretch is steep.",
+					"prep": "Pack lunches and water",
+					"prepDone": false
+				},
+				{
+					"id": "i8",
+					"title": "Hot springs",
+					"category": "other",
+					"time": "",
+					"place": "",
+					"notes": "",
+					"prep": "",
+					"prepDone": false
+				}
+			]
+		},
+		{
+			"id": "d4",
+			"date": "",
+			"title": "Rain Day",
+			"items": [
+				{
+					"id": "i9",
+					"title": "Board games at the cabin",
+					"category": "other",
+					"time": "",
+					"place": "",
+					"notes": "Somebody bring the long one.",
+					"prep": "",
+					"prepDone": false
+				}
+			]
+		}
+	],
+	"ideas": [
+		{
+			"id": "x1",
+			"title": "Whale watching",
+			"category": "tours",
+			"time": "",
+			"place": "",
+			"notes": "Season may be over by then.",
+			"prep": "",
+			"prepDone": false
+		},
+		{
+			"id": "x2",
+			"title": "Oyster farm lunch",
+			"category": "food",
+			"time": "",
+			"place": "",
+			"notes": "",
+			"prep": "",
+			"prepDone": false
+		},
+		{
+			"id": "x3",
+			"title": "Tide pools at low tide",
+			"category": "water",
+			"time": "",
+			"place": "",
+			"notes": "",
+			"prep": "Check the tide table",
+			"prepDone": false
+		},
+		{
+			"id": "x4",
+			"title": "Ferry to the island",
+			"category": "logistics",
+			"time": "",
+			"place": "",
+			"notes": "",
+			"prep": "",
+			"prepDone": false
+		}
+	]
+}
