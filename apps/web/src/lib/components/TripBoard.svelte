@@ -297,7 +297,7 @@
 	const bases = $derived(basesOf(trip));
 
 	/* "3.1 mi from Hotel", "12 mi from Airport", nearest first. */
-	function distances(item: Item) {
+	function distances(item: Pick<Item, 'id' | 'at'>) {
 		const at = item.at;
 		if (!at) return [];
 		return bases
@@ -318,7 +318,16 @@
 		return [
 			...(trip.bases ?? []).flatMap((b) =>
 				b.at
-					? [{ id: b.id, title: b.label, at: b.at, base: true, lines: [] }]
+					? [
+							{
+								id: b.id,
+								title: b.label,
+								at: b.at,
+								base: true,
+								editable: false,
+								lines: [b.place, ...distances(b)],
+							},
+						]
 					: [],
 			),
 			...placed.flatMap(({ item, where }) =>
@@ -329,6 +338,7 @@
 								title: item.title,
 								at: item.at,
 								base: !!item.base,
+								editable: true,
 								lines: [listName(where), ...distances(item)],
 							},
 						]
@@ -444,7 +454,7 @@
 			: { list: IDEAS, index, length: trip.ideas.length };
 	}
 
-	async function move(id: string, to: string, index: number) {
+	async function move(id: string, to: string, index: number, focus = true) {
 		const from = where(id);
 		if (!from) return;
 		if (from.list === to && from.index === index) return;
@@ -462,7 +472,8 @@
 				: `Moved to ${listName(to)}, ${(now?.index ?? 0) + 1} of ${count}.`;
 
 		// A move between lists makes a new row, and the focus would fall to the
-		// top of the page with the old one.
+		// top of the page with the old one. Not from the map, which keeps it.
+		if (!focus) return;
 		await tick();
 		document.querySelector<HTMLElement>(`[data-grip="${id}"]`)?.focus();
 	}
@@ -813,7 +824,7 @@
 					</button>
 				</div>
 			</div>
-			<TripMap bind:this={tripMap} {pins} full={fullMap} />
+			<TripMap bind:this={tripMap} {pins} full={fullMap} editor={mapEditor} />
 		</section>
 	{/if}
 
@@ -1506,146 +1517,168 @@
 	</button>
 
 	{#if editing === item.id}
-		<div class="editor">
+		{@render itemEditor(item, list, () => (editing = null), true)}
+	{/if}
+{/snippet}
+
+<!-- ─── Editing one thing ──────────────────────────────────────────────────── -->
+
+<!--
+	ONE FORM, IN TWO PLACES: under a row, and in a pin's popup on the map.
+	`done` is how each closes it, and `onPage` whether a move of day may take the
+	focus to the row, which from the map it must not.
+-->
+{#snippet itemEditor(
+	item: Item,
+	list: string,
+	done: () => void,
+	onPage: boolean,
+)}
+	<div class="editor">
+		<label class="field">
+			<span>Title</span>
+			<input
+				class="input"
+				value={item.title}
+				maxlength="200"
+				onchange={(e) => onTitle(item, e.currentTarget)}
+			/>
+		</label>
+
+		<div class="row">
 			<label class="field">
-				<span>Title</span>
+				<span>Day</span>
+				<select
+					class="input"
+					value={list}
+					onchange={(e) => {
+						const to = e.currentTarget.value;
+						const length =
+							to === IDEAS
+								? trip.ideas.length
+								: (trip.days.find((day) => day.id === to)?.items.length ?? 0);
+						void move(item.id, to, length, onPage);
+					}}
+				>
+					{#each trip.days as day, d (day.id)}
+						<option value={day.id}>
+							{dayName(d)}{day.date ? ` · ${formatDate(day.date)}` : ''}
+						</option>
+					{/each}
+					<option value={IDEAS}>Not scheduled yet</option>
+				</select>
+			</label>
+			<label class="field">
+				<span>Time</span>
 				<input
 					class="input"
-					value={item.title}
-					maxlength="200"
-					onchange={(e) => onTitle(item, e.currentTarget)}
+					type="time"
+					value={item.time}
+					onchange={(e) => edit(item.id, { time: e.currentTarget.value })}
 				/>
 			</label>
-
-			<div class="row">
-				<label class="field">
-					<span>Day</span>
-					<select
-						class="input"
-						value={list}
-						onchange={(e) => {
-							const to = e.currentTarget.value;
-							const length =
-								to === IDEAS
-									? trip.ideas.length
-									: (trip.days.find((day) => day.id === to)?.items.length ?? 0);
-							void move(item.id, to, length);
-						}}
-					>
-						{#each trip.days as day, d (day.id)}
-							<option value={day.id}>
-								{dayName(d)}{day.date ? ` · ${formatDate(day.date)}` : ''}
-							</option>
-						{/each}
-						<option value={IDEAS}>Not scheduled yet</option>
-					</select>
-				</label>
-				<label class="field">
-					<span>Time</span>
-					<input
-						class="input"
-						type="time"
-						value={item.time}
-						onchange={(e) => edit(item.id, { time: e.currentTarget.value })}
-					/>
-				</label>
-				<label class="field">
-					<span>Kind</span>
-					<select
-						class="input"
-						value={item.category}
-						onchange={(e) =>
-							edit(item.id, { category: e.currentTarget.value as CategoryId })}
-					>
-						{#each CATEGORIES as category (category.id)}
-							<option value={category.id}>{category.name}</option>
-						{/each}
-					</select>
-				</label>
-			</div>
-
-			<div class="row">
-				<label class="field grow">
-					<span>Place</span>
-					<input
-						class="input"
-						value={item.place}
-						maxlength="200"
-						placeholder="An address or a name, for the map"
-						onchange={(e) =>
-							edit(item.id, { place: e.currentTarget.value.trim() })}
-					/>
-				</label>
-				<label class="check">
-					<input
-						type="checkbox"
-						checked={!!item.base}
-						onchange={(e) => edit(item.id, { base: e.currentTarget.checked })}
-					/>
-					Measure from here
-				</label>
-			</div>
-			{#if item.place && item.at === null}
-				<p class="note">Not found on the map. A fuller address may help.</p>
-			{/if}
-
 			<label class="field">
-				<span>Notes</span>
-				<textarea
+				<span>Kind</span>
+				<select
 					class="input"
-					rows="3"
-					maxlength="4000"
-					value={item.notes}
+					value={item.category}
 					onchange={(e) =>
-						edit(item.id, { notes: e.currentTarget.value.trim() })}></textarea>
+						edit(item.id, { category: e.currentTarget.value as CategoryId })}
+				>
+					{#each CATEGORIES as category (category.id)}
+						<option value={category.id}>{category.name}</option>
+					{/each}
+				</select>
 			</label>
-
-			<div class="row">
-				<label class="field grow">
-					<span>Before we go</span>
-					<input
-						class="input"
-						value={item.prep}
-						maxlength="200"
-						placeholder="Book it, reserve it, pack for it"
-						onchange={(e) =>
-							edit(item.id, { prep: e.currentTarget.value.trim() })}
-					/>
-				</label>
-				<label class="check">
-					<input
-						type="checkbox"
-						checked={item.prepDone}
-						onchange={(e) =>
-							edit(item.id, { prepDone: e.currentTarget.checked })}
-					/>
-					Done
-				</label>
-			</div>
-
-			<div class="actions">
-				<button
-					type="button"
-					class="pill danger"
-					onclick={() => {
-						if (confirming !== item.id) return (confirming = item.id);
-						confirming = editing = null;
-						sync.do({ type: 'remove', id: item.id });
-					}}
-					onblur={() => confirming === item.id && (confirming = null)}
-				>
-					{confirming === item.id ? 'Delete for everyone' : 'Delete'}
-				</button>
-				<span class="spacer"></span>
-				<button
-					type="button"
-					class="pill primary"
-					onclick={() => (editing = null)}
-				>
-					Done
-				</button>
-			</div>
 		</div>
+
+		<div class="row">
+			<label class="field grow">
+				<span>Place</span>
+				<input
+					class="input"
+					value={item.place}
+					maxlength="200"
+					placeholder="An address or a name, for the map"
+					onchange={(e) =>
+						edit(item.id, { place: e.currentTarget.value.trim() })}
+				/>
+			</label>
+			<label class="check">
+				<input
+					type="checkbox"
+					checked={!!item.base}
+					onchange={(e) => edit(item.id, { base: e.currentTarget.checked })}
+				/>
+				Measure from here
+			</label>
+		</div>
+		{#if item.place && item.at === null}
+			<p class="note">Not found on the map. A fuller address may help.</p>
+		{/if}
+
+		<label class="field">
+			<span>Notes</span>
+			<textarea
+				class="input"
+				rows="3"
+				maxlength="4000"
+				value={item.notes}
+				onchange={(e) => edit(item.id, { notes: e.currentTarget.value.trim() })}
+			></textarea>
+		</label>
+
+		<div class="row">
+			<label class="field grow">
+				<span>Before we go</span>
+				<input
+					class="input"
+					value={item.prep}
+					maxlength="200"
+					placeholder="Book it, reserve it, pack for it"
+					onchange={(e) =>
+						edit(item.id, { prep: e.currentTarget.value.trim() })}
+				/>
+			</label>
+			<label class="check">
+				<input
+					type="checkbox"
+					checked={item.prepDone}
+					onchange={(e) => edit(item.id, { prepDone: e.currentTarget.checked })}
+				/>
+				Done
+			</label>
+		</div>
+
+		<div class="actions">
+			<button
+				type="button"
+				class="pill danger"
+				onclick={() => {
+					if (confirming !== item.id) return (confirming = item.id);
+					confirming = null;
+					done();
+					sync.do({ type: 'remove', id: item.id });
+				}}
+				onblur={() => confirming === item.id && (confirming = null)}
+			>
+				{confirming === item.id ? 'Delete for everyone' : 'Delete'}
+			</button>
+			<span class="spacer"></span>
+			<button type="button" class="pill primary" onclick={done}> Done </button>
+		</div>
+	</div>
+{/snippet}
+
+{#snippet mapEditor(id: string, done: () => void)}
+	{@const at = where(id)}
+	{@const item = at
+		? (at.list === IDEAS
+				? trip.ideas
+				: (trip.days.find((d) => d.id === at.list)?.items ?? []))[at.index]
+		: undefined}
+	{#if at && item}
+		{@render itemEditor(item, at.list, done, false)}
 	{/if}
 {/snippet}
 

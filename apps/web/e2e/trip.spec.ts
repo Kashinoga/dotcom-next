@@ -707,10 +707,18 @@ test.describe('unlocked', () => {
 				map.locator('.leaflet-tooltip', { hasText: 'E2E Hotel' }),
 			).toHaveCount(1);
 
-			// Full view fills the page under the bar, and Escape puts it back.
+			// Its name opens it, as its dot does.
+			await map.locator('.leaflet-tooltip', { hasText: 'E2E Hotel' }).click();
+			await expect(page.locator('.pop strong')).toHaveText('E2E Hotel');
+			await expect(page.locator('.pop')).toContainText('E2E hotel');
+
+			// Full view fills the page under the bar. Escape puts away the base's
+			// card first, and then the full view.
 			await page.getByRole('button', { name: 'Full view' }).click();
 			const box = (await map.boundingBox())!;
 			expect(box.height).toBeGreaterThan(page.viewportSize()!.height * 0.8);
+			await page.keyboard.press('Escape');
+			await expect(page.locator('.pop strong')).toHaveCount(0);
 			await page.keyboard.press('Escape');
 			await expect(
 				page.getByRole('button', { name: 'Full view' }),
