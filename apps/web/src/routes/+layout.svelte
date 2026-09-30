@@ -1208,6 +1208,11 @@
 	 */
 	main {
 		min-block-size: calc(100dvh - var(--bar-block-size));
+
+		/* `flow-root`, so the sheet's margins stay inside. Without it the top one
+		 * escaped through `main`, and a page shorter than the window ended 8px
+		 * above the footer where a longer one ended 4px above it. */
+		display: flow-root;
 	}
 
 	/*
@@ -1219,7 +1224,9 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-16);
-		padding: var(--space-16);
+		/* 12px and not 16px on top, because the panel gap above makes up the
+		 * rest: the words stand 16px from the sheet and 16px from the end. */
+		padding: var(--space-12) var(--space-16) var(--space-16);
 
 		/* On the shell, like the bar: furniture, where the document is a panel. */
 		background-color: var(--shell);
