@@ -37,7 +37,10 @@ export const GET: RequestHandler = async ({ url }) => {
 	try {
 		const response = await fetch(
 			`${UPSTREAM}?name=${encodeURIComponent(q)}&count=20&language=en&format=json`,
-			{ headers: { accept: 'application/json' }, signal: AbortSignal.timeout(6000) },
+			{
+				headers: { accept: 'application/json' },
+				signal: AbortSignal.timeout(6000),
+			},
 		);
 		if (!response.ok) throw new Error(String(response.status));
 		const data = (await response.json()) as { results?: Hit[] };
@@ -65,8 +68,14 @@ export const GET: RequestHandler = async ({ url }) => {
 			}));
 
 		// A city does not move. The answer can be kept for a day.
-		return json({ places }, { headers: { 'cache-control': 'public, max-age=86400' } });
+		return json(
+			{ places },
+			{ headers: { 'cache-control': 'public, max-age=86400' } },
+		);
 	} catch {
-		return json({ places: [], message: 'Search is unavailable.' }, { status: 502 });
+		return json(
+			{ places: [], message: 'Search is unavailable.' },
+			{ status: 502 },
+		);
 	}
 };

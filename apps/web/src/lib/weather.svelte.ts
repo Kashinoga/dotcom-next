@@ -93,14 +93,7 @@ export const current = () => weather.places[weather.active] ?? DEFAULT;
  * which is the least wrong guess.
  */
 export type Kind =
-	| 'storm'
-	| 'snow'
-	| 'rain'
-	| 'fog'
-	| 'wind'
-	| 'clear'
-	| 'partly'
-	| 'cloudy';
+	'storm' | 'snow' | 'rain' | 'fog' | 'wind' | 'clear' | 'partly' | 'cloudy';
 
 export function kindOf(text: string): Kind {
 	const t = text.toLowerCase();
@@ -117,7 +110,9 @@ export function kindOf(text: string): Kind {
 export async function load(place: Place) {
 	weather.status[place.id] = weather.readings[place.id] ? 'ok' : 'loading';
 	try {
-		const response = await fetch(`/api/weather?lat=${place.lat}&lon=${place.lon}`);
+		const response = await fetch(
+			`/api/weather?lat=${place.lat}&lon=${place.lon}`,
+		);
 		if (!response.ok) throw new Error(String(response.status));
 		weather.readings[place.id] = (await response.json()) as Reading;
 		weather.status[place.id] = 'ok';
@@ -196,7 +191,10 @@ export function restore() {
 		);
 		if (places.length) {
 			weather.places = places;
-			weather.active = Math.min(Math.max(saved?.active ?? 0, 0), places.length - 1);
+			weather.active = Math.min(
+				Math.max(saved?.active ?? 0, 0),
+				places.length - 1,
+			);
 		}
 
 		const unit = localStorage.getItem(UNIT_KEY);

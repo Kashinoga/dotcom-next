@@ -101,7 +101,8 @@ async function fetchHours(url: string | undefined) {
 				.filter((p) => Date.parse(p.endTime) > now)
 				.slice(0, HOURS)
 				.map((p) => {
-					const tempF = typeof p.temperature === 'number' ? p.temperature : null;
+					const tempF =
+						typeof p.temperature === 'number' ? p.temperature : null;
 					// `windSpeed` arrives as prose, "5 mph". The leading number is the value.
 					const windMph = Number.parseFloat(p.windSpeed) || null;
 					return {
@@ -147,7 +148,8 @@ async function fetchDays(url: string | undefined) {
 		const days = new Map<string, Day>();
 
 		for (const p of periods) {
-			const date = typeof p.startTime === 'string' ? p.startTime.slice(0, 10) : '';
+			const date =
+				typeof p.startTime === 'string' ? p.startTime.slice(0, 10) : '';
 			if (!date) continue;
 
 			let day = days.get(date);
@@ -221,14 +223,17 @@ export const GET: RequestHandler = async ({ url }) => {
 	const key = `${lat.toFixed(3)},${lon.toFixed(3)}`;
 	const hit = cache.get(key);
 	if (hit && stillCurrent(hit)) {
-		return json(hit.body, { headers: { 'cache-control': 'public, max-age=300' } });
+		return json(hit.body, {
+			headers: { 'cache-control': 'public, max-age=300' },
+		});
 	}
 
 	try {
 		// 1. The grid point. It knows the nearest town and who reports for it.
 		const point = await get(`${NWS}/points/${key}`);
 		const near = point?.properties?.relativeLocation?.properties;
-		const place = near?.city && near?.state ? `${near.city}, ${near.state}` : '';
+		const place =
+			near?.city && near?.state ? `${near.city}, ${near.state}` : '';
 
 		// 2. The stations that report for it, nearest first.
 		const stations = await get(point.properties.observationStations);
@@ -281,7 +286,9 @@ export const GET: RequestHandler = async ({ url }) => {
 		 * With nothing kept, the page says so.
 		 */
 		if (hit) {
-			return json(hit.body, { headers: { 'cache-control': 'public, max-age=60' } });
+			return json(hit.body, {
+				headers: { 'cache-control': 'public, max-age=60' },
+			});
 		}
 		return json({ message: 'The upstream is unavailable.' }, { status: 502 });
 	}
