@@ -4,25 +4,13 @@ import { basename, join } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { editor, monaco, pixels, words } from './helpers';
+import { editor, modifier, monaco, pixels, words } from './helpers';
 
 /*
  * THE TEXT EDITOR: the sheet and its proof, the workspace of notes and
  * folders, and the keys it shares with VS Code. What the editor shares with
  * every page, the bar and the footer, is in chrome.spec.ts.
  */
-
-/*
- * THE START AND END OF A DOCUMENT, as Monaco binds them: Ctrl+Home and
- * Ctrl+End, but ⌘↑ and ⌘↓ on a Mac, where Home and End only scroll.
- * Every other chord here is `ControlOrMeta`, which Playwright makes ⌘ on a
- * Mac as $lib/shortcuts does.
- */
-const mac = process.platform === 'darwin';
-
-const documentStart = mac ? 'Meta+ArrowUp' : 'Control+Home';
-
-const documentEnd = mac ? 'Meta+ArrowDown' : 'Control+End';
 
 /*
  * AND IT TAKES THE WINDOW DOWNWARDS TOO. The app is `100dvh` less the bar, so
@@ -108,6 +96,7 @@ for (const height of [1000, 700, 500]) {
 test('a document longer than the pane scrolls, and the page does not', async ({
 	page,
 }) => {
+	const mod = await modifier(page);
 	await page.setViewportSize({ width: 1400, height: 500 });
 	await page.goto('/text-editor');
 	await expect(page.locator('.workspace[data-ready]')).toBeVisible();
@@ -118,7 +107,7 @@ test('a document longer than the pane scrolls, and the page does not', async ({
 	);
 
 	// Monaco is its own scroller: the end of the document is reached inside it.
-	await page.keyboard.press(documentEnd);
+	await page.keyboard.press(mod.documentEnd);
 	const line = (text: string) =>
 		page.locator('.sheet .view-line', {
 			// Monaco draws a space as a no-break space; `s` is either.
@@ -297,7 +286,9 @@ test('a selected note fills its row, and gives way to the close', async ({
 	await expect.poll(async () => (await widths()).close).toBeGreaterThan(0);
 	// Measured once the close has finished opening, not partway through it.
 	await page.evaluate(() =>
-		Promise.all(document.getAnimations().map((a) => a.finished)),
+		Promise.all(
+			document.getAnimations().map((a) => a.finished.catch(() => {})),
+		),
 	);
 	const open = await widths();
 	expect(open.file).toBeLessThan(rest.file);
@@ -1651,8 +1642,9 @@ test('the switches are not offered where the panels cannot be shown', async ({
 });
 
 async function write(page: Page, text: string) {
+	const mod = await modifier(page);
 	await (await monaco(page)).click();
-	await page.keyboard.press('ControlOrMeta+a');
+	await page.keyboard.press(`${mod.key}+a`);
 	await page.keyboard.press('Delete');
 	if (!text) return;
 
@@ -1873,6 +1865,7 @@ test('a heading in the outline brings both panes to it', async ({ page }) => {
 test('in split, the preview follows the sheet and the sheet the preview', async ({
 	page,
 }) => {
+	const mod = await modifier(page);
 	await editor(page);
 	await page.getByRole('button', { name: 'Split' }).click();
 	const text = Array.from(
@@ -1880,7 +1873,7 @@ test('in split, the preview follows the sheet and the sheet the preview', async 
 		(_, i) => `## Part ${i}\n\nWords for part ${i}.\n`,
 	).join('\n');
 	await write(page, text);
-	await page.keyboard.press(documentStart);
+	await page.keyboard.press(mod.documentStart);
 
 	// The line at the top of the sheet, read off Monaco's own numbers.
 	const sheetTop = () =>
@@ -2260,17 +2253,18 @@ test('cut and paste moves without asking, and a taken name is refused', async ({
 	page,
 	browserName,
 }) => {
+	const mod = await modifier(page);
 	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
 
 	await withSub(page);
 	const one = page.getByRole('button', { name: 'one.md' });
 	await one.focus();
-	await page.keyboard.press('ControlOrMeta+x');
+	await page.keyboard.press(`${mod.key}+x`);
 	await expect(one).toHaveClass(/cut/);
 
 	const sub = page.getByRole('button', { name: 'Sub' });
 	await sub.focus();
-	await page.keyboard.press('ControlOrMeta+v');
+	await page.keyboard.press(`${mod.key}+v`);
 	await expect(page.getByRole('dialog')).toBeHidden();
 	await expect.poll(() => atPath(page, 'Sub/one.md')).toBe('first');
 
@@ -2281,9 +2275,9 @@ test('cut and paste moves without asking, and a taken name is refused', async ({
 	await box.press('Enter');
 	const top = page.locator('button[title="one.md"]');
 	await top.focus();
-	await page.keyboard.press('ControlOrMeta+x');
+	await page.keyboard.press(`${mod.key}+x`);
 	await page.locator('button[title="Sub/one.md"]').focus();
-	await page.keyboard.press('ControlOrMeta+v');
+	await page.keyboard.press(`${mod.key}+v`);
 	// The page's notice, and not one of Monaco's own live regions.
 	await expect(page.locator('.notice')).toHaveText(
 		'A file or folder one.md already exists in the destination folder.',
@@ -2514,6 +2508,7 @@ test('a pasted copy takes a "copy" name, and pastes again', async ({
 	page,
 	browserName,
 }) => {
+	const mod = await modifier(page);
 	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
 
 	await withSub(page);
@@ -2525,10 +2520,10 @@ test('a pasted copy takes a "copy" name, and pastes again', async ({
 	await write(page, 'typed');
 
 	await one.focus();
-	await page.keyboard.press('ControlOrMeta+c');
-	await page.keyboard.press('ControlOrMeta+v');
+	await page.keyboard.press(`${mod.key}+c`);
+	await page.keyboard.press(`${mod.key}+v`);
 	await expect(page.getByRole('button', { name: 'one copy.md' })).toBeFocused();
-	await page.keyboard.press('ControlOrMeta+v');
+	await page.keyboard.press(`${mod.key}+v`);
 	await expect(
 		page.getByRole('button', { name: 'one copy 2.md' }),
 	).toBeFocused();
@@ -2538,7 +2533,7 @@ test('a pasted copy takes a "copy" name, and pastes again', async ({
 
 	// Into another folder, where the name is free, it keeps it.
 	await page.getByRole('button', { name: 'Sub' }).focus();
-	await page.keyboard.press('ControlOrMeta+v');
+	await page.keyboard.press(`${mod.key}+v`);
 	await expect.poll(() => atPath(page, 'Sub/one.md')).toBe('typed');
 	expect(await atPath(page, 'one.md')).toBe('typed');
 });
@@ -2547,6 +2542,7 @@ test('a folder is copied with everything in it', async ({
 	page,
 	browserName,
 }) => {
+	const mod = await modifier(page);
 	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
 
 	await writableFolder(page, { 'one.md': 'first' });
@@ -2572,7 +2568,7 @@ test('a folder is copied with everything in it', async ({
 	await sub.click({ button: 'right' });
 	await page.getByRole('menuitem', { name: 'Copy Ctrl+C' }).click();
 	await page.getByRole('button', { name: 'one.md' }).focus();
-	await page.keyboard.press('ControlOrMeta+v');
+	await page.keyboard.press(`${mod.key}+v`);
 
 	await expect.poll(() => atPath(page, 'Sub copy/Deeper/in.md')).toBe('nested');
 
@@ -2587,10 +2583,10 @@ test('a folder is copied with everything in it', async ({
 
 	// And never into itself.
 	await sub.focus();
-	await page.keyboard.press('ControlOrMeta+c');
+	await page.keyboard.press(`${mod.key}+c`);
 	await sub.click();
 	await page.locator('button[title="Sub/Deeper"]').focus();
-	await page.keyboard.press('ControlOrMeta+v');
+	await page.keyboard.press(`${mod.key}+v`);
 	await expect(page.locator('.notice')).toHaveText(
 		'A folder cannot be copied into itself.',
 	);
@@ -2600,10 +2596,17 @@ test('a drag with Ctrl held copies, and does not ask', async ({
 	page,
 	browserName,
 }) => {
+	const mod = await modifier(page);
 	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
+	// A page that believes it is on Windows wants Ctrl held, and on a Mac
+	// Control with a press is a right-click, so no drag starts at all.
+	test.skip(
+		process.platform === 'darwin' && mod.copy === 'Control',
+		'a Mac cannot drag with Control held',
+	);
 
 	// Option on a Mac, as in VS Code and the Finder; see `copying` in the page.
-	const copy = mac ? 'Alt' : 'Control';
+	const copy = mod.copy;
 	await withSub(page);
 	await page.keyboard.down(copy);
 	await page
@@ -2621,6 +2624,7 @@ test('Copy Relative Path puts the path on the clipboard', async ({
 	context,
 	browserName,
 }) => {
+	const mod = await modifier(page);
 	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
 	await context.grantPermissions(['clipboard-read', 'clipboard-write']);
 
@@ -2633,8 +2637,8 @@ test('Copy Relative Path puts the path on the clipboard', async ({
 	// VS Code's chord: Ctrl+K, then Ctrl+Shift+C.
 	const row = page.locator('button[title="Sub/one.md"]');
 	await row.focus();
-	await page.keyboard.press('ControlOrMeta+k');
-	await page.keyboard.press('ControlOrMeta+Shift+c');
+	await page.keyboard.press(`${mod.key}+k`);
+	await page.keyboard.press(`${mod.key}+Shift+c`);
 	await expect
 		.poll(() => page.evaluate(() => navigator.clipboard.readText()))
 		.toBe('Sub/one.md');
@@ -2671,6 +2675,7 @@ test('Alt+Z turns wrapping off and on, from the sheet or anywhere', async ({
 });
 
 test('the preview and panel keys are VS Code’s', async ({ page }) => {
+	const mod = await modifier(page);
 	await editor(page);
 	await write(page, '# Keys');
 	const pressedView = (name: string) =>
@@ -2680,20 +2685,20 @@ test('the preview and panel keys are VS Code’s', async ({ page }) => {
 		);
 
 	// From the sheet.
-	await page.keyboard.press('ControlOrMeta+Shift+v');
+	await page.keyboard.press(`${mod.key}+Shift+v`);
 	await pressedView('Preview');
 	// And from the page, since the sheet is gone in Preview.
-	await page.keyboard.press('ControlOrMeta+Shift+v');
+	await page.keyboard.press(`${mod.key}+Shift+v`);
 	await pressedView('Edit');
-	await page.keyboard.press('ControlOrMeta+k');
+	await page.keyboard.press(`${mod.key}+k`);
 	await page.keyboard.press('v');
 	await pressedView('Split');
 
-	await page.keyboard.press('ControlOrMeta+b');
+	await page.keyboard.press(`${mod.key}+b`);
 	await expect(page.locator('#workspace')).toBeHidden();
-	await page.keyboard.press('ControlOrMeta+b');
+	await page.keyboard.press(`${mod.key}+b`);
 	await expect(page.locator('#workspace')).toBeVisible();
-	await page.keyboard.press('ControlOrMeta+Alt+b');
+	await page.keyboard.press(`${mod.key}+Alt+b`);
 	await expect(page.locator('#outline')).toBeHidden();
 });
 
@@ -2707,13 +2712,14 @@ test('a new untitled note from vscode.dev’s key', async ({ page }) => {
 });
 
 test('Ctrl+Shift+O lists the headings, and sections fold', async ({ page }) => {
+	const mod = await modifier(page);
 	await editor(page);
 	await write(page, '# One\n\nWords.\n\n## Two\n\n```js\nconst a = 1;\n```');
 
 	// Folding: a section under each heading, and the block of code.
 	await expect(page.locator('.sheet .codicon-folding-expanded')).toHaveCount(3);
 
-	await page.keyboard.press('ControlOrMeta+Shift+o');
+	await page.keyboard.press(`${mod.key}+Shift+o`);
 	const picker = page.locator('.sheet .quick-input-widget');
 	await expect(picker).toBeVisible();
 	await expect(picker).toContainText('# One');
@@ -2724,12 +2730,13 @@ test('Ctrl+P goes to a file, the latest first', async ({
 	page,
 	browserName,
 }) => {
+	const mod = await modifier(page);
 	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
 
 	await writableFolder(page, { 'one.md': 'first', 'two.md': 'second' });
 	await page.getByRole('button', { name: 'one.md' }).click();
 
-	await page.keyboard.press('ControlOrMeta+p');
+	await page.keyboard.press(`${mod.key}+p`);
 	const search = page.getByRole('combobox', { name: 'Search files by name' });
 	await expect(search).toBeFocused();
 	// Nothing typed: what was opened last leads.
@@ -2749,6 +2756,7 @@ test('Ctrl+S saves at once, and Ctrl+Shift+E finds the file', async ({
 	page,
 	browserName,
 }) => {
+	const mod = await modifier(page);
 	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
 
 	await writableFolder(page, { 'one.md': 'first' });
@@ -2756,10 +2764,10 @@ test('Ctrl+S saves at once, and Ctrl+Shift+E finds the file', async ({
 	await freeze(page);
 	await write(page, 'saved');
 
-	await page.keyboard.press('ControlOrMeta+s');
+	await page.keyboard.press(`${mod.key}+s`);
 	await expect.poll(() => atPath(page, 'one.md')).toBe('saved');
 
-	await page.keyboard.press('ControlOrMeta+Shift+e');
+	await page.keyboard.press(`${mod.key}+Shift+e`);
 	await expect(page.getByRole('button', { name: 'one.md' })).toBeFocused();
 });
 
@@ -2771,6 +2779,7 @@ test('a single file opens with the notes, and saves where it came from', async (
 	page,
 	browserName,
 }) => {
+	const mod = await modifier(page);
 	test.skip(browserName !== 'chromium', 'the picker is Chromium’s');
 
 	await page.addInitScript(() => {
@@ -2804,7 +2813,7 @@ test('a single file opens with the notes, and saves where it came from', async (
 		.toContain('on its own');
 
 	// Go to File finds it by name, with its section beside it.
-	await page.keyboard.press('ControlOrMeta+p');
+	await page.keyboard.press(`${mod.key}+p`);
 	await page
 		.getByRole('combobox', { name: 'Search files by name' })
 		.fill('alone');

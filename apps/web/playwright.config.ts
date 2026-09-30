@@ -89,6 +89,14 @@ export default defineConfig({
 
 	/* A failing suite should fail, not pass on the second go. Retries only where
 	 * nobody is watching to notice the flake. */
+	/*
+	 * A BROKEN SETUP STOPS EARLY. A browser that cannot start fails every test
+	 * in turn, each after its own wait, and the run goes on long after the
+	 * answer is known. Twenty failures is not a bad day, it is a machine that
+	 * cannot run the suite; CI still reports every one.
+	 */
+	maxFailures: process.env.CI ? undefined : 20,
+
 	retries: process.env.CI ? 2 : 0,
 	forbidOnly: !!process.env.CI,
 });

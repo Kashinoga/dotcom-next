@@ -73,3 +73,21 @@ export async function words(page: Page) {
 	const lines = (await monaco(page)).locator('.view-lines');
 	return (await lines.innerText()).replace(/\u00a0/g, ' ');
 }
+
+/*
+ * THE KEYS AS THE PAGE KNOWS THEM, read off its user agent as $lib/shortcuts
+ * and Monaco read it, and not off the machine. The suite's device profiles
+ * say Windows wherever they run, and Desktop Safari says Mac, so a Mac host
+ * pressing ⌘ at a page that believes it is on Windows is ignored.
+ */
+export async function modifier(page: Page) {
+	const mac = /Mac/.test(await page.evaluate(() => navigator.userAgent));
+	return {
+		key: mac ? 'Meta' : 'Control',
+		// Monaco's start and end of a document: ⌘↑ and ⌘↓ on a Mac.
+		documentStart: mac ? 'Meta+ArrowUp' : 'Control+Home',
+		documentEnd: mac ? 'Meta+ArrowDown' : 'Control+End',
+		// A copying drag: Option on a Mac, as the page's `copying` reads it.
+		copy: mac ? 'Alt' : 'Control',
+	};
+}

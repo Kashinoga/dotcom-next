@@ -631,7 +631,13 @@ test.describe('unlocked', () => {
 		// The names live in the Settings panel, which the masthead opens.
 		await page.getByRole('button', { name: 'Settings', exact: true }).click();
 		await page.getByLabel('Your nickname').fill('E2E Renamed');
+		// The field says the new name as soon as it is typed; the cookie says
+		// it only once the save has come back, and that is what signs changes.
+		const saved = page.waitForResponse(
+			(response) => response.url().includes('/nickname') && response.ok(),
+		);
 		await page.getByRole('button', { name: 'Save names' }).click();
+		await saved;
 		await expect(page.getByLabel('Your nickname')).toHaveValue('E2E Renamed');
 
 		await page.request.post(API, {
