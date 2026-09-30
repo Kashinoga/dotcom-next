@@ -163,6 +163,26 @@ test.describe('reading what arrived', () => {
 		expect(readOp('move')).toBeNull();
 	});
 
+	test('a mark is one of the list, or empty to take it off', () => {
+		expect(readOp({ type: 'editTrip', fields: { icon: 'plane' } })).toEqual({
+			type: 'editTrip',
+			fields: { icon: 'plane' },
+		});
+		expect(readOp({ type: 'editTrip', fields: { icon: 'rocket' } })).toBeNull();
+		expect(readTrip({ ...sample(), icon: 'rocket' })).toBeNull();
+
+		const marked = applyOp(sample(), {
+			type: 'editTrip',
+			fields: { icon: 'ship' },
+		});
+		expect(marked.icon).toBe('ship');
+		const cleared = applyOp(marked, { type: 'editTrip', fields: { icon: '' } });
+		expect('icon' in cleared).toBe(false);
+		expect(
+			describeOp(sample(), { type: 'editTrip', fields: { icon: 'walk' } }),
+		).toBe('Changed the mark to “On foot”');
+	});
+
 	test('a trip file with a repeated id is refused', () => {
 		const trip = sample();
 		trip.ideas.push(item('a'));

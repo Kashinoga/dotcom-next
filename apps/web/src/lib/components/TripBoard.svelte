@@ -14,6 +14,7 @@
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Plus from '@lucide/svelte/icons/plus';
 	import ShoppingBag from '@lucide/svelte/icons/shopping-bag';
+	import StickyNote from '@lucide/svelte/icons/sticky-note';
 	import Ticket from '@lucide/svelte/icons/ticket';
 	import Utensils from '@lucide/svelte/icons/utensils';
 	import Waves from '@lucide/svelte/icons/waves';
@@ -33,7 +34,9 @@
 		NICKNAME_MAX,
 		type Revision,
 		type Trip,
+		TRIP_ICONS,
 	} from '$lib/trip';
+	import { tripIcons } from '$lib/trip-icons';
 	import { TripSync, type SyncState } from '$lib/trip-sync.svelte';
 	import { bar, type BarStatus } from '$lib/bar.svelte';
 
@@ -825,6 +828,50 @@
 								})}
 						/>
 					</label>
+
+					<!--
+						RADIOS, so the arrow keys move between them and a screen reader
+						hears one choice of nine. The names are hidden but read out;
+						the tile beside the trip's name is where the choice shows.
+					-->
+					<fieldset class="field marks">
+						<legend>Mark</legend>
+						<div class="mark-options">
+							<label class="control" data-open={!trip.icon || undefined}>
+								<input
+									class="visually-hidden"
+									type="radio"
+									name="trip-mark"
+									checked={!trip.icon}
+									onchange={() =>
+										sync.do({ type: 'editTrip', fields: { icon: '' } })}
+								/>
+								<StickyNote aria-hidden="true" />
+								<span class="visually-hidden">None</span>
+							</label>
+							{#each TRIP_ICONS as option (option.id)}
+								{@const Icon = tripIcons[option.id]}
+								<label
+									class="control"
+									data-open={trip.icon === option.id || undefined}
+								>
+									<input
+										class="visually-hidden"
+										type="radio"
+										name="trip-mark"
+										checked={trip.icon === option.id}
+										onchange={() =>
+											sync.do({
+												type: 'editTrip',
+												fields: { icon: option.id },
+											})}
+									/>
+									<Icon aria-hidden="true" />
+									<span class="visually-hidden">{option.name}</span>
+								</label>
+							{/each}
+						</div>
+					</fieldset>
 				</div>
 			</section>
 
@@ -1789,6 +1836,30 @@
 
 	.grow {
 		flex: 1 1 12rem;
+	}
+
+	/* A fieldset for the legend and the grouping, with the browser's frame off. */
+	.marks {
+		border: none;
+		padding: 0;
+		margin: 0;
+	}
+
+	.marks legend {
+		padding: 0;
+		margin-block-end: var(--space-4);
+	}
+
+	.mark-options {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-4);
+	}
+
+	/* The input is hidden, so the ring goes on the label that shows it. */
+	.mark-options label:has(:focus-visible) {
+		outline: 2px solid var(--fg);
+		outline-offset: 2px;
 	}
 
 	/*

@@ -64,9 +64,30 @@ export interface Day {
 	items: Item[];
 }
 
+/*
+ * THE TRIP'S MARK, the tile beside its name: how everybody is getting there.
+ * Ids and not components, because the seed script runs this file in plain
+ * Node; $lib/trip-icons draws them.
+ */
+export const TRIP_ICONS = [
+	{ id: 'plane', name: 'Plane' },
+	{ id: 'car', name: 'Car' },
+	{ id: 'train', name: 'Train' },
+	{ id: 'bus', name: 'Bus' },
+	{ id: 'ship', name: 'Ship' },
+	{ id: 'sailboat', name: 'Sailboat' },
+	{ id: 'bike', name: 'Bike' },
+	{ id: 'walk', name: 'On foot' },
+] as const;
+
+export type TripIconId = (typeof TRIP_ICONS)[number]['id'];
+
 export interface Trip {
 	title: string;
 	tagline: string;
+	/* Optional, because trips stored before it existed have none. None means
+	 * the site's sticky note. */
+	icon?: TripIconId;
 	days: Day[];
 	/* NOT SCHEDULED YET. Kept in the order they arrived; the page groups them by
 	 * category, so an order among them is not something anybody arranges. */
@@ -78,6 +99,10 @@ export const IDEAS = 'ideas';
 
 export type ItemFields = Omit<Item, 'id'>;
 export type DayFields = Pick<Day, 'date' | 'title'>;
+/* An empty icon takes the mark off. */
+export type TripFields = Partial<
+	Pick<Trip, 'title' | 'tagline'> & { icon: TripIconId | '' }
+>;
 
 export type TripOp =
 	| { type: 'move'; id: string; to: string; index: number }
@@ -88,7 +113,7 @@ export type TripOp =
 	| { type: 'editDay'; id: string; fields: Partial<DayFields> }
 	| { type: 'moveDay'; id: string; index: number }
 	| { type: 'removeDay'; id: string }
-	| { type: 'editTrip'; fields: Partial<Pick<Trip, 'title' | 'tagline'>> };
+	| { type: 'editTrip'; fields: TripFields };
 
 export const EMPTY_TRIP: Trip = {
 	title: 'Trip',
@@ -215,7 +240,10 @@ export function applyOp(current: Trip, op: TripOp): Trip {
 		}
 
 		case 'editTrip': {
-			Object.assign(trip, op.fields);
+			const { icon, ...rest } = op.fields;
+			Object.assign(trip, rest);
+			if (icon === '') delete trip.icon;
+			else if (icon) trip.icon = icon;
 			return trip;
 		}
 	}
@@ -385,6 +413,10 @@ export function describeOp(before: Trip, op: TripOp): string {
 		case 'editTrip':
 			if (op.fields.title !== undefined)
 				return `Renamed the trip to “${op.fields.title}”`;
+			if (op.fields.icon !== undefined)
+				return op.fields.icon
+					? `Changed the mark to “${iconName(op.fields.icon)}”`
+					: 'Took the mark off the trip';
 			return op.fields.tagline
 				? `Changed the line under the name to “${op.fields.tagline}”`
 				: 'Cleared the line under the name';
@@ -461,6 +493,12 @@ const isRecord = (v: unknown): v is Record_ =>
 
 const text = (v: unknown, max: number) =>
 	typeof v === 'string' && v.length <= max ? v : null;
+
+const isTripIcon = (v: unknown): v is TripIconId =>
+	TRIP_ICONS.some((icon) => icon.id === v);
+
+const iconName = (id: TripIconId) =>
+	TRIP_ICONS.find((icon) => icon.id === id)!.name;
 
 const isCategory = (v: unknown): v is CategoryId =>
 	CATEGORIES.some((c) => c.id === v);
@@ -597,12 +635,16 @@ export function readOp(v: unknown): TripOp | null {
 		}
 		case 'editTrip': {
 			if (!isRecord(v.fields)) return null;
-			const fields: Partial<Pick<Trip, 'title' | 'tagline'>> = {};
+			const fields: TripFields = {};
 			for (const key of ['title', 'tagline'] as const) {
 				if (v.fields[key] === undefined) continue;
 				const value = text(v.fields[key], LIMITS.title);
 				if (value === null) return null;
 				fields[key] = value;
+			}
+			if (v.fields.icon !== undefined) {
+				if (v.fields.icon !== '' && !isTripIcon(v.fields.icon)) return null;
+				fields.icon = v.fields.icon;
 			}
 			if (fields.title !== undefined && !fields.title.trim()) return null;
 			return { type: 'editTrip', fields };
@@ -621,6 +663,7 @@ export function readTrip(v: unknown): Trip | null {
 	const title = text(v.title, LIMITS.title);
 	const tagline = text(v.tagline ?? '', LIMITS.title);
 	if (!title?.trim() || tagline === null) return null;
+	if (v.icon !== undefined && !isTripIcon(v.icon)) return null;
 	if (!Array.isArray(v.days) || !Array.isArray(v.ideas)) return null;
 
 	const seen = new Set<string>();
@@ -649,7 +692,8 @@ export function readTrip(v: unknown): Trip | null {
 	const ideas = readItems(v.ideas);
 	if (!ideas) return null;
 
-	const trip = { title, tagline, days, ideas };
+	const trip: Trip = { title, tagline, days, ideas };
+	if (v.icon !== undefined) trip.icon = v.icon;
 	if (days.length > LIMITS.days || countItems(trip) > LIMITS.items) return null;
 	return trip;
 }

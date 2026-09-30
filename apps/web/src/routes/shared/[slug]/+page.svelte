@@ -5,7 +5,8 @@
 	import Letter from '$lib/components/Letter.svelte';
 	import Seo from '$lib/components/Seo.svelte';
 	import TripBoard from '$lib/components/TripBoard.svelte';
-	import { NICKNAME_MAX } from '$lib/trip';
+	import { NICKNAME_MAX, type Trip } from '$lib/trip';
+	import { tripIcons } from '$lib/trip-icons';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -34,7 +35,7 @@
 	 * page loaded; the board keeps the live one and reports it here, so a rename
 	 * shows in the heading and the tab as soon as it is made.
 	 */
-	let live = $state<{ title: string; tagline: string } | null>(null);
+	let live = $state<Pick<Trip, 'title' | 'tagline' | 'icon'> | null>(null);
 	const heading = $derived(live ?? (data.state === 'open' ? data.trip : null));
 
 	let pending = $state(false);
@@ -72,6 +73,7 @@
 	<Letter
 		title={heading?.title ?? data.trip.title}
 		tagline={heading?.tagline || undefined}
+		mark={heading?.icon ? tripIcons[heading.icon] : undefined}
 		wide
 	>
 		<!--
@@ -86,7 +88,8 @@
 			}}
 			nickname={data.nickname}
 			device={data.device}
-			ontrip={(trip) => (live = { title: trip.title, tagline: trip.tagline })}
+			ontrip={(trip) =>
+				(live = { title: trip.title, tagline: trip.tagline, icon: trip.icon })}
 			endpoint="{page.url.pathname.replace(/\/$/, '')}/api"
 		/>
 	</Letter>
