@@ -2822,7 +2822,11 @@ test('a single file opens with the notes, and saves where it came from', async (
 	await page.keyboard.press('Escape');
 
 	// Kept for the next visit: its grant here survives, so it is simply back.
-	await page.reload();
+	// Only Google Chrome keeps a file's grant across a reload; Playwright's own
+	// Chromium asks again, so there the reload is Chrome's to prove.
+	if (test.info().project.use.channel?.startsWith('chrome')) {
+		await page.reload();
+	}
 	await expect(row).toBeVisible();
 
 	await row.hover();

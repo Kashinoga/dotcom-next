@@ -58,4 +58,8 @@ pnpm test:e2e
 ```
 
 A spec or a line narrows the run: `pnpm test:e2e text-editor`. Shortcuts are
-pressed as `ControlOrMeta`, so the suite passes on a Mac as well as on Windows.
+pressed as the page expects them, read off its user agent, so the suite passes
+on a Mac as well as on Windows and Linux.
+
+On macOS 27 Playwright's Firefox cannot open its profile, and fails at once;
+narrow the run with `--project=chromium` there until a build that can arrives.
