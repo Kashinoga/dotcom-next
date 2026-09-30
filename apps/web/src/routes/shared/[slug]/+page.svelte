@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import KeyRound from '@lucide/svelte/icons/key-round';
 	import { page } from '$app/state';
 	import Letter from '$lib/components/Letter.svelte';
 	import Seo from '$lib/components/Seo.svelte';
@@ -94,6 +95,7 @@
 		title="For Your Eyes Only"
 		tagline="Are you a Gorly Gorl?"
 		serif={['Gorly Gorl']}
+		mark={KeyRound}
 	>
 		{#if data.state === 'unconfigured'}
 			<p>

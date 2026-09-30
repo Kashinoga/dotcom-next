@@ -1,7 +1,11 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import type { Component, Snippet } from 'svelte';
 	import { page } from '$app/state';
 	import { apps } from '$lib/apps';
+	import CircleDashedCheck from '@lucide/svelte/icons/circle-dashed-check';
+	import HeartHandshake from '@lucide/svelte/icons/heart-handshake';
+	import LayoutGrid from '@lucide/svelte/icons/layout-grid';
+	import StickyNote from '@lucide/svelte/icons/sticky-note';
 
 	/*
 	 * THE LETTER, which is the shape every page on this site takes: a marked
@@ -20,6 +24,7 @@
 		optical = '0em',
 		wide = false,
 		serif = [],
+		mark,
 		children,
 	}: {
 		title: string;
@@ -41,21 +46,36 @@
 		 * centred over a narrower column than the page actually uses.
 		 */
 		wide?: boolean;
+		/*
+		 * A MARK THE ADDRESS CANNOT GIVE: a page whose one address shows two
+		 * things, as a shared trip does when it is locked.
+		 */
+		mark?: Component;
 		children: Snippet;
 	} = $props();
 
 	/*
 	 * AN APP WEARS ITS MARK beside its name, in a tile of the accent, as an
 	 * extension's page does in Modern UI. The mark is looked up in $lib/apps by
-	 * the page's address, which is how the bar finds it too, so no page passes
-	 * one and none can pass the wrong one.
+	 * the page's address, which is how the bar finds it too, so an app page
+	 * passes none and cannot pass the wrong one.
 	 *
-	 * A page with no mark has its name underlined in the accent instead. Either way the yellow sits on one thing per masthead, and never
-	 * as a block behind the words — which is what the accent means everywhere
-	 * else on the site: this one is selected.
+	 * The home page wears the site mark, the favicon's drawing, and Apps the
+	 * grid the bar shows for it. A page with none of its own wears a sticky
+	 * note. All were a highlighter's stroke under the name, until dark mode put
+	 * light letters over the yellow at 1.3:1.
 	 */
+	const marks: Record<string, Component> = {
+		'/': HeartHandshake,
+		'/apps': LayoutGrid,
+		'/media-requests': CircleDashedCheck,
+	};
+
 	const Icon = $derived(
-		apps.find((app) => app.href === page.url.pathname)?.icon,
+		mark ??
+			marks[page.url.pathname] ??
+			apps.find((app) => app.href === page.url.pathname)?.icon ??
+			StickyNote,
 	);
 
 	/*
@@ -80,14 +100,6 @@
 <div class="sheet" class:wide>
 	<section class="hero" style="--title-optical: {optical}">
 		<!--
-		A <span> and NOT a <mark>, which is what this started as. <mark> means
-		"relevant to what the reader is doing right now" — a search hit, the
-		passage under discussion — and a name is not that. Some screen readers
-		announce "highlight" around it, which would put a word with no meaning
-		into the reading of the title. The underline here is decoration, and
-		decoration belongs in an element that claims nothing.
-	-->
-		<!--
 		`data-page-title` IS A CONTRACT WITH THE BAR. The bar wears a page's name
 		once the page has stopped saying it, and it needs to know which element is
 		the page saying it — which is this one, and not any <h1>.
@@ -98,12 +110,10 @@
 		h1 in it — a rendered document in a preview, say — must not have that
 		mistaken for its masthead. Marking the real one answers both.
 	-->
-		<div class="masthead" class:marked={Icon}>
-			{#if Icon}
-				<span class="tile" aria-hidden="true"><Icon /></span>
-			{/if}
+		<div class="masthead">
+			<span class="tile" aria-hidden="true"><Icon /></span>
 			<div class="words">
-				<h1 data-page-title><span class="name">{title}</span></h1>
+				<h1 data-page-title>{title}</h1>
 				{#if tagline}
 					<!--
 				A <p> and not an <h2>. A heading opens a SECTION, and this opens
@@ -203,7 +213,7 @@
 	}
 
 	/*
-	 * THE TILE: the app's mark on the accent, square with the large radius, as
+	 * THE TILE: the page's mark on the accent, square with the large radius, as
 	 * Modern UI draws an extension's icon. The icon takes `--accent-fg` for the
 	 * reason the pressed controls do — yellow is too light to carry a line drawn
 	 * in it, so the yellow is the ground and the line is black.
@@ -215,7 +225,7 @@
 	 * and the space below it each read wider than the rule's. Written from the
 	 * tokens, it follows the words to a phone's larger sizes by itself.
 	 *
-	 * Every app page has a tagline. One without would get a tile taller than
+	 * A shared trip may have no tagline, and would get a tile taller than
 	 * its title, centred on it, which is the lesser fault.
 	 */
 	.tile {
@@ -259,31 +269,15 @@
 	}
 
 	/*
-	 * A NAME WITH NO MARK BESIDE IT has the accent under it rather than
-	 * behind it. The underline is thick and pulled up into the
-	 * letters' feet, so it reads as a highlighter's stroke along the baseline —
-	 * the pen-and-paper the site began with, drawn at a weight that leaves the
-	 * words themselves in plain ink.
-	 *
-	 * `skip-ink: none`, because a stroke of ink does not lift for descenders.
-	 * In `em`, so it keeps its proportion as the heading size moves.
-	 */
-	.masthead:not(.marked) .name {
-		text-decoration-line: underline;
-		text-decoration-color: var(--accent);
-		text-decoration-thickness: 0.3em;
-		text-underline-offset: -0.08em;
-		text-decoration-skip-ink: none;
-	}
-
-	/*
 	 * STEPPED BACK, because the line under a name reads second, so it is drawn
-	 * second. Mixed from --fg, so it flips with the display mode.
+	 * second. Mixed from --fg, so it flips with the display mode. 75% and not
+	 * 60%: at 18px the line needs 4.5:1, and 60% gave 4.3 in either mode. This
+	 * is 7.1 in light and 6.0 in dark.
 	 */
 	.tagline {
 		font-size: var(--text-heading2);
 		line-height: var(--leading-tight);
-		color: color-mix(in oklab, var(--fg) 60%, transparent);
+		color: color-mix(in oklab, var(--fg) 75%, transparent);
 	}
 
 	/*
