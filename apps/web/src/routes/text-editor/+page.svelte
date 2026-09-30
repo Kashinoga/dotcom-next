@@ -2674,6 +2674,14 @@
 		white-space: pre-wrap;
 	}
 
+	/* The textarea is 16px on a touch screen, by the rule in app.css that stops
+	 * iOS zooming into it; the prerendered sheet matches, so nothing jumps. */
+	@media (pointer: coarse) {
+		.sheet pre {
+			font-size: 1rem;
+		}
+	}
+
 	/*
 	 * The textarea keeps the box the sheet already draws and gives up everything
 	 * the browser would draw over it. `resize: none` because the pane's height is

@@ -63,6 +63,33 @@ select {
 	font: inherit;
 }
 
+/*
+ * NO FIELD UNDER 16PX ON A TOUCH SCREEN. iOS Safari zooms the page into any
+ * field set smaller when it is tapped, and leaves it zoomed after, which is
+ * what made the Text Editor hard to use on a phone. Pinch zoom stays: turning
+ * it off with `maximum-scale` fails WCAG 1.4.4, and Android would obey it.
+ *
+ * `!important`, because every component sets its own field sizes, and this
+ * is the one place that has to win over all of them.
+ */
+@media (pointer: coarse) {
+	input:not([type='checkbox'], [type='radio'], [type='range']),
+	textarea,
+	select {
+		font-size: max(1rem, 1em) !important;
+	}
+}
+
+/*
+ * NO DOUBLE-TAP ZOOM, so two quick taps on a button are two presses and not a
+ * zoom. `manipulation` keeps panning and pinch zoom, which a reader who needs
+ * the page larger still has. Declared on every element because the property
+ * is not inherited; a rule of any class, like a drag grip's `none`, wins.
+ */
+* {
+	touch-action: manipulation;
+}
+
 /* One long word — a URL, an identifier — can otherwise make the whole page
  * scroll sideways. */
 p,
@@ -155,6 +182,9 @@ h6 {
  */
 :root:has(main[data-fullscreen]) {
 	scrollbar-gutter: auto;
+	/* An app that is the window does not bounce, or pull to refresh on a phone,
+	 * when a pane inside it is scrolled past its end. */
+	overscroll-behavior: none;
 }
 
 /*
