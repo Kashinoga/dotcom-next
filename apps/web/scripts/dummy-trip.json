@@ -1,38 +1,38 @@
 {
-	"title": "The Estuaries",
+	"title": "The Highlands",
 	"tagline": "A dummy trip, for looking at the page",
 	"days": [
 		{
 			"id": "d1",
-			"date": "2026-10-16",
+			"date": "2027-07-14",
 			"title": "Arrival",
 			"items": [
 				{
 					"id": "i1",
-					"title": "Land at the regional airport",
+					"title": "Land at Glacier Park International",
 					"category": "logistics",
 					"time": "10:45",
-					"place": "Example Regional Airport",
-					"notes": "Terminal B. The rental desk is past baggage claim.",
+					"place": "Glacier Park International Airport",
+					"notes": "The rental desk is past baggage claim.",
 					"prep": "Print the rental confirmation",
-					"prepDone": true
+					"prepDone": false
 				},
 				{
 					"id": "i2",
-					"title": "Check in at the cabin",
+					"title": "Check in at the lodge",
 					"category": "logistics",
 					"time": "15:00",
-					"place": "",
-					"notes": "Key is in the lockbox; the code arrives by text the morning of.",
+					"place": "Lake McDonald Lodge",
+					"notes": "Rooms are ready at four. The lobby has a fireplace to wait by.",
 					"prep": "",
 					"prepDone": false
 				},
 				{
 					"id": "i3",
-					"title": "Dinner at the harbour",
+					"title": "Dinner in Whitefish",
 					"category": "food",
 					"time": "",
-					"place": "",
+					"place": "Whitefish, Montana",
 					"notes": "",
 					"prep": "Book a table for six",
 					"prepDone": false
@@ -41,36 +41,36 @@
 		},
 		{
 			"id": "d2",
-			"date": "2026-10-17",
-			"title": "The Water",
+			"date": "2027-07-15",
+			"title": "Going-to-the-Sun",
 			"items": [
 				{
 					"id": "i4",
-					"title": "Kayak the inlet",
-					"category": "water",
-					"time": "08:30",
-					"place": "",
-					"notes": "Two hours, guided. Wear something that can get wet, and bring a dry bag for phones.",
-					"prep": "Pay the deposit",
-					"prepDone": true
+					"title": "Drive to Logan Pass",
+					"category": "logistics",
+					"time": "06:30",
+					"place": "Logan Pass Visitor Center",
+					"notes": "The lot fills by eight.",
+					"prep": "Get the vehicle reservation for the road",
+					"prepDone": false
 				},
 				{
 					"id": "i5",
-					"title": "Lighthouse tour",
-					"category": "tours",
-					"time": "14:00",
-					"place": "",
-					"notes": "",
+					"title": "Hidden Lake Overlook",
+					"category": "nature",
+					"time": "08:00",
+					"place": "Hidden Lake Overlook, Glacier National Park",
+					"notes": "Boardwalk most of the way. Mountain goats, usually.",
 					"prep": "",
 					"prepDone": false
 				},
 				{
 					"id": "i6",
-					"title": "Night market",
-					"category": "shopping",
-					"time": "19:30",
-					"place": "",
-					"notes": "Cash only at most stalls.",
+					"title": "Swim at Lake McDonald",
+					"category": "water",
+					"time": "16:00",
+					"place": "Apgar Village",
+					"notes": "The water is snowmelt. Brief swims.",
 					"prep": "",
 					"prepDone": false
 				}
@@ -78,25 +78,35 @@
 		},
 		{
 			"id": "d3",
-			"date": "2026-10-18",
-			"title": "The Highlands",
+			"date": "2027-07-16",
+			"title": "Many Glacier",
 			"items": [
 				{
 					"id": "i7",
-					"title": "Ridge trail loop",
+					"title": "Grinnell Glacier hike",
 					"category": "nature",
 					"time": "07:00",
-					"place": "",
-					"notes": "Eleven kilometres, about four hours with stops. The last stretch is steep.",
+					"place": "Grinnell Glacier",
+					"notes": "Eleven miles there and back, or seven with the boats.",
 					"prep": "Pack lunches and water",
 					"prepDone": false
 				},
 				{
 					"id": "i8",
-					"title": "Hot springs",
-					"category": "other",
+					"title": "Boat across Swiftcurrent Lake",
+					"category": "tours",
+					"time": "08:30",
+					"place": "Swiftcurrent Lake",
+					"notes": "",
+					"prep": "",
+					"prepDone": false
+				},
+				{
+					"id": "i9",
+					"title": "Huckleberry pie",
+					"category": "food",
 					"time": "",
-					"place": "",
+					"place": "St. Mary, Montana",
 					"notes": "",
 					"prep": "",
 					"prepDone": false
@@ -109,8 +119,8 @@
 			"title": "Rain Day",
 			"items": [
 				{
-					"id": "i9",
-					"title": "Board games at the cabin",
+					"id": "i10",
+					"title": "Board games at the lodge",
 					"category": "other",
 					"time": "",
 					"place": "",
@@ -121,43 +131,75 @@
 			]
 		}
 	],
+	"bases": [
+		{
+			"id": "b1",
+			"label": "Hotel",
+			"place": "Lake McDonald Lodge"
+		},
+		{
+			"id": "b2",
+			"label": "Airport",
+			"place": "Glacier Park International Airport"
+		}
+	],
 	"ideas": [
 		{
 			"id": "x1",
-			"title": "Whale watching",
-			"category": "tours",
+			"title": "Avalanche Lake",
+			"category": "nature",
 			"time": "",
-			"place": "",
-			"notes": "Season may be over by then.",
+			"place": "Avalanche Lake, Montana",
+			"notes": "",
 			"prep": "",
 			"prepDone": false
 		},
 		{
 			"id": "x2",
-			"title": "Oyster farm lunch",
-			"category": "food",
+			"title": "Trail of the Cedars",
+			"category": "nature",
 			"time": "",
-			"place": "",
+			"place": "Trail of the Cedars, Montana",
 			"notes": "",
 			"prep": "",
 			"prepDone": false
 		},
 		{
 			"id": "x3",
-			"title": "Tide pools at low tide",
-			"category": "water",
+			"title": "Polebridge Mercantile",
+			"category": "food",
 			"time": "",
-			"place": "",
-			"notes": "",
-			"prep": "Check the tide table",
+			"place": "Polebridge Mercantile",
+			"notes": "Bear claws.",
+			"prep": "",
 			"prepDone": false
 		},
 		{
 			"id": "x4",
-			"title": "Ferry to the island",
-			"category": "logistics",
+			"title": "Running Eagle Falls",
+			"category": "nature",
 			"time": "",
-			"place": "",
+			"place": "Running Eagle Falls",
+			"notes": "",
+			"prep": "",
+			"prepDone": false
+		},
+		{
+			"id": "x5",
+			"title": "Raft the Middle Fork",
+			"category": "water",
+			"time": "",
+			"place": "West Glacier, Montana",
+			"notes": "",
+			"prep": "Check the river levels",
+			"prepDone": false
+		},
+		{
+			"id": "x6",
+			"title": "Iceberg Lake",
+			"category": "nature",
+			"time": "",
+			"place": "Iceberg Lake, Montana",
 			"notes": "",
 			"prep": "",
 			"prepDone": false
