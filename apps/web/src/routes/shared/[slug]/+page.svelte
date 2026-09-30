@@ -79,7 +79,7 @@
 		title={heading?.title ?? data.trip.title}
 		tagline={heading?.tagline || undefined}
 		mark={heading?.icon ? tripIcons[heading.icon] : undefined}
-		wide
+		desk
 	>
 		{#snippet tools()}
 			<button

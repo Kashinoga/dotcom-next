@@ -2,6 +2,7 @@
 	import type { Component, Snippet } from 'svelte';
 	import { page } from '$app/state';
 	import { apps } from '$lib/apps';
+	import Morph from '$lib/components/Morph.svelte';
 	import CircleDashedCheck from '@lucide/svelte/icons/circle-dashed-check';
 	import HeartHandshake from '@lucide/svelte/icons/heart-handshake';
 	import LayoutGrid from '@lucide/svelte/icons/layout-grid';
@@ -22,7 +23,7 @@
 		title,
 		tagline,
 		optical = '0em',
-		wide = false,
+		desk = false,
 		serif = [],
 		mark,
 		tools,
@@ -41,12 +42,11 @@
 		serif?: string[];
 		optical?: string;
 		/*
-		 * A LETTER THAT IS NOT MOSTLY PROSE. The measure exists to keep a line of
-		 * reading short; a page laid out as a grid of short columns has no long
-		 * line to protect, and its name belongs at the grid's edge rather than
-		 * centred over a narrower column than the page actually uses.
+		 * AN APP'S DESK AND NOT A LETTER: no sheet and no measure, but panes laid
+		 * on the shell as the Text Editor's are, the masthead the first of them.
+		 * The page's own content brings the rest.
 		 */
-		wide?: boolean;
+		desk?: boolean;
 		/*
 		 * A MARK THE ADDRESS CANNOT GIVE: a page whose one address shows two
 		 * things, as a shared trip does when it is locked.
@@ -100,7 +100,7 @@
 	it holds — the reading measure, or a wide page's grid — and centred on the
 	shell, a panel gap clear of the window's edges.
 -->
-<div class="sheet" class:wide>
+<div class="sheet" class:desk>
 	<section class="hero" style="--title-optical: {optical}">
 		<!--
 		`data-page-title` IS A CONTRACT WITH THE BAR. The bar wears a page's name
@@ -114,9 +114,11 @@
 		mistaken for its masthead. Marking the real one answers both.
 	-->
 		<div class="masthead">
-			<span class="tile" aria-hidden="true"><Icon /></span>
+			<span class="tile" aria-hidden="true"
+				><Morph key={Icon} align="center"><Icon /></Morph></span
+			>
 			<div class="words">
-				<h1 data-page-title>{title}</h1>
+				<h1 data-page-title><Morph key={title}>{title}</Morph></h1>
 				{#if tagline}
 					<!--
 				A <p> and not an <h2>. A heading opens a SECTION, and this opens
@@ -173,16 +175,27 @@
 	 * the window under the bar, so the footer waits below the fold.
 	 */
 	/*
-	 * A WIDE SHEET IS AN APP'S DESK, so it is set as the Text Editor's panes
-	 * are: the window's width less the panel gap, and a pane's 12px inside.
-	 * It stopped at 90rem, which left 240px either side on a 1920px window.
+	 * A DESK IS SET AS THE TEXT EDITOR IS: the window's width less the panel
+	 * gap, with no sheet of its own, and panes 4px apart that hold their
+	 * content 12px in. The masthead is the first pane, so its rule goes.
 	 */
-	.sheet.wide {
+	.sheet.desk {
 		inline-size: calc(100% - var(--gap-panel) * 2);
+		background: none;
+		box-shadow: none;
 	}
 
-	.sheet.wide .hero {
-		padding-inline: var(--space-12);
+	.sheet.desk .hero {
+		padding: 0;
+		gap: var(--gap-panel);
+	}
+
+	.sheet.desk .masthead {
+		padding: var(--space-16) var(--space-12);
+		border: none;
+		border-radius: var(--radius-l);
+		background-color: var(--bg);
+		box-shadow: inset 0 0 0 1px var(--frame);
 	}
 
 	.sheet {

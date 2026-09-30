@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { flip } from 'svelte/animate';
+	import { blur, crossfade } from 'svelte/transition';
 
 	// One deep import per icon, as everywhere else.
 	import ArrowDown from '@lucide/svelte/icons/arrow-down';
@@ -22,7 +23,8 @@
 	import type { Component } from 'svelte';
 
 	import { enhance } from '$app/forms';
-	import { morphDuration } from '$lib/motion';
+	import Morph from '$lib/components/Morph.svelte';
+	import { morphDuration, morphIn, morphOut } from '$lib/motion';
 	import {
 		CATEGORIES,
 		formatDate,
@@ -82,6 +84,21 @@
 			if (panel !== name && dialog.open) dialog.close();
 		}
 	});
+
+	/*
+	 * A THING THAT CHANGES LISTS GOES THERE, from where it was: a row onto
+	 * another day or into the ideas, a checked item into "done". One pair per
+	 * kind of list, so a row never flies into the checklist. With nowhere to
+	 * go, as when it is deleted, it blurs out as a morph does.
+	 */
+	const fade = () =>
+		crossfade({
+			duration: () => morphDuration(),
+			fallback: (node, _params, intro) =>
+				blur(node, intro ? morphIn() : morphOut()),
+		});
+	const [sendRow, receiveRow] = fade();
+	const [sendPrep, receivePrep] = fade();
 
 	/* A press on the backdrop lands on the dialog itself, never on its content. */
 	const closeOnBackdrop = (e: MouseEvent) => {
@@ -610,7 +627,8 @@
 				<div class="card-head">
 					<h3 id="checklist-heading" class="card-title">
 						Checklist{#if prep.open.length}<span class="dim"
-								>{` · ${prep.open.length} left`}</span
+								>{' · '}<Morph key={prep.open.length}>{prep.open.length}</Morph
+								>{' left'}</span
 							>{/if}
 					</h3>
 				</div>
@@ -618,7 +636,10 @@
 				{#if prep.open.length}
 					<ul class="checklist">
 						{#each prep.open as { item, where } (item.id)}
-							<li>
+							<li
+								in:receivePrep={{ key: item.id }}
+								out:sendPrep={{ key: item.id }}
+							>
 								<label>
 									<input
 										type="checkbox"
@@ -638,10 +659,15 @@
 
 				{#if prep.done.length}
 					<details class="done">
-						<summary>{prep.done.length} done</summary>
+						<summary
+							><Morph key={prep.done.length}>{prep.done.length}</Morph> done</summary
+						>
 						<ul class="checklist">
 							{#each prep.done as { item, where } (item.id)}
-								<li>
+								<li
+									in:receivePrep={{ key: item.id }}
+									out:sendPrep={{ key: item.id }}
+								>
 									<label>
 										<input
 											type="checkbox"
@@ -717,7 +743,9 @@
 							<h3 id="group-{category.id}" class="card-title">
 								<Icon aria-hidden="true" />
 								<span
-									>{category.name}<span class="dim">{` · ${items.length}`}</span
+									>{category.name}<span class="dim"
+										>{' · '}<Morph key={items.length}>{items.length}</Morph
+										></span
 									></span
 								>
 							</h3>
@@ -732,6 +760,8 @@
 											: undefined}
 										style:translate={drag?.id === item.id ? offset : undefined}
 										animate:flip={{ duration: morphDuration() }}
+										in:receiveRow={{ key: item.id }}
+										out:sendRow={{ key: item.id }}
 									>
 										{@render row(item, IDEAS)}
 									</li>
@@ -783,7 +813,9 @@
 					<div class="card-head">
 						<h3 id="changes-heading" class="card-title">
 							Recent changes{#if sync.history.length}<span class="dim"
-									>{` · ${sync.history.length}`}</span
+									>{' · '}<Morph key={sync.history.length}
+										>{sync.history.length}</Morph
+									></span
 								>{/if}
 						</h3>
 					</div>
@@ -1008,7 +1040,12 @@
 <!-- ─── One day ───────────────────────────────────────────────────────────── -->
 
 {#snippet daySection(day: Day, d: number)}
-	<section class="card" aria-labelledby="day-{day.id}">
+	<section
+		class="card"
+		aria-labelledby="day-{day.id}"
+		in:blur={morphIn()}
+		out:blur={morphOut()}
+	>
 		<div class="card-head">
 			<h3 id="day-{day.id}" class="card-title">
 				<!-- The space is in the expression, where neither Svelte nor a formatter
@@ -1153,6 +1190,8 @@
 					data-dragging={drag?.moved && drag.id === item.id ? '' : undefined}
 					style:translate={drag?.id === item.id ? offset : undefined}
 					animate:flip={{ duration: morphDuration() }}
+					in:receiveRow={{ key: item.id }}
+					out:sendRow={{ key: item.id }}
 				>
 					{@render row(item, day.id)}
 				</li>
@@ -1466,11 +1505,20 @@
 	 * Each step is larger than the one inside it, which is what lets proximity say
 	 * which heading a thing belongs to without a line drawn anywhere.
 	 */
+	/* Panes 4px apart, under the masthead's pane, as the Text Editor's are. */
 	.board {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-36);
-		margin-block-start: var(--space-24);
+		gap: var(--gap-panel);
+	}
+
+	/* EACH SECTION IS A PANE: the document surface, framed on the shell. The
+	 * side panels are sections too, and draw their own box. */
+	.board > .section {
+		padding: var(--space-12);
+		border-radius: var(--radius-l);
+		background-color: var(--bg);
+		box-shadow: inset 0 0 0 1px var(--frame);
 	}
 
 	/*
@@ -1550,6 +1598,41 @@
 		background-color: rgb(0 0 0 / 40%);
 	}
 
+	/*
+	 * IT SLIDES IN FROM THE EDGE IT STANDS AT, and back out, at the morph's
+	 * pace, which is zero for a visitor who asked for less motion.
+	 * `allow-discrete` lets `display` and the top layer wait for the slide
+	 * to finish before the panel is taken away.
+	 */
+	.drawer,
+	.drawer::backdrop {
+		transition:
+			translate var(--motion-morph) ease-out,
+			opacity var(--motion-morph) ease-out,
+			display var(--motion-morph) allow-discrete,
+			overlay var(--motion-morph) allow-discrete;
+	}
+
+	.drawer:not([open]) {
+		translate: 2rem 0;
+		opacity: 0;
+	}
+
+	.drawer:not([open])::backdrop {
+		opacity: 0;
+	}
+
+	@starting-style {
+		.drawer[open] {
+			translate: 2rem 0;
+			opacity: 0;
+		}
+
+		.drawer[open]::backdrop {
+			opacity: 0;
+		}
+	}
+
 	.drawer > .section {
 		padding: var(--space-16);
 	}
@@ -1593,8 +1676,8 @@
 			grid-template-areas:
 				'schedule before'
 				'schedule ideas';
-			align-items: start;
-			gap: var(--space-36) var(--space-24);
+			align-items: stretch;
+			gap: var(--gap-panel);
 		}
 
 		.schedule {
