@@ -54,6 +54,27 @@ export interface Item {
 	 * means nothing does. */
 	prep: string;
 	prepDone: boolean;
+	/* Where `place` was found. Absent means not looked up yet; null means
+	 * looked up and not found. */
+	at?: Coords | null;
+	/* A base of its own, so every other row says how far it is from here. */
+	base?: boolean;
+}
+
+export interface Coords {
+	lat: number;
+	lon: number;
+}
+
+/*
+ * A PLACE THE WHOLE TRIP IS MEASURED FROM, the hotel or the airport. Kept
+ * apart from the days, because nobody does the hotel on Day 3.
+ */
+export interface Base {
+	id: string;
+	label: string;
+	place: string;
+	at?: Coords | null;
 }
 
 export interface Day {
@@ -89,6 +110,8 @@ export interface Trip {
 	 * the site's sticky note. */
 	icon?: TripIconId;
 	days: Day[];
+	/* Optional, as `icon` is. */
+	bases?: Base[];
 	/* NOT SCHEDULED YET. Kept in the order they arrived; the page groups them by
 	 * category, so an order among them is not something anybody arranges. */
 	ideas: Item[];
@@ -98,6 +121,7 @@ export interface Trip {
 export const IDEAS = 'ideas';
 
 export type ItemFields = Omit<Item, 'id'>;
+export type BaseFields = Pick<Base, 'label' | 'place'>;
 export type DayFields = Pick<Day, 'date' | 'title'>;
 /* An empty icon takes the mark off. */
 export type TripFields = Partial<
@@ -113,7 +137,13 @@ export type TripOp =
 	| { type: 'editDay'; id: string; fields: Partial<DayFields> }
 	| { type: 'moveDay'; id: string; index: number }
 	| { type: 'removeDay'; id: string }
-	| { type: 'editTrip'; fields: TripFields };
+	| { type: 'editTrip'; fields: TripFields }
+	| { type: 'addBase'; base: Omit<Base, 'at'> }
+	| { type: 'editBase'; id: string; fields: Partial<BaseFields> }
+	| { type: 'removeBase'; id: string }
+	/* Where an item's or a base's place was found. Carries the place it looked
+	 * up, so an answer that arrives after the place changed lands nowhere. */
+	| { type: 'pin'; id: string; place: string; at: Coords | null };
 
 export const EMPTY_TRIP: Trip = {
 	title: 'Trip',
@@ -129,6 +159,7 @@ export const EMPTY_TRIP: Trip = {
  */
 export const LIMITS = {
 	days: 60,
+	bases: 20,
 	items: 600,
 	title: 200,
 	notes: 4000,
@@ -185,7 +216,15 @@ export function applyOp(current: Trip, op: TripOp): Trip {
 		case 'edit': {
 			const at = locate(trip, op.id);
 			if (!at) return current;
-			at.list[at.index] = { ...at.list[at.index], ...op.fields };
+			const item = { ...at.list[at.index], ...op.fields };
+			// A new place is somewhere new, and the old pin no longer marks it.
+			if (
+				op.fields.place !== undefined &&
+				op.fields.place !== at.list[at.index].place
+			)
+				delete item.at;
+			if (item.base === false) delete item.base;
+			at.list[at.index] = item;
 			return trip;
 		}
 
@@ -246,7 +285,79 @@ export function applyOp(current: Trip, op: TripOp): Trip {
 			else if (icon) trip.icon = icon;
 			return trip;
 		}
+
+		case 'addBase': {
+			const bases = (trip.bases ??= []);
+			if (bases.some((b) => b.id === op.base.id)) return current;
+			if (bases.length >= LIMITS.bases) return current;
+			bases.push({ ...op.base });
+			return trip;
+		}
+
+		case 'editBase': {
+			const base = trip.bases?.find((b) => b.id === op.id);
+			if (!base) return current;
+			if (op.fields.place !== undefined && op.fields.place !== base.place)
+				delete base.at;
+			Object.assign(base, op.fields);
+			return trip;
+		}
+
+		case 'removeBase': {
+			const index = trip.bases?.findIndex((b) => b.id === op.id) ?? -1;
+			if (index === -1) return current;
+			trip.bases!.splice(index, 1);
+			return trip;
+		}
+
+		case 'pin': {
+			const found = locate(trip, op.id);
+			const target =
+				found?.list[found.index] ?? trip.bases?.find((b) => b.id === op.id);
+			if (!target || target.place !== op.place) return current;
+			if (JSON.stringify(target.at) === JSON.stringify(op.at)) return current;
+			target.at = op.at;
+			return trip;
+		}
 	}
+}
+
+/* ─── How far ────────────────────────────────────────────────────────────────
+ * As the crow flies, and said so on the page. Driving time would need a routing
+ * service, and the free ones ask not to be used for anything real.
+ */
+
+/* Haversine, on a sphere of the Earth's mean radius in miles. */
+export function miles(a: Coords, b: Coords) {
+	const rad = Math.PI / 180;
+	const dLat = (b.lat - a.lat) * rad;
+	const dLon = (b.lon - a.lon) * rad;
+	const h =
+		Math.sin(dLat / 2) ** 2 +
+		Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+	return 2 * 3958.8 * Math.asin(Math.sqrt(h));
+}
+
+/** `0.04` → `under 0.1 mi`; `3.14` → `3.1 mi`; `12.6` → `13 mi` */
+export function formatMiles(n: number) {
+	if (n < 0.1) return 'under 0.1 mi';
+	return n < 10 ? `${n.toFixed(1)} mi` : `${Math.round(n)} mi`;
+}
+
+/*
+ * EVERYTHING THE TRIP IS MEASURED FROM, with a place found: the trip's own
+ * bases, then any item marked as one. An item marked as a base goes by its title.
+ */
+export function basesOf(
+	trip: Trip,
+): { id: string; label: string; at: Coords }[] {
+	const items = [...trip.days.flatMap((d) => d.items), ...trip.ideas];
+	return [
+		...(trip.bases ?? []).map((b) => ({ id: b.id, label: b.label, at: b.at })),
+		...items
+			.filter((i) => i.base)
+			.map((i) => ({ id: i.id, label: i.title, at: i.at })),
+	].filter((b): b is { id: string; label: string; at: Coords } => !!b.at);
 }
 
 /* ─── Who changed what ───────────────────────────────────────────────────────
@@ -330,6 +441,8 @@ export function describeOp(before: Trip, op: TripOp): string {
 		return at ? at.list[at.index] : null;
 	};
 	const title = (id: string) => item(id)?.title ?? 'something';
+	const baseLabel = (id: string) =>
+		before.bases?.find((b) => b.id === id)?.label ?? 'a base';
 	const listOf = (id: string) =>
 		before.days.find((d) => d.items.some((i) => i.id === id))?.id ?? IDEAS;
 	const dayLabel = (id: string) => {
@@ -367,6 +480,10 @@ export function describeOp(before: Trip, op: TripOp): string {
 					? `Set the place for ${name} to “${f.place}”`
 					: `Cleared the place for ${name}`;
 			if (f.notes !== undefined) return `Edited the notes on ${name}`;
+			if (f.base !== undefined)
+				return f.base
+					? `Measured everything from ${name}`
+					: `Stopped measuring from ${name}`;
 			if (f.prep !== undefined)
 				return f.prep
 					? `Added “${f.prep}” to do for ${name}`
@@ -409,6 +526,25 @@ export function describeOp(before: Trip, op: TripOp): string {
 				? `Removed ${dayLabel(op.id)} and unscheduled ${count} ${count === 1 ? 'thing' : 'things'}`
 				: `Removed ${dayLabel(op.id)}`;
 		}
+
+		case 'addBase':
+			return `Added ${op.base.label} as a base`;
+
+		case 'editBase': {
+			const label = baseLabel(op.id);
+			if (op.fields.label !== undefined)
+				return `Renamed the base ${label} to ${op.fields.label}`;
+			return op.fields.place
+				? `Set the place for ${label} to “${op.fields.place}”`
+				: `Cleared the place for ${label}`;
+		}
+
+		case 'removeBase':
+			return `Removed the base ${baseLabel(op.id)}`;
+
+		/* A lookup, not a decision anybody made, so it has no line in the history. */
+		case 'pin':
+			return '';
 
 		case 'editTrip':
 			if (op.fields.title !== undefined)
@@ -547,6 +683,12 @@ function readItemFields(v: unknown, partial: boolean) {
 		out.prepDone = v.prepDone;
 	} else if (!partial) return null;
 
+	// Optional even on a whole item, which a trip from before it has not got.
+	if (v.base !== undefined) {
+		if (typeof v.base !== 'boolean') return null;
+		out.base = v.base;
+	}
+
 	// A title is what a row is called, and a row called nothing cannot be found.
 	if (out.title !== undefined && !out.title.trim()) return null;
 
@@ -557,6 +699,39 @@ function readItem(v: unknown): Item | null {
 	if (!isRecord(v) || typeof v.id !== 'string' || !ID.test(v.id)) return null;
 	const fields = readItemFields(v, false);
 	return fields && { id: v.id, ...fields };
+}
+
+/* An item as a trip file holds it, where a pin already found is kept. */
+function readStoredItem(v: unknown): Item | null {
+	const item = readItem(v);
+	if (!item || !isRecord(v) || v.at === undefined) return item;
+	const at = readCoords(v.at);
+	return at === undefined ? null : { ...item, at };
+}
+
+const inRange = (v: unknown, max: number): v is number =>
+	typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= max;
+
+/* `undefined` for no coordinates at all, which is not the same as `null`. */
+function readCoords(v: unknown): Coords | null | undefined {
+	if (v === null) return null;
+	if (!isRecord(v) || !inRange(v.lat, 90) || !inRange(v.lon, 180))
+		return undefined;
+	return { lat: v.lat, lon: v.lon };
+}
+
+function readBaseFields(v: unknown): Partial<BaseFields> | null {
+	if (!isRecord(v)) return null;
+	const out: Partial<BaseFields> = {};
+	for (const key of ['label', 'place'] as const) {
+		if (v[key] === undefined) continue;
+		const value = text(v[key], LIMITS.title);
+		if (value === null) return null;
+		out[key] = value;
+	}
+	// A base called nothing would read "3 mi from" and stop.
+	if (out.label !== undefined && !out.label.trim()) return null;
+	return out;
 }
 
 function readDayFields(v: unknown): Partial<DayFields> | null {
@@ -649,6 +824,34 @@ export function readOp(v: unknown): TripOp | null {
 			if (fields.title !== undefined && !fields.title.trim()) return null;
 			return { type: 'editTrip', fields };
 		}
+		case 'addBase': {
+			const base = isRecord(v.base) ? v.base : null;
+			const id = readId(base?.id);
+			const fields = readBaseFields(base);
+			return id && fields?.label && fields.place !== undefined
+				? {
+						type: 'addBase',
+						base: { id, label: fields.label, place: fields.place },
+					}
+				: null;
+		}
+		case 'editBase': {
+			const id = readId(v.id);
+			const fields = readBaseFields(v.fields);
+			return id && fields ? { type: 'editBase', id, fields } : null;
+		}
+		case 'removeBase': {
+			const id = readId(v.id);
+			return id ? { type: 'removeBase', id } : null;
+		}
+		case 'pin': {
+			const id = readId(v.id);
+			const place = text(v.place, LIMITS.title);
+			const at = readCoords(v.at);
+			return id && place && at !== undefined
+				? { type: 'pin', id, place, at }
+				: null;
+		}
 	}
 	return null;
 }
@@ -670,7 +873,7 @@ export function readTrip(v: unknown): Trip | null {
 	const unique = (id: string) => !seen.has(id) && !!seen.add(id);
 
 	const readItems = (list: unknown[]) => {
-		const items = list.map(readItem);
+		const items = list.map(readStoredItem);
 		return items.every((i): i is Item => !!i && unique(i.id)) ? items : null;
 	};
 
@@ -692,8 +895,28 @@ export function readTrip(v: unknown): Trip | null {
 	const ideas = readItems(v.ideas);
 	if (!ideas) return null;
 
+	let bases: Base[] | undefined;
+	if (v.bases !== undefined) {
+		if (!Array.isArray(v.bases) || v.bases.length > LIMITS.bases) return null;
+		bases = [];
+		for (const raw of v.bases) {
+			const id = isRecord(raw) ? readId(raw.id) : null;
+			const fields = readBaseFields(raw);
+			if (!id || !unique(id) || !fields?.label || fields.place === undefined)
+				return null;
+			const base: Base = { id, label: fields.label, place: fields.place };
+			if (isRecord(raw) && raw.at !== undefined) {
+				const at = readCoords(raw.at);
+				if (at === undefined) return null;
+				base.at = at;
+			}
+			bases.push(base);
+		}
+	}
+
 	const trip: Trip = { title, tagline, days, ideas };
 	if (v.icon !== undefined) trip.icon = v.icon;
+	if (bases) trip.bases = bases;
 	if (days.length > LIMITS.days || countItems(trip) > LIMITS.items) return null;
 	return trip;
 }

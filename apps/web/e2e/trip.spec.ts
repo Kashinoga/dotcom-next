@@ -3,8 +3,11 @@ import { expect, test, type Page } from '@playwright/test';
 import { signSession, verifySession } from '../src/lib/server/trip';
 import {
 	applyOp,
+	basesOf,
 	describeOp,
+	formatMiles,
 	HISTORY_LIMIT,
+	miles,
 	IDEAS,
 	NICKNAME_ANONYMOUS,
 	NICKNAME_MAX,
@@ -130,6 +133,93 @@ test.describe('changes', () => {
 			expect(trip.days[1].items[0].id).toBe('a');
 			expect(trip.days[0].items[0].id).toBe('e');
 		}
+	});
+});
+
+test.describe('pins and bases', () => {
+	const here = { lat: 21.28, lon: -157.83 };
+
+	test('a pin lands only on the place it looked up', () => {
+		const placed = applyOp(sample(), {
+			type: 'edit',
+			id: 'a',
+			fields: { place: 'Waikiki' },
+		});
+		const pin = { type: 'pin', id: 'a', place: 'Waikiki', at: here } as const;
+		const pinned = applyOp(placed, pin);
+		expect(pinned.days[0].items[0].at).toEqual(here);
+
+		// A new place takes the old pin off, and the old answer arriving late
+		// does not put it back.
+		const moved = applyOp(pinned, {
+			type: 'edit',
+			id: 'a',
+			fields: { place: 'Somewhere else' },
+		});
+		expect('at' in moved.days[0].items[0]).toBe(false);
+		expect(applyOp(moved, pin)).toBe(moved);
+	});
+
+	test('a pin is not written into the history, and a base is', () => {
+		expect(
+			describeOp(sample(), { type: 'pin', id: 'a', place: 'x', at: null }),
+		).toBe('');
+		const trip = applyOp(sample(), {
+			type: 'addBase',
+			base: { id: 'h', label: 'Hotel', place: '' },
+		});
+		expect(
+			describeOp(trip, {
+				type: 'editBase',
+				id: 'h',
+				fields: { place: 'Waikiki' },
+			}),
+		).toBe('Set the place for Hotel to “Waikiki”');
+		expect(describeOp(trip, { type: 'removeBase', id: 'h' })).toBe(
+			'Removed the base Hotel',
+		);
+	});
+
+	test('coordinates off the Earth are refused', () => {
+		expect(
+			readOp({ type: 'pin', id: 'a', place: 'x', at: { lat: 91, lon: 0 } }),
+		).toBeNull();
+		expect(
+			readOp({ type: 'pin', id: 'a', place: 'x', at: { lat: 'x', lon: 0 } }),
+		).toBeNull();
+		expect(readOp({ type: 'pin', id: 'a', place: 'x', at: null })).toEqual({
+			type: 'pin',
+			id: 'a',
+			place: 'x',
+			at: null,
+		});
+	});
+
+	test('a base is the trip’s own or an item marked as one, once found', () => {
+		let trip = applyOp(sample(), {
+			type: 'addBase',
+			base: { id: 'h', label: 'Hotel', place: 'Waikiki' },
+		});
+		trip = applyOp(trip, { type: 'pin', id: 'h', place: 'Waikiki', at: here });
+		trip = applyOp(trip, { type: 'edit', id: 'b', fields: { base: true } });
+		// "b" has no pin yet, so it measures nothing.
+		expect(basesOf(trip).map((b) => b.label)).toEqual(['Hotel']);
+
+		const unmarked = applyOp(trip, {
+			type: 'edit',
+			id: 'b',
+			fields: { base: false },
+		});
+		expect('base' in unmarked.days[0].items[1]).toBe(false);
+	});
+
+	test('a distance is said to a sensible precision', () => {
+		// A hundredth of a degree of latitude is about 0.69 miles.
+		expect(
+			formatMiles(miles(here, { lat: here.lat + 0.01, lon: here.lon })),
+		).toBe('0.7 mi');
+		expect(formatMiles(0.04)).toBe('under 0.1 mi');
+		expect(formatMiles(12.6)).toBe('13 mi');
 	});
 });
 
@@ -433,6 +523,9 @@ async function open(page: Page, nickname = 'E2E') {
 			sameSite: 'Lax',
 		},
 	]);
+	/* No lookups from the suite: a page would otherwise ask Nominatim about
+	 * every place in the local trip. A test that wants pins answers for itself. */
+	await page.route('**/api/geocode?**', (route) => route.abort());
 	await page.goto(PAGE);
 	await page.locator('.board[data-ready]').waitFor({ state: 'attached' });
 }
@@ -577,6 +670,39 @@ test.describe('unlocked', () => {
 		);
 		await expect(other.getByText('notes for e2e-one')).toBeVisible();
 		await other.close();
+	});
+
+	test('a row says how far it is from each base', async ({ page }) => {
+		const found: Record<string, { lat: number; lon: number }> = {
+			'E2E hotel': { lat: 21.28, lon: -157.83 },
+			'E2E beach': { lat: 21.3, lon: -157.83 },
+		};
+		await page.route('**/api/geocode?**', (route) => {
+			const q = new URL(route.request().url()).searchParams.get('q')!;
+			return q in found
+				? route.fulfill({ json: { at: found[q] } })
+				: route.abort();
+		});
+
+		await page.request.post(API, {
+			data: {
+				type: 'addBase',
+				base: { id: 'e2e-base', label: 'E2E Hotel', place: 'E2E hotel' },
+			},
+		});
+		await page.request.post(API, {
+			data: { type: 'edit', id: 'e2e-one', fields: { place: 'E2E beach' } },
+		});
+
+		try {
+			await page.reload();
+			const row = page.locator('[data-item="e2e-one"]');
+			await expect(row).toContainText('1.4 mi from E2E Hotel');
+		} finally {
+			await page.request.post(API, {
+				data: { type: 'removeBase', id: 'e2e-base' },
+			});
+		}
 	});
 
 	test('each change is written into the history under its author’s name', async ({

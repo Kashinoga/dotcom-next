@@ -26,14 +26,18 @@
 	import Morph from '$lib/components/Morph.svelte';
 	import { morphDuration, morphIn, morphOut } from '$lib/motion';
 	import {
+		basesOf,
 		CATEGORIES,
+		type Coords,
 		formatDate,
+		formatMiles,
 		formatTime,
 		IDEAS,
 		nextDate,
 		type CategoryId,
 		type Day,
 		type Item,
+		miles,
 		NICKNAME_MAX,
 		type Revision,
 		type Trip,
@@ -252,6 +256,61 @@
 		)}`;
 
 	const newId = () => crypto.randomUUID();
+
+	/* ─── Pins and distances ───────────────────────────────────────────────── */
+
+	/*
+	 * ONE LOOKUP AT A TIME, for any place not looked up yet, by whichever page is
+	 * open. Each place is tried once per page, so one that fails is not asked
+	 * about again until the next visit.
+	 */
+	const tried = new Set<string>();
+	let locating = $state(false);
+
+	$effect(() => {
+		if (!ready || locating) return;
+		const next = [
+			...trip.days.flatMap((d) => d.items),
+			...trip.ideas,
+			...(trip.bases ?? []),
+		].find(
+			(p) => p.place && p.at === undefined && !tried.has(`${p.id} ${p.place}`),
+		);
+		if (!next) return;
+
+		const { id, place } = next;
+		tried.add(`${id} ${place}`);
+		locating = true;
+		fetch(`${endpoint}/geocode?q=${encodeURIComponent(place)}`)
+			.then((r) => (r.ok ? (r.json() as Promise<{ at: Coords | null }>) : null))
+			.then((body) => {
+				if (body) sync.do({ type: 'pin', id, place, at: body.at });
+			})
+			.catch(() => {})
+			.finally(() => (locating = false));
+	});
+
+	const bases = $derived(basesOf(trip));
+
+	/* "3.1 mi from Hotel · 12 mi from Airport", nearest first. */
+	function distances(item: Item) {
+		const at = item.at;
+		if (!at) return '';
+		return bases
+			.filter((b) => b.id !== item.id)
+			.map((b) => ({ label: b.label, d: miles(at, b.at) }))
+			.sort((a, b) => a.d - b.d)
+			.map(({ label, d }) => `${formatMiles(d)} from ${label}`)
+			.join(' · ');
+	}
+
+	/* A new base is the hotel, then the airport, then whatever it is renamed to. */
+	function addBase() {
+		const taken = new Set((trip.bases ?? []).map((b) => b.label));
+		const label =
+			['Hotel', 'Airport'].find((name) => !taken.has(name)) ?? 'Base';
+		sync.do({ type: 'addBase', base: { id: newId(), label, place: '' } });
+	}
 
 	/* ─── Before we go ─────────────────────────────────────────────────────── */
 
@@ -973,6 +1032,80 @@
 					</div>
 				</section>
 
+				<!--
+					WHAT EVERY ROW IS MEASURED FROM. A thing on the schedule can be one too,
+					from its own form; these are the ones that are not on any day.
+				-->
+				<section class="card" aria-labelledby="bases-heading">
+					<div class="card-head">
+						<h3 id="bases-heading" class="card-title">
+							Bases<span class="dim">{' · for everyone'}</span>
+						</h3>
+					</div>
+
+					<p class="note">
+						Every place on the trip says how far it is from these, as the crow
+						flies.
+					</p>
+
+					{#each trip.bases ?? [] as base (base.id)}
+						<div class="row base">
+							<label class="field">
+								<span>Name</span>
+								<input
+									class="input"
+									value={base.label}
+									maxlength="200"
+									onchange={(e) => {
+										const label = e.currentTarget.value.trim();
+										if (!label) e.currentTarget.value = base.label;
+										else if (label !== base.label)
+											sync.do({
+												type: 'editBase',
+												id: base.id,
+												fields: { label },
+											});
+									}}
+								/>
+							</label>
+							<label class="field grow">
+								<span>Place</span>
+								<input
+									class="input"
+									value={base.place}
+									maxlength="200"
+									placeholder="An address or a name"
+									onchange={(e) =>
+										sync.do({
+											type: 'editBase',
+											id: base.id,
+											fields: { place: e.currentTarget.value.trim() },
+										})}
+								/>
+							</label>
+							<button
+								type="button"
+								class="control"
+								aria-label="Remove {base.label}"
+								onclick={() => sync.do({ type: 'removeBase', id: base.id })}
+							>
+								<X />
+							</button>
+						</div>
+						{#if base.place && base.at === null}
+							<p class="note">
+								{base.label} was not found on the map. A fuller address may help.
+							</p>
+						{/if}
+					{/each}
+
+					<div class="actions">
+						<button type="button" class="pill" onclick={addBase}>
+							<Plus /> Add a base
+						</button>
+					</div>
+				</section>
+
 				<section class="card" aria-labelledby="device-settings-heading">
 					<div class="card-head">
 						<h3 id="device-settings-heading" class="card-title">
@@ -1269,6 +1402,9 @@
 				<MapPin aria-hidden="true" />{item.place ? item.place : 'Map'}
 				<span class="visually-hidden">(opens in a new tab)</span>
 			</a>
+			{#if distances(item)}
+				<span class="away" title="As the crow flies">{distances(item)}</span>
+			{/if}
 			{#if item.prep && !item.prepDone}
 				<span class="prep">To do: {item.prep}</span>
 			{/if}
@@ -1347,17 +1483,30 @@
 				</label>
 			</div>
 
-			<label class="field">
-				<span>Place</span>
-				<input
-					class="input"
-					value={item.place}
-					maxlength="200"
-					placeholder="An address or a name, for the map"
-					onchange={(e) =>
-						edit(item.id, { place: e.currentTarget.value.trim() })}
-				/>
-			</label>
+			<div class="row">
+				<label class="field grow">
+					<span>Place</span>
+					<input
+						class="input"
+						value={item.place}
+						maxlength="200"
+						placeholder="An address or a name, for the map"
+						onchange={(e) =>
+							edit(item.id, { place: e.currentTarget.value.trim() })}
+					/>
+				</label>
+				<label class="check">
+					<input
+						type="checkbox"
+						checked={!!item.base}
+						onchange={(e) => edit(item.id, { base: e.currentTarget.checked })}
+					/>
+					Measure from here
+				</label>
+			</div>
+			{#if item.place && item.at === null}
+				<p class="note">Not found on the map. A fuller address may help.</p>
+			{/if}
 
 			<label class="field">
 				<span>Notes</span>
@@ -2064,6 +2213,10 @@
 		padding-inline: var(--space-4);
 	}
 
+	.away {
+		overflow-wrap: anywhere;
+	}
+
 	.notes {
 		font-size: var(--text-label1);
 		white-space: pre-line;
@@ -2160,6 +2313,11 @@
 
 	.grow {
 		flex: 1 1 12rem;
+	}
+
+	/* A base's name is a word or two, and its place wants the rest. */
+	.base > .field:first-child {
+		flex: 0 1 8rem;
 	}
 
 	/* A fieldset for the legend and the grouping, with the browser's frame off. */
