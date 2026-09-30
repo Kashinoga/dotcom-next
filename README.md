@@ -16,8 +16,8 @@ This is a pnpm monorepo. It contains one app at the moment.
 
 ## Requirements
 
-- Node 25.2.1 (see `.node-version`)
-- pnpm 11 (see the `packageManager` field in `package.json`)
+- Node 26.10.0 (see `.node-version`)
+- pnpm 12 (see the `packageManager` field in `package.json`)
 
 ## Commands
 
