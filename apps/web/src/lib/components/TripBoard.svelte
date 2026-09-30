@@ -15,6 +15,7 @@
 	import Plus from '@lucide/svelte/icons/plus';
 	import ShoppingBag from '@lucide/svelte/icons/shopping-bag';
 	import StickyNote from '@lucide/svelte/icons/sticky-note';
+	import X from '@lucide/svelte/icons/x';
 	import Ticket from '@lucide/svelte/icons/ticket';
 	import Utensils from '@lucide/svelte/icons/utensils';
 	import Waves from '@lucide/svelte/icons/waves';
@@ -46,6 +47,7 @@
 		device,
 		endpoint,
 		ontrip,
+		panel = $bindable(null),
 	}: {
 		/* The first answer, from the page's load. The board keeps it from here. */
 		stored: { trip: Trip; version: number; history: Revision[] };
@@ -56,7 +58,35 @@
 		endpoint: string;
 		/* Told the live trip whenever it changes, for the page's heading and tab. */
 		ontrip?: (trip: Trip) => void;
+		/* Which side panel is open, if any. The page's masthead opens them. */
+		panel?: 'history' | 'settings' | null;
 	} = $props();
+
+	/* ─── The side panels ──────────────────────────────────────────────────── */
+
+	/*
+	 * HISTORY AND SETTINGS ARE LOOKED AT NOW AND THEN, not while planning, so
+	 * they wait behind the masthead's buttons rather than under the schedule.
+	 * A modal <dialog>, for the focus trap, Escape, and a page that stays put.
+	 */
+	let historyDialog = $state<HTMLDialogElement>();
+	let settingsDialog = $state<HTMLDialogElement>();
+
+	$effect(() => {
+		for (const [name, dialog] of [
+			['history', historyDialog],
+			['settings', settingsDialog],
+		] as const) {
+			if (!dialog) continue;
+			if (panel === name && !dialog.open) dialog.showModal();
+			if (panel !== name && dialog.open) dialog.close();
+		}
+	});
+
+	/* A press on the backdrop lands on the dialog itself, never on its content. */
+	const closeOnBackdrop = (e: MouseEvent) => {
+		if (e.target === e.currentTarget) panel = null;
+	};
 
 	/* ─── The trip, kept in step with everybody else's ─────────────────────── */
 
@@ -572,7 +602,7 @@
 <div class="board" data-ready={ready || undefined}>
 	<!-- ─── Before we go ──────────────────────────────────────────────────────── -->
 
-	<section class="section" aria-labelledby="prep-heading">
+	<section class="section before" aria-labelledby="prep-heading">
 		<h2 id="prep-heading" class="section-title">Before we go</h2>
 
 		<div class="grid">
@@ -634,7 +664,7 @@
 
 	<!-- ─── Schedule ──────────────────────────────────────────────────────────── -->
 
-	<section class="section" aria-labelledby="schedule-heading">
+	<section class="section schedule" aria-labelledby="schedule-heading">
 		<h2 id="schedule-heading" class="section-title">Schedule</h2>
 
 		<div class="grid">
@@ -646,7 +676,7 @@
 				THE NEXT CELL, where the next day will appear. A card with nothing in it
 				but its header row, so the button stands where a new day's name will.
 			-->
-			<div class="card">
+			<div class="card next">
 				<div class="card-head">
 					<button type="button" class="pill" onclick={addDay}>
 						<CalendarPlus /> Add a day
@@ -663,9 +693,9 @@
 		its kind, so which card it lands nearest says nothing; the whole section
 		lights up instead of one card pretending to be the target.
 
-		EVERY KIND HAS A CARD, empty or not, the way a calendar has a square for a
-		day with nothing on it — so the cards do not shuffle position as the last
-		idea of a kind is scheduled, and each has its own place to add one.
+		ONE CARD, GROUPED BY KIND, and only the kinds that hold something. A card
+		for every kind stood three empty boxes on a short trip; the form's Kind
+		field already says where a new one goes.
 	-->
 	<section
 		class="section ideas"
@@ -676,44 +706,49 @@
 		<h2 id="ideas-heading" class="section-title">Not scheduled yet</h2>
 
 		<div class="grid">
-			{#each CATEGORIES as category (category.id)}
-				{@const items = trip.ideas.filter(
-					(item) => item.category === category.id,
-				)}
-				{@const Icon = ICONS[category.id]}
-				<section class="card" aria-labelledby="group-{category.id}">
-					<div class="card-head">
-						<h3 id="group-{category.id}" class="card-title">
-							<Icon aria-hidden="true" />
-							<span
-								>{category.name}{#if items.length}<span class="dim"
-										>{` · ${items.length}`}</span
-									>{/if}</span
-							>
-						</h3>
-					</div>
+			<div class="card">
+				{#each CATEGORIES as category (category.id)}
+					{@const items = trip.ideas.filter(
+						(item) => item.category === category.id,
+					)}
+					{@const Icon = ICONS[category.id]}
+					{#if items.length}
+						<section class="group" aria-labelledby="group-{category.id}">
+							<h3 id="group-{category.id}" class="card-title">
+								<Icon aria-hidden="true" />
+								<span
+									>{category.name}<span class="dim">{` · ${items.length}`}</span
+									></span
+								>
+							</h3>
 
-					<ul class="items">
-						{#each items as item (item.id)}
-							<li
-								class="item"
-								data-item={item.id}
-								data-dragging={drag?.moved && drag.id === item.id
-									? ''
-									: undefined}
-								style:translate={drag?.id === item.id ? offset : undefined}
-								animate:flip={{ duration: morphDuration() }}
-							>
-								{@render row(item, IDEAS)}
-							</li>
-						{:else}
-							<li class="empty">Nothing here yet.</li>
-						{/each}
-					</ul>
+							<ul class="items">
+								{#each items as item (item.id)}
+									<li
+										class="item"
+										data-item={item.id}
+										data-dragging={drag?.moved && drag.id === item.id
+											? ''
+											: undefined}
+										style:translate={drag?.id === item.id ? offset : undefined}
+										animate:flip={{ duration: morphDuration() }}
+									>
+										{@render row(item, IDEAS)}
+									</li>
+								{/each}
+							</ul>
+						</section>
+					{/if}
+				{/each}
 
-					{@render adder(IDEAS, category.id, `${IDEAS}-${category.id}`)}
-				</section>
-			{/each}
+				{#if !trip.ideas.length}
+					<p class="empty">
+						Nothing waiting. Drag a thing here to unschedule it.
+					</p>
+				{/if}
+
+				{@render adder(IDEAS, defaultCategory(trip.ideas))}
+			</div>
 		</div>
 	</section>
 
@@ -725,62 +760,78 @@
 		the initial of whoever made it, in the column where a row has its grip — so
 		the words line up with every other card's.
 	-->
-	<section class="section" aria-labelledby="history-heading">
-		<h2 id="history-heading" class="section-title">History</h2>
+	<dialog
+		class="drawer"
+		aria-labelledby="history-heading"
+		bind:this={historyDialog}
+		onclose={() => panel === 'history' && (panel = null)}
+		onclick={closeOnBackdrop}
+	>
+		<section class="section changes">
+			<div class="drawer-head">
+				<h2 id="history-heading" class="section-title">History</h2>
+				<button
+					type="button"
+					class="control"
+					aria-label="Close history"
+					onclick={() => (panel = null)}><X /></button
+				>
+			</div>
 
-		<div class="grid">
-			<section class="card" aria-labelledby="changes-heading">
-				<div class="card-head">
-					<h3 id="changes-heading" class="card-title">
-						Recent changes{#if sync.history.length}<span class="dim"
-								>{` · ${sync.history.length}`}</span
-							>{/if}
-					</h3>
-				</div>
+			<div class="grid">
+				<section class="card" aria-labelledby="changes-heading">
+					<div class="card-head">
+						<h3 id="changes-heading" class="card-title">
+							Recent changes{#if sync.history.length}<span class="dim"
+									>{` · ${sync.history.length}`}</span
+								>{/if}
+						</h3>
+					</div>
 
-				{#if sync.history.length}
-					<ol class="history">
-						{#each shownHistory as revision (revision.version)}
-							<li class="revision">
-								<span class="initial" aria-hidden="true"
-									>{initial(revision.who)}</span
+					{#if sync.history.length}
+						<ol class="history">
+							{#each shownHistory as revision (revision.version)}
+								<li class="revision">
+									<span class="initial" aria-hidden="true"
+										>{initial(revision.who)}</span
+									>
+									<div class="body">
+										<p>{revision.summary}</p>
+										<p class="meta">
+											<span class="who">{revision.who}</span>
+											<time
+												datetime={new Date(revision.at).toISOString()}
+												title={ready
+													? new Date(revision.at).toLocaleString()
+													: undefined}>{ready ? ago(revision.at) : ''}</time
+											>
+										</p>
+									</div>
+								</li>
+							{/each}
+						</ol>
+
+						{#if sync.history.length > HISTORY_PREVIEW}
+							<div class="actions">
+								<button
+									type="button"
+									class="pill"
+									aria-expanded={showAllHistory}
+									onclick={() => (showAllHistory = !showAllHistory)}
 								>
-								<div class="body">
-									<p>{revision.summary}</p>
-									<p class="meta">
-										<span class="who">{revision.who}</span>
-										<time
-											datetime={new Date(revision.at).toISOString()}
-											title={ready
-												? new Date(revision.at).toLocaleString()
-												: undefined}>{ready ? ago(revision.at) : ''}</time
-										>
-									</p>
-								</div>
-							</li>
-						{/each}
-					</ol>
-
-					{#if sync.history.length > HISTORY_PREVIEW}
-						<div class="actions">
-							<button
-								type="button"
-								class="pill"
-								aria-expanded={showAllHistory}
-								onclick={() => (showAllHistory = !showAllHistory)}
-							>
-								{showAllHistory
-									? 'Show fewer'
-									: `Show all ${sync.history.length}`}
-							</button>
-						</div>
+									{showAllHistory
+										? 'Show fewer'
+										: `Show all ${sync.history.length}`}
+								</button>
+							</div>
+						{/if}
+					{:else}
+						<p class="empty">Nothing has changed yet.</p>
 					{/if}
-				{:else}
-					<p class="empty">Nothing has changed yet.</p>
-				{/if}
-			</section>
-		</div>
-	</section>
+				</section>
+			</div>
+		</section>
+	</dialog>
 
 	<!-- ─── Settings ──────────────────────────────────────────────────────────── -->
 
@@ -789,152 +840,169 @@
 		everybody's; locking is this browser's alone. Standing them side by side under
 		their own names says which is which before anybody presses anything.
 	-->
-	<section class="section" aria-labelledby="settings-heading">
-		<h2 id="settings-heading" class="section-title">Settings</h2>
+	<dialog
+		class="drawer"
+		aria-labelledby="settings-heading"
+		bind:this={settingsDialog}
+		onclose={() => panel === 'settings' && (panel = null)}
+		onclick={closeOnBackdrop}
+	>
+		<section class="section settings">
+			<div class="drawer-head">
+				<h2 id="settings-heading" class="section-title">Settings</h2>
+				<button
+					type="button"
+					class="control"
+					aria-label="Close settings"
+					onclick={() => (panel = null)}><X /></button
+				>
+			</div>
 
-		<div class="grid">
-			<section class="card" aria-labelledby="trip-settings-heading">
-				<div class="card-head">
-					<h3 id="trip-settings-heading" class="card-title">
-						This trip<span class="dim">{' · for everyone'}</span>
-					</h3>
-				</div>
+			<div class="grid">
+				<section class="card" aria-labelledby="trip-settings-heading">
+					<div class="card-head">
+						<h3 id="trip-settings-heading" class="card-title">
+							This trip<span class="dim">{' · for everyone'}</span>
+						</h3>
+					</div>
 
-				<div class="fields">
-					<label class="field">
-						<span>Name</span>
-						<input
-							class="input"
-							value={trip.title}
-							maxlength="200"
-							onchange={(e) => {
-								const title = e.currentTarget.value.trim();
-								if (title) sync.do({ type: 'editTrip', fields: { title } });
-								else e.currentTarget.value = trip.title;
-							}}
-						/>
-					</label>
-					<label class="field">
-						<span>Under the name</span>
-						<input
-							class="input"
-							value={trip.tagline}
-							maxlength="200"
-							placeholder="Oct 15 – 22"
-							onchange={(e) =>
-								sync.do({
-									type: 'editTrip',
-									fields: { tagline: e.currentTarget.value.trim() },
-								})}
-						/>
-					</label>
+					<div class="fields">
+						<label class="field">
+							<span>Name</span>
+							<input
+								class="input"
+								value={trip.title}
+								maxlength="200"
+								onchange={(e) => {
+									const title = e.currentTarget.value.trim();
+									if (title) sync.do({ type: 'editTrip', fields: { title } });
+									else e.currentTarget.value = trip.title;
+								}}
+							/>
+						</label>
+						<label class="field">
+							<span>Under the name</span>
+							<input
+								class="input"
+								value={trip.tagline}
+								maxlength="200"
+								placeholder="Oct 15 – 22"
+								onchange={(e) =>
+									sync.do({
+										type: 'editTrip',
+										fields: { tagline: e.currentTarget.value.trim() },
+									})}
+							/>
+						</label>
 
-					<!--
+						<!--
 						RADIOS, so the arrow keys move between them and a screen reader
 						hears one choice of nine. The names are hidden but read out;
 						the tile beside the trip's name is where the choice shows.
 					-->
-					<fieldset class="field marks">
-						<legend>Mark</legend>
-						<div class="mark-options">
-							<label class="control" data-open={!trip.icon || undefined}>
-								<input
-									class="visually-hidden"
-									type="radio"
-									name="trip-mark"
-									checked={!trip.icon}
-									onchange={() =>
-										sync.do({ type: 'editTrip', fields: { icon: '' } })}
-								/>
-								<StickyNote aria-hidden="true" />
-								<span class="visually-hidden">None</span>
-							</label>
-							{#each TRIP_ICONS as option (option.id)}
-								{@const Icon = tripIcons[option.id]}
-								<label
-									class="control"
-									data-open={trip.icon === option.id || undefined}
-								>
+						<fieldset class="field marks">
+							<legend>Mark</legend>
+							<div class="mark-options">
+								<label class="control" data-open={!trip.icon || undefined}>
 									<input
 										class="visually-hidden"
 										type="radio"
 										name="trip-mark"
-										checked={trip.icon === option.id}
+										checked={!trip.icon}
 										onchange={() =>
-											sync.do({
-												type: 'editTrip',
-												fields: { icon: option.id },
-											})}
+											sync.do({ type: 'editTrip', fields: { icon: '' } })}
 									/>
-									<Icon aria-hidden="true" />
-									<span class="visually-hidden">{option.name}</span>
+									<StickyNote aria-hidden="true" />
+									<span class="visually-hidden">None</span>
 								</label>
-							{/each}
-						</div>
-					</fieldset>
-				</div>
-			</section>
+								{#each TRIP_ICONS as option (option.id)}
+									{@const Icon = tripIcons[option.id]}
+									<label
+										class="control"
+										data-open={trip.icon === option.id || undefined}
+									>
+										<input
+											class="visually-hidden"
+											type="radio"
+											name="trip-mark"
+											checked={trip.icon === option.id}
+											onchange={() =>
+												sync.do({
+													type: 'editTrip',
+													fields: { icon: option.id },
+												})}
+										/>
+										<Icon aria-hidden="true" />
+										<span class="visually-hidden">{option.name}</span>
+									</label>
+								{/each}
+							</div>
+						</fieldset>
+					</div>
+				</section>
 
-			<section class="card" aria-labelledby="device-settings-heading">
-				<div class="card-head">
-					<h3 id="device-settings-heading" class="card-title">
-						This device<span class="dim">{' · only here'}</span>
-					</h3>
-				</div>
+				<section class="card" aria-labelledby="device-settings-heading">
+					<div class="card-head">
+						<h3 id="device-settings-heading" class="card-title">
+							This device<span class="dim">{' · only here'}</span>
+						</h3>
+					</div>
 
-				<!--
+					<!--
 					THE NAMES THIS BROWSER SIGNS ITS CHANGES WITH: "nickname on device".
 					Saved by the server, which re-signs the cookie under them; `reset: false`
 					so the fields keep what was typed while the page's load comes back.
 				-->
-				<form
-					method="POST"
-					action="?/nickname"
-					class="fields"
-					use:enhance={() =>
-						async ({ update }) => {
-							await update({ reset: false });
-						}}
-				>
-					<label class="field">
-						<span>Your nickname</span>
-						<input
-							class="input"
-							name="nickname"
-							value={nickname}
-							maxlength={NICKNAME_MAX}
-							autocomplete="nickname"
-						/>
-					</label>
-					<label class="field">
-						<span>Device Name</span>
-						<input
-							class="input"
-							name="device"
-							value={device}
-							maxlength={NICKNAME_MAX}
-							placeholder="Tells your devices apart"
-							autocomplete="off"
-						/>
-					</label>
-					<div class="actions">
-						<button class="pill">Save names</button>
-					</div>
-				</form>
+					<form
+						method="POST"
+						action="?/nickname"
+						class="fields"
+						use:enhance={() =>
+							async ({ update }) => {
+								await update({ reset: false });
+							}}
+					>
+						<label class="field">
+							<span>Your nickname</span>
+							<input
+								class="input"
+								name="nickname"
+								value={nickname}
+								maxlength={NICKNAME_MAX}
+								autocomplete="nickname"
+							/>
+						</label>
+						<label class="field">
+							<span>Device Name</span>
+							<input
+								class="input"
+								name="device"
+								value={device}
+								maxlength={NICKNAME_MAX}
+								placeholder="Tells your devices apart"
+								autocomplete="off"
+							/>
+						</label>
+						<div class="actions">
+							<button class="pill">Save names</button>
+						</div>
+					</form>
 
-				<!--
+					<!--
 					LOCKING IS PER DEVICE. It takes this browser's cookie away and nobody
 					else's; to lock everybody out, change the passcode.
 				-->
-				<p class="note">
-					Asks for the passcode again next time. Everyone else stays signed in.
-				</p>
-				<form method="POST" action="?/lock" use:enhance class="actions">
-					<button class="pill">Lock this device</button>
-				</form>
-			</section>
-		</div>
-	</section>
+					<p class="note">
+						Asks for the passcode again next time. Everyone else stays signed
+						in.
+					</p>
+					<form method="POST" action="?/lock" use:enhance class="actions">
+						<button class="pill">Lock this device</button>
+					</form>
+				</section>
+			</div>
+		</section>
+	</dialog>
 </div>
 
 <!-- ─── One day ───────────────────────────────────────────────────────────── -->
@@ -1101,6 +1169,9 @@
 
 {#snippet row(item: Item, list: string)}
 	{@const Icon = ICONS[item.category]}
+	{@const timed =
+		list !== IDEAS &&
+		!!trip.days.find((day) => day.id === list)?.items.some((i) => i.time)}
 	<!--
 		THE GRIP IS A BUTTON, so it is reachable by Tab and the arrow keys can move
 		it; a pointer drags it; and `touch-action: none` on it — only on it — is
@@ -1122,11 +1193,16 @@
 		<GripVertical />
 	</button>
 
+	<!--
+		THE TIME HAS A COLUMN OF ITS OWN, in a day where anything has a time, so
+		the titles line up down the day as they do in a calendar's agenda.
+	-->
+	{#if timed}
+		<span class="time">{item.time ? formatTime(item.time) : ''}</span>
+	{/if}
+
 	<div class="body">
-		<p class="title">
-			{#if item.time}<span class="time">{formatTime(item.time)}</span>{/if}
-			{item.title}
-		</p>
+		<p class="title">{item.title}</p>
 
 		<p class="meta">
 			{#if list !== IDEAS}
@@ -1418,11 +1494,120 @@
 		gap: var(--space-32) var(--space-24);
 	}
 
+	/*
+	 * A CARD IS A PANE, framed on the shell as the Text Editor's are, so a day
+	 * reads as a thing and not as a run of text under a heading.
+	 */
 	.card {
 		min-inline-size: 0;
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-8);
+		padding: var(--space-12);
+		border-radius: var(--radius-l);
+		background-color: var(--shell);
+		box-shadow: inset 0 0 0 1px var(--frame);
+	}
+
+	/* Where the next day will go: the outline of a card, and nothing in it yet. */
+	.card.next {
+		background: none;
+		box-shadow: none;
+		outline: 1px dashed var(--frame);
+		outline-offset: -1px;
+	}
+
+	/* A section of one card gives it the whole width, at any size. */
+	.before .grid,
+	.ideas .grid,
+	.changes .grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	/*
+	 * THE SIDE PANEL: a pane standing at the window's end edge, the panel gap
+	 * clear of it, as tall as the window. 30rem holds a setting's field and its
+	 * label on one line.
+	 */
+	.drawer {
+		position: fixed;
+		inset: var(--gap-panel) var(--gap-panel) var(--gap-panel) auto;
+		margin: 0;
+		inline-size: min(30rem, 100% - var(--gap-panel) * 2);
+		block-size: auto;
+		max-block-size: none;
+		padding: 0;
+		border: none;
+		border-radius: var(--radius-l);
+		background-color: var(--bg);
+		color: var(--fg);
+		box-shadow: inset 0 0 0 1px var(--frame);
+		overflow-y: auto;
+		overscroll-behavior: contain;
+	}
+
+	.drawer::backdrop {
+		background-color: rgb(0 0 0 / 40%);
+	}
+
+	.drawer > .section {
+		padding: var(--space-16);
+	}
+
+	.drawer-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-8);
+	}
+
+	/* One column in the panel, whatever the section's grid would do. */
+	.drawer .grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	/* A kind of idea inside the one ideas card. */
+	.group {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+	}
+
+	.group + .group {
+		padding-block-start: var(--space-8);
+		border-block-start: 1px solid var(--frame);
+	}
+
+	/*
+	 * TWO COLUMNS ONCE THERE IS ROOM: the schedule takes the width, and what is
+	 * waiting to happen stands beside it. The document order is untouched, so a
+	 * phone and a screen reader still go checklist, schedule, ideas, history.
+	 * 68rem is 1088px, the narrowest the schedule still holds two days of 20rem
+	 * beside the 22rem rail.
+	 */
+	@media (min-width: 68rem) {
+		.board {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) 22rem;
+			grid-template-rows: auto 1fr;
+			grid-template-areas:
+				'schedule before'
+				'schedule ideas';
+			align-items: start;
+			gap: var(--space-36) var(--space-24);
+		}
+
+		.schedule {
+			grid-area: schedule;
+		}
+
+		.before {
+			grid-area: before;
+		}
+
+		.ideas {
+			grid-area: ideas;
+		}
 	}
 
 	/*
@@ -1698,10 +1883,58 @@
 		padding-block: calc((1lh - 1em) / 2);
 	}
 
+	/* 4rem holds "12:45 pm", the widest a time gets. */
+	.item:has(> .time) {
+		grid-template-columns: auto 4rem minmax(0, 1fr) auto;
+	}
+
+	/*
+	 * ON A PHONE THE TIME GOES ABOVE THE TITLE, where a column of its own would
+	 * leave the title a third of the width. 40rem is 640px, below which a day
+	 * card is the whole screen.
+	 */
+	@media (max-width: 40rem) {
+		.item:has(> .time) {
+			grid-template-columns: auto minmax(0, 1fr) auto;
+		}
+
+		.item > .grip {
+			grid-row: 1 / span 2;
+		}
+
+		.item > .time {
+			grid-column: 2;
+			grid-row: 1;
+		}
+
+		.item > .time:empty {
+			display: none;
+		}
+
+		.item:has(> .time) > .body {
+			grid-column: 2;
+			grid-row: 2;
+		}
+
+		.item:has(> .time) > .body > .title {
+			padding-block-start: 0;
+		}
+
+		.item:has(> .time) > .control:last-child {
+			grid-column: 3;
+			grid-row: 1 / span 2;
+		}
+	}
+
 	.time {
 		font-variant-numeric: tabular-nums;
 		font-weight: var(--weight-semibold);
-		margin-inline-end: var(--space-4);
+		line-height: var(--leading-tight);
+		/* Level with the title beside it, which the body pads the same way. */
+		padding-block-start: calc(
+			(var(--control-block-size) - 1lh) / 2 + (1lh - 1em) / 2
+		);
+		white-space: nowrap;
 	}
 
 	.meta {
@@ -1753,10 +1986,12 @@
 		white-space: pre-line;
 	}
 
+	/* Dashed, as a slot to drop into, since it now stands inside a framed card. */
 	.empty {
 		padding: var(--space-12);
 		border-radius: var(--radius-l);
-		box-shadow: inset 0 0 0 1px var(--edge);
+		outline: 1px dashed var(--edge);
+		outline-offset: -1px;
 		font-size: var(--text-label1);
 		color: color-mix(in oklab, var(--fg) 60%, transparent);
 		text-align: center;

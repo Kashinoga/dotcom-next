@@ -25,6 +25,7 @@
 		wide = false,
 		serif = [],
 		mark,
+		tools,
 		children,
 	}: {
 		title: string;
@@ -51,6 +52,8 @@
 		 * things, as a shared trip does when it is locked.
 		 */
 		mark?: Component;
+		/* Controls for the whole page, at the masthead's far end. */
+		tools?: Snippet;
 		children: Snippet;
 	} = $props();
 
@@ -128,6 +131,9 @@
 					</p>
 				{/if}
 			</div>
+			{#if tools}
+				<div class="tools">{@render tools()}</div>
+			{/if}
 		</div>
 
 		<div class="prose">
@@ -211,6 +217,14 @@
 		 */
 		padding-block-end: var(--rule-space);
 		border-block-end: 1px solid var(--frame);
+	}
+
+	/* Pushed to the far end, on one line; the words give way to them. */
+	.tools {
+		display: flex;
+		flex: none;
+		gap: var(--space-4);
+		margin-inline-start: auto;
 	}
 
 	.words {

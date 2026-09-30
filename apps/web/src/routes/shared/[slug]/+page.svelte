@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import KeyRound from '@lucide/svelte/icons/key-round';
+	import RotateCcwClock from '@lucide/svelte/icons/rotate-ccw-clock';
+	import Settings from '@lucide/svelte/icons/settings';
 	import { page } from '$app/state';
 	import Letter from '$lib/components/Letter.svelte';
 	import Seo from '$lib/components/Seo.svelte';
@@ -35,6 +37,9 @@
 	 * page loaded; the board keeps the live one and reports it here, so a rename
 	 * shows in the heading and the tab as soon as it is made.
 	 */
+	/* The board's side panels, opened from the masthead. */
+	let panel = $state<'history' | 'settings' | null>(null);
+
 	let live = $state<Pick<Trip, 'title' | 'tagline' | 'icon'> | null>(null);
 	const heading = $derived(live ?? (data.state === 'open' ? data.trip : null));
 
@@ -76,11 +81,30 @@
 		mark={heading?.icon ? tripIcons[heading.icon] : undefined}
 		wide
 	>
+		{#snippet tools()}
+			<button
+				type="button"
+				class="control"
+				aria-label="History"
+				title="History"
+				data-open={panel === 'history' || undefined}
+				onclick={() => (panel = 'history')}><RotateCcwClock /></button
+			>
+			<button
+				type="button"
+				class="control"
+				aria-label="Settings"
+				title="Settings"
+				data-open={panel === 'settings' || undefined}
+				onclick={() => (panel = 'settings')}><Settings /></button
+			>
+		{/snippet}
 		<!--
 			The API sits under this page's own address — see api/+server.ts — so it is
 			found from where the page is, and the address is written nowhere in code.
 		-->
 		<TripBoard
+			bind:panel
 			stored={{
 				trip: data.trip,
 				version: data.version,

@@ -628,6 +628,8 @@ test.describe('unlocked', () => {
 	});
 
 	test('a new nickname signs every change after it', async ({ page }) => {
+		// The names live in the Settings panel, which the masthead opens.
+		await page.getByRole('button', { name: 'Settings', exact: true }).click();
 		await page.getByLabel('Your nickname').fill('E2E Renamed');
 		await page.getByRole('button', { name: 'Save names' }).click();
 		await expect(page.getByLabel('Your nickname')).toHaveValue('E2E Renamed');
