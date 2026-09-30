@@ -66,6 +66,13 @@ export interface Coords {
 	lon: number;
 }
 
+/* One answer to "where is this?", for a person to choose among. */
+export interface PlaceMatch {
+	/* Nominatim's full name for it, "Lake McDonald Lodge, …, Montana, United States". */
+	name: string;
+	at: Coords;
+}
+
 /*
  * A PLACE THE WHOLE TRIP IS MEASURED FROM, the hotel or the airport. Kept
  * apart from the days, because nobody does the hotel on Day 3.

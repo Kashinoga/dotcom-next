@@ -1,10 +1,14 @@
 import { SESSION_COOKIE, tripAt, verifySession } from '$lib/server/trip';
 import { site } from '$lib/site';
-import type { Coords } from '$lib/trip';
+import type { PlaceMatch } from '$lib/trip';
 import type { RequestHandler } from './$types';
 
 /*
  * WHERE A PLACE IS, from OpenStreetMap's Nominatim, for the trip's pins.
+ *
+ * `?q=` answers with the best match, which the page pins by itself; `&all=1`
+ * with up to five, for a person to choose from. Five on a button's press and
+ * never as somebody types, because Nominatim does not allow autocomplete.
  *
  * Behind the trip's cookie, so it is not a free geocoder for anybody who finds
  * it. Nominatim is free and keyless, and asks three things in return: a
@@ -17,13 +21,13 @@ const UA = `${site.name} Trip (${site.email})`;
 const HEADERS = { 'cache-control': 'no-store', 'x-robots-tag': 'noindex' };
 
 /* Lives as long as the isolate. A place does not move. */
-const cache = new Map<string, Coords | null>();
+const cache = new Map<string, PlaceMatch[]>();
 
 /* Every lookup waits its turn behind the last, one second apart. */
 let queue = Promise.resolve();
 let last = 0;
 
-function lookUp(place: string): Promise<Coords | null> {
+function lookUp(place: string, limit: number): Promise<PlaceMatch[]> {
 	const turn = queue.then(async () => {
 		const wait = last + 1000 - Date.now();
 		if (wait > 0) await new Promise((r) => setTimeout(r, wait));
@@ -31,7 +35,7 @@ function lookUp(place: string): Promise<Coords | null> {
 
 		const url = new URL('https://nominatim.openstreetmap.org/search');
 		url.searchParams.set('format', 'jsonv2');
-		url.searchParams.set('limit', '1');
+		url.searchParams.set('limit', String(limit));
 		url.searchParams.set('q', place);
 		const response = await fetch(url, {
 			headers: { 'user-agent': UA, accept: 'application/json' },
@@ -39,10 +43,18 @@ function lookUp(place: string): Promise<Coords | null> {
 		});
 		if (!response.ok) throw new Error(`${response.status}`);
 
-		const [hit] = (await response.json()) as { lat?: string; lon?: string }[];
-		const lat = Number(hit?.lat);
-		const lon = Number(hit?.lon);
-		return Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null;
+		const hits = (await response.json()) as {
+			lat?: string;
+			lon?: string;
+			display_name?: string;
+		}[];
+		return hits.flatMap((hit) => {
+			const lat = Number(hit.lat);
+			const lon = Number(hit.lon);
+			return Number.isFinite(lat) && Number.isFinite(lon)
+				? [{ name: hit.display_name ?? place, at: { lat, lon } }]
+				: [];
+		});
 	});
 	// One failure must not stop the line behind it.
 	queue = turn.then(
@@ -67,19 +79,21 @@ export const GET: RequestHandler = async ({
 	if (!place || place.length > 200)
 		return new Response(null, { status: 400, headers: HEADERS });
 
-	const key = place.toLowerCase();
-	let at = cache.get(key);
-	if (at === undefined) {
+	const all = url.searchParams.get('all') === '1';
+	const key = `${all ? 5 : 1} ${place.toLowerCase()}`;
+	let matches = cache.get(key);
+	if (!matches) {
 		try {
-			at = await lookUp(place);
+			matches = await lookUp(place, all ? 5 : 1);
 		} catch {
 			// Not "not found": the page tries again another time.
 			return new Response(null, { status: 502, headers: HEADERS });
 		}
-		cache.set(key, at);
+		cache.set(key, matches);
 	}
 
-	return new Response(JSON.stringify({ at }), {
+	const body = all ? { matches } : { at: matches[0]?.at ?? null };
+	return new Response(JSON.stringify(body), {
 		headers: { ...HEADERS, 'content-type': 'application/json' },
 	});
 };

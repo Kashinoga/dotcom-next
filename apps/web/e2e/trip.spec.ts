@@ -730,6 +730,48 @@ test.describe('unlocked', () => {
 		}
 	});
 
+	test('a pin’s popup edits the thing, and Find pins the match chosen', async ({
+		page,
+	}) => {
+		const beach = { lat: 21.3, lon: -157.83 };
+		const cove = { lat: 21.25, lon: -157.7 };
+		await page.route('**/api/geocode?**', (route) => {
+			const url = new URL(route.request().url());
+			const q = url.searchParams.get('q');
+			if (url.searchParams.get('all') === '1')
+				return route.fulfill({
+					json: {
+						matches: [
+							{ name: 'E2E Beach, Somewhere', at: beach },
+							{ name: 'E2E Cove, Elsewhere', at: cove },
+						],
+					},
+				});
+			return q === 'E2E beach'
+				? route.fulfill({ json: { at: beach } })
+				: route.abort();
+		});
+		await page.request.post(API, {
+			data: { type: 'edit', id: 'e2e-one', fields: { place: 'E2E beach' } },
+		});
+		await page.reload();
+
+		const map = page.locator('.map-section');
+		await expect(map.locator('path.pin')).not.toHaveCount(0);
+		const popup = page.locator('.pop');
+		await map.locator('path[data-pin="e2e-one"]').click({ force: true });
+		await expect(popup.locator('strong')).toHaveText('E2E e2e-one');
+
+		await popup.getByRole('button', { name: 'Edit E2E e2e-one' }).click();
+		await popup.getByRole('button', { name: 'Find' }).click();
+		await popup.getByRole('button', { name: /E2E Cove/ }).click();
+		await expect(page.getByRole('status')).toHaveText('All changes saved.');
+
+		const found = (await storedDay(page)).find((i) => i.id === 'e2e-one')!;
+		expect(found.place).toBe('E2E beach');
+		expect(found.at).toEqual(cove);
+	});
+
 	test('each change is written into the history under its author’s name', async ({
 		page,
 		browser,

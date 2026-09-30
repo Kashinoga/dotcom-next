@@ -16,6 +16,7 @@
 	import Mountain from '@lucide/svelte/icons/mountain';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Plus from '@lucide/svelte/icons/plus';
+	import Search from '@lucide/svelte/icons/search';
 	import ShoppingBag from '@lucide/svelte/icons/shopping-bag';
 	import StickyNote from '@lucide/svelte/icons/sticky-note';
 	import X from '@lucide/svelte/icons/x';
@@ -41,6 +42,7 @@
 		type Day,
 		type Item,
 		miles,
+		type PlaceMatch,
 		NICKNAME_MAX,
 		type Revision,
 		type Trip,
@@ -288,13 +290,71 @@
 		fetch(`${endpoint}/geocode?q=${encodeURIComponent(place)}`)
 			.then((r) => (r.ok ? (r.json() as Promise<{ at: Coords | null }>) : null))
 			.then((body) => {
-				if (body) sync.do({ type: 'pin', id, place, at: body.at });
+				// Somebody may have chosen a match by hand while this was out.
+				if (body && pinOf(id)?.at === undefined)
+					sync.do({ type: 'pin', id, place, at: body.at });
 			})
 			.catch(() => {})
 			.finally(() => (locating = false));
 	});
 
+	const pinOf = (id: string) =>
+		[
+			...trip.days.flatMap((d) => d.items),
+			...trip.ideas,
+			...(trip.bases ?? []),
+		].find((p) => p.id === id);
+
 	const bases = $derived(basesOf(trip));
+
+	/*
+	 * FIND, for a place the background lookup got wrong or could not find: up to
+	 * five matches for what is in the field, and the one chosen is pinned as is.
+	 * `matches` is null while asking, and `failed` when the service is not there.
+	 */
+	let finding = $state<{
+		id: string;
+		query: string;
+		matches: PlaceMatch[] | null;
+		failed: boolean;
+	} | null>(null);
+
+	async function find(id: string, query: string) {
+		query = query.trim();
+		if (!query) return;
+		finding = { id, query, matches: null, failed: false };
+		try {
+			const response = await fetch(
+				`${endpoint}/geocode?all=1&q=${encodeURIComponent(query)}`,
+			);
+			if (!response.ok) throw new Error();
+			const { matches } = (await response.json()) as {
+				matches: PlaceMatch[];
+			};
+			if (finding?.id === id) finding = { id, query, matches, failed: false };
+		} catch {
+			if (finding?.id === id)
+				finding = { id, query, matches: [], failed: true };
+		}
+	}
+
+	function choose(id: string, query: string, match: PlaceMatch) {
+		if (pinOf(id)?.place !== query) edit(id, { place: query });
+		sync.do({ type: 'pin', id, place: query, at: match.at });
+		finding = null;
+	}
+
+	/* "Lake McDonald Lodge" and "Flathead County, Montana, United States". */
+	function splitName(name: string) {
+		const [head, ...rest] = name.split(', ');
+		return {
+			head,
+			rest: rest
+				.filter((part) => !/^\d+$/.test(part))
+				.slice(-3)
+				.join(', '),
+		};
+	}
 
 	/* "3.1 mi from Hotel", "12 mi from Airport", nearest first. */
 	function distances(item: Pick<Item, 'id' | 'at'>) {
@@ -1602,8 +1662,26 @@
 					placeholder="An address or a name, for the map"
 					onchange={(e) =>
 						edit(item.id, { place: e.currentTarget.value.trim() })}
+					onkeydown={(e) => {
+						if (e.key !== 'Enter') return;
+						e.preventDefault();
+						void find(item.id, e.currentTarget.value);
+					}}
 				/>
 			</label>
+			<button
+				type="button"
+				class="pill"
+				onclick={(e) =>
+					find(
+						item.id,
+						e.currentTarget
+							.closest('.row')
+							?.querySelector<HTMLInputElement>('input.input')?.value ?? '',
+					)}
+			>
+				<Search /> Find
+			</button>
 			<label class="check">
 				<input
 					type="checkbox"
@@ -1613,8 +1691,13 @@
 				Measure from here
 			</label>
 		</div>
-		{#if item.place && item.at === null}
-			<p class="note">Not found on the map. A fuller address may help.</p>
+		{#if finding?.id === item.id}
+			{@render matches(finding)}
+		{:else if item.place && item.at === null}
+			<p class="note">
+				Not found on the map. Press Find to see what the map knows, or add the
+				town or state.
+			</p>
 		{/if}
 
 		<label class="field">
@@ -1680,6 +1763,50 @@
 	{#if at && item}
 		{@render itemEditor(item, at.list, done, false)}
 	{/if}
+{/snippet}
+
+<!-- What Find found, to choose from. -->
+{#snippet matches(found: NonNullable<typeof finding>)}
+	<div class="matches" aria-live="polite">
+		{#if !found.matches}
+			<p class="note">Looking for “{found.query}”…</p>
+		{:else if found.failed}
+			<p class="note">
+				Couldn’t reach the map just now. Try again in a moment.
+			</p>
+		{:else if !found.matches.length}
+			<p class="note">
+				Nothing found for “{found.query}”. Adding the town or state usually
+				helps.
+			</p>
+		{:else}
+			<p class="note">Which one is it?</p>
+			<ul>
+				{#each found.matches as match (match.name)}
+					{@const name = splitName(match.name)}
+					<li>
+						<button
+							type="button"
+							class="match"
+							onclick={() => choose(found.id, found.query, match)}
+						>
+							<MapPin aria-hidden="true" />
+							<span
+								>{name.head}{#if name.rest}<span class="dim"
+										>{' · '}{name.rest}</span
+									>{/if}</span
+							>
+						</button>
+					</li>
+				{/each}
+			</ul>
+			<div class="actions">
+				<button type="button" class="pill" onclick={() => (finding = null)}>
+					None of these
+				</button>
+			</div>
+		{/if}
+	</div>
 {/snippet}
 
 <!-- ─── Adding ────────────────────────────────────────────────────────────── -->
@@ -2363,6 +2490,54 @@
 
 	.away {
 		overflow-wrap: anywhere;
+	}
+
+	.matches {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+	}
+
+	.matches ul {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+	}
+
+	/* A match is a row to press: the pin, the name, and where it is, dimmed. */
+	.match {
+		appearance: none;
+		display: flex;
+		align-items: start;
+		gap: var(--space-8);
+		inline-size: 100%;
+		padding: var(--space-6) var(--space-8);
+		border: none;
+		border-radius: var(--radius-s);
+		background: none;
+		color: inherit;
+		font: inherit;
+		font-size: var(--text-label1);
+		text-align: start;
+		cursor: pointer;
+	}
+
+	.match:hover {
+		background-color: var(--surface-hover);
+	}
+
+	.match:focus-visible {
+		outline: 2px solid var(--fg);
+		outline-offset: 2px;
+	}
+
+	.match :global(svg) {
+		flex: none;
+		inline-size: 1em;
+		block-size: 1em;
+		margin-block-start: 0.1em;
 	}
 
 	.notes {
