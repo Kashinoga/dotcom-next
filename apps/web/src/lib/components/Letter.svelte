@@ -166,14 +166,22 @@
 	 * A frame and not a border: a border is a pixel of the box. The height fills
 	 * the window under the bar, so the footer waits below the fold.
 	 */
+	/*
+	 * A WIDE SHEET IS AN APP'S DESK, so it is set as the Text Editor's panes
+	 * are: the window's width less the panel gap, and a pane's 12px inside.
+	 * It stopped at 90rem, which left 240px either side on a 1920px window.
+	 */
 	.sheet.wide {
-		inline-size: min(90rem, 100% - var(--gap-panel) * 2);
+		inline-size: calc(100% - var(--gap-panel) * 2);
+	}
+
+	.sheet.wide .hero {
+		padding-inline: var(--space-12);
 	}
 
 	.sheet {
 		min-block-size: calc(100dvh - var(--bar-block-size) - var(--gap-panel) * 2);
-		/* The measure caps the line; a wide page's grid stops at 90rem, past
-		 * which a row of cards is too long a glance. */
+		/* The measure caps the line. */
 		inline-size: min(var(--measure), 100% - var(--gap-panel) * 2);
 		margin: var(--gap-panel) auto;
 		border-radius: var(--radius-l);
