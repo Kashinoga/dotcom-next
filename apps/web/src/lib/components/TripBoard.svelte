@@ -11,6 +11,8 @@
 	import Footprints from '@lucide/svelte/icons/footprints';
 	import GripVertical from '@lucide/svelte/icons/grip-vertical';
 	import MapPin from '@lucide/svelte/icons/map-pin';
+	import Maximize2 from '@lucide/svelte/icons/maximize-2';
+	import Minimize2 from '@lucide/svelte/icons/minimize-2';
 	import Mountain from '@lucide/svelte/icons/mountain';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Plus from '@lucide/svelte/icons/plus';
@@ -336,6 +338,9 @@
 	});
 
 	let tripMap = $state<ReturnType<typeof TripMap>>();
+
+	/* The map over the whole page, under the bar, until Escape or the button. */
+	let fullMap = $state(false);
 
 	/* A new base is the hotel, then the airport, then whatever it is renamed to. */
 	function addBase() {
@@ -672,6 +677,7 @@
 
 	function onDragKey(event: KeyboardEvent) {
 		if (drag && event.key === 'Escape') end();
+		else if (fullMap && event.key === 'Escape') fullMap = false;
 	}
 </script>
 
@@ -787,14 +793,27 @@
 		the lookups fill it in on their own as places are added.
 	-->
 	{#if pins.length}
-		<section class="section map-section" aria-labelledby="map-heading">
+		<section
+			class="section map-section"
+			class:full={fullMap}
+			aria-labelledby="map-heading"
+		>
 			<div class="drawer-head">
 				<h2 id="map-heading" class="section-title">Map</h2>
-				<button type="button" class="pill" onclick={() => tripMap?.fit()}>
-					Show everything
-				</button>
+				<div class="actions">
+					<button type="button" class="pill" onclick={() => tripMap?.fit()}>
+						Show everything
+					</button>
+					<button
+						type="button"
+						class="pill"
+						onclick={() => (fullMap = !fullMap)}
+					>
+						{#if fullMap}<Minimize2 /> Back to the page{:else}<Maximize2 /> Full view{/if}
+					</button>
+				</div>
 			</div>
-			<TripMap bind:this={tripMap} {pins} />
+			<TripMap bind:this={tripMap} {pins} full={fullMap} />
 		</section>
 	{/if}
 
@@ -1949,6 +1968,42 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-12);
+	}
+
+	/*
+	 * TWICE A PHONE'S HEIGHT ONCE THERE IS ROOM, and never more than most of the
+	 * window, so the schedule still peeks out beneath it.
+	 */
+	.map-section {
+		--map-size: 20rem;
+	}
+
+	@media (min-width: 48rem) {
+		.map-section {
+			--map-size: min(40rem, 70dvh);
+		}
+	}
+
+	/*
+	 * FULL VIEW: the page's whole area under the bar, a panel gap in from every
+	 * edge as the drawers stand. Not the Fullscreen API, which would hide the bar
+	 * and the save status with it.
+	 */
+	.map-section.full {
+		position: fixed;
+		inset: calc(var(--bar-block-size) + var(--gap-panel)) var(--gap-panel)
+			calc(var(--gap-panel) + var(--fab-reserve, 0px));
+		z-index: 1;
+	}
+
+	.map-section.full :global(.map) {
+		flex: 1;
+		block-size: auto;
+	}
+
+	/* The page under it stays where it was, and does not scroll behind. */
+	:global(html:has(.map-section.full)) {
+		overflow: hidden;
 	}
 
 	.section-title {

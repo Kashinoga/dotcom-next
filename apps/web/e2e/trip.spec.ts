@@ -706,6 +706,15 @@ test.describe('unlocked', () => {
 			await expect(
 				map.locator('.leaflet-tooltip', { hasText: 'E2E Hotel' }),
 			).toHaveCount(1);
+
+			// Full view fills the page under the bar, and Escape puts it back.
+			await page.getByRole('button', { name: 'Full view' }).click();
+			const box = (await map.boundingBox())!;
+			expect(box.height).toBeGreaterThan(page.viewportSize()!.height * 0.8);
+			await page.keyboard.press('Escape');
+			await expect(
+				page.getByRole('button', { name: 'Full view' }),
+			).toBeVisible();
 		} finally {
 			await page.request.post(API, {
 				data: { type: 'removeBase', id: 'e2e-base' },

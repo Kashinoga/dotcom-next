@@ -15,7 +15,7 @@
 	import 'leaflet/dist/leaflet.css';
 	import type { CircleMarker, LayerGroup, Map as LeafletMap } from 'leaflet';
 
-	let { pins }: { pins: Pin[] } = $props();
+	let { pins, full = false }: { pins: Pin[]; full?: boolean } = $props();
 
 	let container = $state<HTMLDivElement>();
 	let L = $state<typeof import('leaflet')>();
@@ -58,6 +58,13 @@
 			map = layer = undefined;
 			drawn.clear();
 		};
+	});
+
+	/* In full view there is no page left to scroll, so one finger moves the map. */
+	$effect(() => {
+		if (!L || !map) return;
+		if (full || !L.Browser.mobile) map.dragging.enable();
+		else map.dragging.disable();
 	});
 
 	/* Titles are anybody's typing, so they go in as text and never as HTML. */
@@ -138,9 +145,9 @@
 <div class="map" bind:this={container}></div>
 
 <style>
-	/* 20rem is tall enough to read a coastline and short enough to scroll past. */
+	/* The board says how tall; 20rem reads a coastline and scrolls past on a phone. */
 	.map {
-		block-size: 20rem;
+		block-size: var(--map-size, 20rem);
 		border-radius: var(--radius-s);
 		box-shadow: inset 0 0 0 1px var(--edge);
 		overflow: hidden;
