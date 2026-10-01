@@ -1,4 +1,6 @@
 <script lang="ts" module>
+	import type { Component } from 'svelte';
+
 	import type { Coords } from '$lib/trip';
 
 	export interface Pin {
@@ -8,6 +10,9 @@
 		base: boolean;
 		/* Whether its popup offers the edit form. A thing on the trip, not a base. */
 		editable: boolean;
+		/* A thing's Kind, for its colour, and the Kind's icon drawn in its dot. */
+		kind?: string;
+		Icon?: Component;
 		/* Lines under the title in its card: when, what and where, how far. */
 		lines: string[];
 		/* What is still to do before the trip, if anything. */
@@ -18,8 +23,12 @@
 
 <script lang="ts">
 	import 'leaflet/dist/leaflet.css';
-	import type { CircleMarker, LayerGroup, Map as LeafletMap } from 'leaflet';
-	import type { Snippet } from 'svelte';
+	import type {
+		LayerGroup,
+		Map as LeafletMap,
+		Marker as LeafletMarker,
+	} from 'leaflet';
+	import { mount, unmount, type Snippet } from 'svelte';
 
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
@@ -191,8 +200,8 @@
 	 * bar; the field being typed in is left first, which saves it.
 	 */
 	const MARGIN = 8;
-	// A base's dot is 9px across its middle, and the pointer 6px more.
-	const REACH = 15;
+	// A dot is 11px from its middle to its edge, and the pointer 6px more.
+	const REACH = 17;
 
 	function place() {
 		if (!popEl || !open || !map || !container) return;
@@ -278,32 +287,43 @@
 	/*
 	 * KEPT BY ID AND CHANGED IN PLACE, not rebuilt, so a label does not flicker
 	 * and a popup stays open while a friend's change comes in.
+	 *
+	 * MARKERS AND NOT SVG CIRCLES: an HTML badge can hold a thing's Kind as its
+	 * icon, which is what tells the Kinds apart for anybody who cannot tell the
+	 * colours apart, and a marker can be reached with Tab and opened with Enter.
 	 */
-	const drawn = new Map<string, { marker: CircleMarker; key: string }>();
+	type Drawn = {
+		marker: LeafletMarker;
+		key: string;
+		/* The Kind's icon, mounted into the badge, to be unmounted with it. */
+		icon?: ReturnType<typeof mount>;
+	};
+	const drawn = new Map<string, Drawn>();
 
 	$effect(() => {
 		if (!L || !map || !layer) return;
 		const seen = new Set<string>();
 
-		/*
-		 * BASES ON TOP of anything at the same spot, the hotel over its own check-in.
-		 * Added last, which is the order Leaflet draws them in before the map has a
-		 * view, and raised after, which is what works once it has one.
-		 */
-		const ordered = pins.toSorted((a, b) => +a.base - +b.base);
-		for (const pin of ordered) {
+		for (const pin of pins) {
 			seen.add(pin.id);
-			const key = `${pin.at.lat},${pin.at.lon},${pin.base},${pin.title}`;
+			const key = `${pin.at.lat},${pin.at.lon},${pin.base},${pin.title},${pin.kind}`;
 			const old = drawn.get(pin.id);
 			if (old?.key === key) continue;
-			if (old) remove(old.marker);
+			if (old) remove(pin.id);
 
-			const marker = L.circleMarker([pin.at.lat, pin.at.lon], {
-				radius: pin.base ? 9 : 6,
-				className: pin.base ? 'pin base' : 'pin',
-				// Not on to the map, whose own click puts the popup away.
-				bubblingMouseEvents: false,
+			// 22px holds a 12px icon with a ring round it; a base is a plain 18px dot.
+			const size = pin.base ? 18 : 22;
+			const marker = L.marker([pin.at.lat, pin.at.lon], {
+				icon: L.divIcon({
+					className: pin.base ? 'pin base' : 'pin',
+					iconSize: [size, size],
+					tooltipAnchor: [0, -size / 2],
+				}),
+				// Bases over anything at the same spot, the hotel over its check-in.
+				zIndexOffset: pin.base ? 1000 : 0,
+				keyboard: true,
 			});
+			const entry: Drawn = { marker, key };
 			marker.on('click', () => show(pin.id));
 			if (pin.base) {
 				// Interactive, so a press on the name opens the base as its dot does.
@@ -311,25 +331,33 @@
 					permanent: true,
 					interactive: true,
 					direction: 'top',
-					offset: [0, -8],
 				});
 			}
-			// Which pin a dot is, for the tests to press the right one. On `add`,
-			// because Leaflet draws nothing until the map has a view.
-			marker.on('add', () =>
-				marker.getElement()?.setAttribute('data-pin', pin.id),
-			);
+			// On `add`, because Leaflet draws nothing until the map has a view.
+			marker.on('add', () => {
+				const el = marker.getElement();
+				if (!el) return;
+				// Which pin it is, for the tests to press the right one.
+				el.dataset.pin = pin.id;
+				el.setAttribute('aria-label', pin.title);
+				// A button's keys, said here rather than left to Leaflet's keypress.
+				el.addEventListener('keydown', (event) => {
+					if (event.key !== 'Enter' && event.key !== ' ') return;
+					event.preventDefault();
+					show(pin.id);
+				});
+				if (pin.kind) el.style.setProperty('--kind', `var(--kind-${pin.kind})`);
+				if (pin.Icon && !entry.icon)
+					entry.icon = mount(pin.Icon, {
+						target: el,
+						props: { 'aria-hidden': 'true' },
+					});
+			});
 			marker.addTo(layer);
-			drawn.set(pin.id, { marker, key });
+			drawn.set(pin.id, entry);
 		}
 
-		for (const [id, { marker }] of drawn) {
-			if (seen.has(id)) continue;
-			remove(marker);
-			drawn.delete(id);
-		}
-		for (const pin of pins)
-			if (pin.base) drawn.get(pin.id)?.marker.bringToFront();
+		for (const id of drawn.keys()) if (!seen.has(id)) remove(id);
 
 		// Framed once, so a friend's change does not yank the view from under you.
 		if (!fitted && pins.length) {
@@ -339,9 +367,13 @@
 	});
 
 	/* The tooltip first: a permanent one can outlive its marker otherwise. */
-	function remove(marker: CircleMarker) {
-		marker.unbindTooltip();
-		layer?.removeLayer(marker);
+	function remove(id: string) {
+		const entry = drawn.get(id);
+		if (!entry) return;
+		if (entry.icon) void unmount(entry.icon);
+		entry.marker.unbindTooltip();
+		layer?.removeLayer(entry.marker);
+		drawn.delete(id);
 	}
 
 	/** Frame every pin. */
@@ -486,36 +518,39 @@
 		block-size: 1.125rem;
 	}
 
-	.map :global(.pin) {
-		fill: var(--fg);
-		fill-opacity: 1;
-		stroke: var(--bg);
-		stroke-width: 2;
-	}
-
 	/*
-	 * IN DARK, WHITE AND RINGED IN BLACK, with a faint glow. The page's own text
-	 * colour is a grey, and the dark map's roads and names are greys too.
+	 * A THING'S DOT IS A BADGE of its Kind: the Kind's colour, its icon in white,
+	 * ringed in the page's ground so it stands off the tiles in either mode. The
+	 * colours are the board's `--kind-*`, set where the board is.
 	 */
-	@media (prefers-color-scheme: dark) {
-		:global(:root:not([data-mode='light'])) .map :global(.pin:not(.base)) {
-			fill: #fff;
-			stroke: #000;
-			stroke-width: 2.5;
-			filter: drop-shadow(0 0 2px rgb(255 255 255 / 55%));
-		}
+	.map :global(.pin) {
+		display: grid;
+		place-items: center;
+		box-sizing: border-box;
+		border-radius: var(--radius-round);
 	}
 
-	:global(:root[data-mode='dark']) .map :global(.pin:not(.base)) {
-		fill: #fff;
-		stroke: #000;
+	.map :global(.pin:not(.base)) {
+		background-color: var(--kind, var(--fg));
+		color: #fff;
+		border: 2px solid var(--bg);
+		box-shadow: 0 1px 3px rgb(0 0 0 / 35%);
+	}
+
+	.map :global(.pin svg) {
+		inline-size: 12px;
+		block-size: 12px;
 		stroke-width: 2.5;
-		filter: drop-shadow(0 0 2px rgb(255 255 255 / 55%));
 	}
 
 	.map :global(.pin.base) {
-		fill: var(--accent);
-		stroke: var(--accent-fg);
+		background-color: var(--accent);
+		border: 2px solid var(--accent-fg);
+	}
+
+	.map :global(.pin:focus-visible) {
+		outline: 2px solid var(--fg);
+		outline-offset: 2px;
 	}
 
 	/*

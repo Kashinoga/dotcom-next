@@ -780,10 +780,22 @@ test.describe('unlocked', () => {
 			// And the base is on the map under its name. The seeded trip may have
 			// pins of its own, so this counts only what the test put there.
 			const map = page.locator('.map-section');
-			await expect(map.locator('path.pin.base')).not.toHaveCount(0);
+			await expect(map.locator('.pin.base')).not.toHaveCount(0);
 			await expect(
 				map.locator('.leaflet-tooltip', { hasText: 'E2E Hotel' }),
 			).toHaveCount(1);
+
+			// A thing's dot is its Kind: the colour, the icon, and the legend's name.
+			// And it is a control, reached with Tab and opened with Enter.
+			const dot = map.locator('[data-pin="e2e-one"]');
+			await expect(dot.locator('svg')).toHaveCount(1);
+			expect(
+				await dot.evaluate((el) => el.style.getPropertyValue('--kind')),
+			).toBe('var(--kind-food)');
+			await expect(map.locator('.legend')).toContainText('Food & drink');
+			await dot.focus();
+			await page.keyboard.press('Enter');
+			await expect(page.locator('.pop strong')).toHaveText('E2E e2e-one');
 
 			// Its name opens it, as its dot does.
 			await map.locator('.leaflet-tooltip', { hasText: 'E2E Hotel' }).click();
@@ -835,9 +847,9 @@ test.describe('unlocked', () => {
 		await page.reload();
 
 		const map = page.locator('.map-section');
-		await expect(map.locator('path.pin')).not.toHaveCount(0);
+		await expect(map.locator('.pin')).not.toHaveCount(0);
 		const popup = page.locator('.pop');
-		await map.locator('path[data-pin="e2e-one"]').click({ force: true });
+		await map.locator('[data-pin="e2e-one"]').click({ force: true });
 		await expect(popup.locator('strong')).toHaveText('E2E e2e-one');
 
 		await popup.getByRole('button', { name: 'Edit E2E e2e-one' }).click();
@@ -848,7 +860,7 @@ test.describe('unlocked', () => {
 		await page.evaluate(() => scrollBy(0, innerHeight));
 		await expect(popup.locator('.pop-body')).toHaveCount(0);
 		await page.evaluate(() => scrollTo(0, 0));
-		await map.locator('path[data-pin="e2e-one"]').click({ force: true });
+		await map.locator('[data-pin="e2e-one"]').click({ force: true });
 		await popup.getByRole('button', { name: 'Edit E2E e2e-one' }).click();
 
 		await popup.getByRole('button', { name: 'Find' }).click();

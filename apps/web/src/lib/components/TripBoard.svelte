@@ -413,6 +413,9 @@
 								at: item.at,
 								base: !!item.base,
 								editable: true,
+								// A base is drawn as a base, whatever its Kind.
+								kind: item.base ? undefined : item.category,
+								Icon: item.base ? undefined : ICONS[item.category],
 								// The row's own details, in its order: when, what and where, how far.
 								lines: [
 									listName(where) +
@@ -429,6 +432,11 @@
 			),
 		];
 	});
+
+	/* The Kinds with a dot on the map, in the Kinds' own order, for its legend. */
+	const kindsOnMap = $derived(
+		CATEGORIES.filter((c) => pins.some((p) => p.kind === c.id)),
+	);
 
 	let tripMap = $state<ReturnType<typeof TripMap>>();
 
@@ -910,6 +918,20 @@
 					</button>
 				</div>
 			</div>
+			<!--
+				THE KINDS ON THE MAP, by name: the colours alone are not enough to tell
+				seven apart, for anybody, so a badge's icon and this say which is which.
+			-->
+			<ul class="legend" aria-label="Kinds on the map">
+				{#each kindsOnMap as category (category.id)}
+					{@const Icon = ICONS[category.id]}
+					<li>
+						<span class="swatch" style:--kind="var(--kind-{category.id})"
+							><Icon aria-hidden="true" /></span
+						>{category.name}
+					</li>
+				{/each}
+			</ul>
 			<TripMap
 				bind:this={tripMap}
 				{pins}
@@ -972,7 +994,11 @@
 					{@const Icon = ICONS[category.id]}
 					{#if items.length}
 						<section class="group" aria-labelledby="group-{category.id}">
-							<h3 id="group-{category.id}" class="card-title">
+							<h3
+								id="group-{category.id}"
+								class="card-title"
+								style:--kind="var(--kind-{category.id})"
+							>
 								<Icon aria-hidden="true" />
 								<span
 									>{category.name}<span class="dim"
@@ -1588,7 +1614,7 @@
 
 		<p class="meta">
 			{#if list !== IDEAS}
-				<span class="category"
+				<span class="category" style:--kind="var(--kind-{item.category})"
 					><Icon aria-hidden="true" /> {categoryName(item.category)}</span
 				>
 			{/if}
@@ -1973,6 +1999,84 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--gap-panel);
+	}
+
+	/*
+	 * THE KINDS' COLOURS, here and not in the site's sheet, because only the
+	 * board has Kinds. From the validated reference palette, with each mode's own
+	 * steps: water blue, nature green, food orange, shopping magenta, tours
+	 * violet, getting around teal, and everything else grey, since grey says it
+	 * is no Kind in particular. Yellow is the bases', and red would read as a
+	 * warning. Past three, no colours stay apart on a map for every eye, so a
+	 * colour never goes without its Kind's icon or name.
+	 */
+	.board {
+		--kind-logistics: #1baf7a;
+		--kind-water: #2a78d6;
+		--kind-nature: #008300;
+		--kind-tours: #4a3aa7;
+		--kind-food: #eb6834;
+		--kind-shopping: #e87ba4;
+		--kind-other: #73726c;
+	}
+
+	@media (prefers-color-scheme: dark) {
+		:global(:root:not([data-mode='light'])) .board {
+			--kind-logistics: #199e70;
+			--kind-water: #3987e5;
+			--kind-tours: #9085e9;
+			--kind-food: #d95926;
+			--kind-shopping: #d55181;
+			--kind-other: #8f8e88;
+		}
+	}
+
+	:global(:root[data-mode='dark']) .board {
+		--kind-logistics: #199e70;
+		--kind-water: #3987e5;
+		--kind-tours: #9085e9;
+		--kind-food: #d95926;
+		--kind-shopping: #d55181;
+		--kind-other: #8f8e88;
+	}
+
+	.legend {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-4) var(--space-12);
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		font-size: var(--text-label1);
+	}
+
+	.legend li {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-6);
+	}
+
+	/* The map's badge, small: the Kind's colour with its icon in white. */
+	.swatch {
+		display: inline-grid;
+		place-items: center;
+		inline-size: 1.125rem;
+		block-size: 1.125rem;
+		border-radius: var(--radius-round);
+		background-color: var(--kind);
+		color: #fff;
+	}
+
+	.swatch :global(svg) {
+		inline-size: 0.6875rem;
+		block-size: 0.6875rem;
+		stroke-width: 2.5;
+	}
+
+	/* A Kind's icon wears its colour beside its name; the words keep the ink. */
+	.category :global(svg),
+	.group .card-title :global(svg) {
+		color: var(--kind);
 	}
 
 	/* EACH SECTION IS A PANE: the document surface, framed on the shell. The
