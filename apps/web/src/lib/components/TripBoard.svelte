@@ -30,10 +30,13 @@
 	import TripMap, { type Pin } from '$lib/components/TripMap.svelte';
 	import { morphDuration, morphIn, morphOut } from '$lib/motion';
 	import {
+		areaOf,
+		areaParam,
 		basesOf,
 		CATEGORIES,
 		type Coords,
 		formatDate,
+		FAR_MILES,
 		formatMiles,
 		formatTime,
 		IDEAS,
@@ -44,6 +47,7 @@
 		miles,
 		type PlaceMatch,
 		NICKNAME_MAX,
+		outside,
 		type Revision,
 		type Trip,
 		TRIP_ICON_GROUPS,
@@ -271,6 +275,10 @@
 	 * about again until the next visit.
 	 */
 	const tried = new Set<string>();
+
+	/* The trip's area, which every lookup prefers. See `areaOf`. */
+	const area = $derived(areaOf(trip));
+	const near = () => (area ? `&near=${areaParam(area)}` : '');
 	let locating = $state(false);
 
 	$effect(() => {
@@ -287,7 +295,7 @@
 		const { id, place } = next;
 		tried.add(`${id} ${place}`);
 		locating = true;
-		fetch(`${endpoint}/geocode?q=${encodeURIComponent(place)}`)
+		fetch(`${endpoint}/geocode?q=${encodeURIComponent(place)}${near()}`)
 			.then((r) => (r.ok ? (r.json() as Promise<{ at: Coords | null }>) : null))
 			.then((body) => {
 				// Somebody may have chosen a match by hand while this was out.
@@ -325,7 +333,7 @@
 		finding = { id, query, matches: null, failed: false };
 		try {
 			const response = await fetch(
-				`${endpoint}/geocode?all=1&q=${encodeURIComponent(query)}`,
+				`${endpoint}/geocode?all=1&q=${encodeURIComponent(query)}${near()}`,
 			);
 			if (!response.ok) throw new Error();
 			const { matches } = (await response.json()) as {
@@ -1794,6 +1802,8 @@
 							<span
 								>{name.head}{#if name.rest}<span class="dim"
 										>{' · '}{name.rest}</span
+									>{/if}{#if area && outside(area, match.at) > FAR_MILES}<span
+										class="far">{' · far from the trip'}</span
 									>{/if}</span
 							>
 						</button>
@@ -2522,6 +2532,12 @@
 		font-size: var(--text-label1);
 		text-align: start;
 		cursor: pointer;
+	}
+
+	/* A match somewhere else of the same name, said so before it is chosen. */
+	.far {
+		font-style: italic;
+		color: color-mix(in oklab, var(--fg) 60%, transparent);
 	}
 
 	.match:hover {

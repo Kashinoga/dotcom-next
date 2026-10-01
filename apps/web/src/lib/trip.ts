@@ -375,6 +375,75 @@ export function formatMiles(n: number) {
 	return n < 10 ? `${n.toFixed(1)} mi` : `${Math.round(n)} mi`;
 }
 
+/* ─── Where the trip is ──────────────────────────────────────────────────────
+ * A short name means different places in different states: "Waikiki Beach" is
+ * first a beach in Salem, Massachusetts. So lookups prefer the trip's own
+ * area, and a background lookup that still lands far outside it is taken as
+ * not found rather than pinned there.
+ */
+
+export interface Area {
+	west: number;
+	south: number;
+	east: number;
+	north: number;
+}
+
+/* Past this from the middle a pin is a stray, and does not stretch the area. */
+const STRAY_MILES = 250;
+/* A quarter of a degree is about 17 miles, room round the outermost pins. */
+const PAD = 0.25;
+/* A match further than this outside the area is somewhere else of that name. */
+export const FAR_MILES = 150;
+
+const median = (values: number[]) =>
+	values.toSorted((a, b) => a - b)[values.length >> 1];
+
+/** The box round the trip's bases and pins, strays left out. `null` before any are found. */
+export function areaOf(trip: Trip): Area | null {
+	const points = [
+		...(trip.bases ?? []).map((b) => b.at),
+		...[...trip.days.flatMap((d) => d.items), ...trip.ideas].map((i) => i.at),
+	].filter((at): at is Coords => !!at);
+	if (!points.length) return null;
+
+	const middle = {
+		lat: median(points.map((p) => p.lat)),
+		lon: median(points.map((p) => p.lon)),
+	};
+	const near = points.filter((p) => miles(middle, p) <= STRAY_MILES);
+	return {
+		west: Math.max(-180, Math.min(...near.map((p) => p.lon)) - PAD),
+		south: Math.max(-90, Math.min(...near.map((p) => p.lat)) - PAD),
+		east: Math.min(180, Math.max(...near.map((p) => p.lon)) + PAD),
+		north: Math.min(90, Math.max(...near.map((p) => p.lat)) + PAD),
+	};
+}
+
+/** How far a point is outside the area, in miles; 0 inside it. */
+export function outside(area: Area, at: Coords) {
+	const nearest = {
+		lat: Math.max(area.south, Math.min(at.lat, area.north)),
+		lon: Math.max(area.west, Math.min(at.lon, area.east)),
+	};
+	return miles(nearest, at);
+}
+
+/** `west,south,east,north`, Nominatim's own order for a viewbox. */
+export const areaParam = (area: Area) =>
+	[area.west, area.south, area.east, area.north]
+		.map((n) => n.toFixed(3))
+		.join(',');
+
+export function readArea(v: string | null): Area | null {
+	const n = v?.split(',').map(Number);
+	if (!n || n.length !== 4 || !n.every(Number.isFinite)) return null;
+	const [west, south, east, north] = n;
+	if (Math.abs(west) > 180 || Math.abs(east) > 180) return null;
+	if (Math.abs(south) > 90 || Math.abs(north) > 90) return null;
+	return west < east && south < north ? { west, south, east, north } : null;
+}
+
 /*
  * EVERYTHING THE TRIP IS MEASURED FROM, with a place found: the trip's own
  * bases, then any item marked as one. An item marked as a base goes by its title.

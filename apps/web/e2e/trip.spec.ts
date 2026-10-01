@@ -3,6 +3,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { signSession, verifySession } from '../src/lib/server/trip';
 import {
 	applyOp,
+	areaOf,
+	areaParam,
 	basesOf,
 	describeOp,
 	formatMiles,
@@ -11,6 +13,8 @@ import {
 	IDEAS,
 	NICKNAME_ANONYMOUS,
 	NICKNAME_MAX,
+	outside,
+	readArea,
 	readDevice,
 	readNickname,
 	readOptionalNickname,
@@ -211,6 +215,36 @@ test.describe('pins and bases', () => {
 			fields: { base: false },
 		});
 		expect('base' in unmarked.days[0].items[1]).toBe(false);
+	});
+
+	test('the trip’s area is round its pins, and a stray does not stretch it', () => {
+		let trip = sample();
+		const pins: [string, { lat: number; lon: number }][] = [
+			['a', here],
+			['b', { lat: 21.3, lon: -157.85 }],
+			['c', { lat: 21.6, lon: -158.05 }],
+			// Salem, Massachusetts: the beach somebody did not mean.
+			['d', { lat: 42.53, lon: -70.87 }],
+		];
+		for (const [id, at] of pins) {
+			trip = applyOp(trip, { type: 'edit', id, fields: { place: id } });
+			trip = applyOp(trip, { type: 'pin', id, place: id, at });
+		}
+
+		const area = areaOf(trip)!;
+		expect(outside(area, here)).toBe(0);
+		expect(area.east).toBeLessThan(-150);
+		expect(outside(area, { lat: 42.53, lon: -70.87 })).toBeGreaterThan(1000);
+		expect(readArea(areaParam(area))).toEqual({
+			west: Number(area.west.toFixed(3)),
+			south: Number(area.south.toFixed(3)),
+			east: Number(area.east.toFixed(3)),
+			north: Number(area.north.toFixed(3)),
+		});
+		expect(areaOf(sample())).toBeNull();
+		expect(readArea('1,2,3')).toBeNull();
+		expect(readArea('10,0,5,1')).toBeNull();
+		expect(readArea('0,0,200,1')).toBeNull();
 	});
 
 	test('a distance is said to a sensible precision', () => {

@@ -1,13 +1,22 @@
 import { SESSION_COOKIE, tripAt, verifySession } from '$lib/server/trip';
 import { site } from '$lib/site';
-import type { PlaceMatch } from '$lib/trip';
+import {
+	type Area,
+	areaParam,
+	FAR_MILES,
+	outside,
+	type PlaceMatch,
+	readArea,
+} from '$lib/trip';
 import type { RequestHandler } from './$types';
 
 /*
  * WHERE A PLACE IS, from OpenStreetMap's Nominatim, for the trip's pins.
  *
  * `?q=` answers with the best match, which the page pins by itself; `&all=1`
- * with up to five, for a person to choose from. Five on a button's press and
+ * with up to five, for a person to choose from. `&near=` is the trip's area,
+ * which Nominatim ranks first without leaving the rest out, and outside which
+ * a best match too far away is answered as not found. Five on a button's press and
  * never as somebody types, because Nominatim does not allow autocomplete.
  *
  * Behind the trip's cookie, so it is not a free geocoder for anybody who finds
@@ -27,7 +36,11 @@ const cache = new Map<string, PlaceMatch[]>();
 let queue = Promise.resolve();
 let last = 0;
 
-function lookUp(place: string, limit: number): Promise<PlaceMatch[]> {
+function lookUp(
+	place: string,
+	limit: number,
+	near: Area | null,
+): Promise<PlaceMatch[]> {
 	const turn = queue.then(async () => {
 		const wait = last + 1000 - Date.now();
 		if (wait > 0) await new Promise((r) => setTimeout(r, wait));
@@ -37,6 +50,10 @@ function lookUp(place: string, limit: number): Promise<PlaceMatch[]> {
 		url.searchParams.set('format', 'jsonv2');
 		url.searchParams.set('limit', String(limit));
 		url.searchParams.set('q', place);
+		if (near) {
+			url.searchParams.set('viewbox', areaParam(near));
+			url.searchParams.set('bounded', '0');
+		}
 		const response = await fetch(url, {
 			headers: { 'user-agent': UA, accept: 'application/json' },
 			signal: AbortSignal.timeout(6000),
@@ -80,11 +97,12 @@ export const GET: RequestHandler = async ({
 		return new Response(null, { status: 400, headers: HEADERS });
 
 	const all = url.searchParams.get('all') === '1';
-	const key = `${all ? 5 : 1} ${place.toLowerCase()}`;
+	const near = readArea(url.searchParams.get('near'));
+	const key = `${all ? 5 : 1} ${near ? areaParam(near) : ''} ${place.toLowerCase()}`;
 	let matches = cache.get(key);
 	if (!matches) {
 		try {
-			matches = await lookUp(place, all ? 5 : 1);
+			matches = await lookUp(place, all ? 5 : 1, near);
 		} catch {
 			// Not "not found": the page tries again another time.
 			return new Response(null, { status: 502, headers: HEADERS });
@@ -92,7 +110,10 @@ export const GET: RequestHandler = async ({
 		cache.set(key, matches);
 	}
 
-	const body = all ? { matches } : { at: matches[0]?.at ?? null };
+	const best = matches[0]?.at;
+	const body = all
+		? { matches }
+		: { at: best && !(near && outside(near, best) > FAR_MILES) ? best : null };
 	return new Response(JSON.stringify(body), {
 		headers: { ...HEADERS, 'content-type': 'application/json' },
 	});
