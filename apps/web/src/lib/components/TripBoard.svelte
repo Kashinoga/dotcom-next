@@ -10,6 +10,7 @@
 	import Car from '@lucide/svelte/icons/car';
 	import Footprints from '@lucide/svelte/icons/footprints';
 	import GripVertical from '@lucide/svelte/icons/grip-vertical';
+	import Info from '@lucide/svelte/icons/info';
 	import MapPin from '@lucide/svelte/icons/map-pin';
 	import Maximize2 from '@lucide/svelte/icons/maximize-2';
 	import Minimize2 from '@lucide/svelte/icons/minimize-2';
@@ -393,7 +394,7 @@
 								at: b.at,
 								base: true,
 								editable: false,
-								lines: [b.place, ...distances(b)],
+								lines: [b.place, distances(b).join(' · ')].filter(Boolean),
 							},
 						]
 					: [],
@@ -407,7 +408,16 @@
 								at: item.at,
 								base: !!item.base,
 								editable: true,
-								lines: [listName(where), ...distances(item)],
+								// The row's own details, in its order: when, what and where, how far.
+								lines: [
+									listName(where) +
+										(item.time ? ` · ${formatTime(item.time)}` : ''),
+									categoryName(item.category) +
+										(item.place ? ` · ${item.place}` : ''),
+									distances(item).join(' · '),
+								].filter(Boolean),
+								todo: item.prep && !item.prepDone ? item.prep : undefined,
+								notes: item.notes || undefined,
 							},
 						]
 					: [],
@@ -419,6 +429,9 @@
 
 	/* The map over the whole page, under the bar, until Escape or the button. */
 	let fullMap = $state(false);
+
+	const MEASURE_TIP =
+		'Every other place on the trip says how far it is from here, as it does from the hotel and the airport.';
 
 	/* A new base is the hotel, then the airport, then whatever it is renamed to. */
 	function addBase() {
@@ -892,7 +905,13 @@
 					</button>
 				</div>
 			</div>
-			<TripMap bind:this={tripMap} {pins} full={fullMap} editor={mapEditor} />
+			<TripMap
+				bind:this={tripMap}
+				{pins}
+				full={fullMap}
+				editor={mapEditor}
+				remove={(id) => sync.do({ type: 'remove', id })}
+			/>
 		</section>
 	{/if}
 
@@ -1602,16 +1621,34 @@
 	done: () => void,
 	onPage: boolean,
 )}
+	<!--
+		BY QUESTION: what it is, when, where, then the words and the to-do.
+	-->
 	<div class="editor">
-		<label class="field">
-			<span>Title</span>
-			<input
-				class="input"
-				value={item.title}
-				maxlength="200"
-				onchange={(e) => onTitle(item, e.currentTarget)}
-			/>
-		</label>
+		<div class="row">
+			<label class="field grow">
+				<span>Title</span>
+				<input
+					class="input"
+					value={item.title}
+					maxlength="200"
+					onchange={(e) => onTitle(item, e.currentTarget)}
+				/>
+			</label>
+			<label class="field">
+				<span>Kind</span>
+				<select
+					class="input"
+					value={item.category}
+					onchange={(e) =>
+						edit(item.id, { category: e.currentTarget.value as CategoryId })}
+				>
+					{#each CATEGORIES as category (category.id)}
+						<option value={category.id}>{category.name}</option>
+					{/each}
+				</select>
+			</label>
+		</div>
 
 		<div class="row">
 			<label class="field">
@@ -1645,19 +1682,6 @@
 					onchange={(e) => edit(item.id, { time: e.currentTarget.value })}
 				/>
 			</label>
-			<label class="field">
-				<span>Kind</span>
-				<select
-					class="input"
-					value={item.category}
-					onchange={(e) =>
-						edit(item.id, { category: e.currentTarget.value as CategoryId })}
-				>
-					{#each CATEGORIES as category (category.id)}
-						<option value={category.id}>{category.name}</option>
-					{/each}
-				</select>
-			</label>
 		</div>
 
 		<div class="row">
@@ -1690,6 +1714,8 @@
 			>
 				<Search /> Find
 			</button>
+		</div>
+		<div class="check-line">
 			<label class="check">
 				<input
 					type="checkbox"
@@ -1698,6 +1724,16 @@
 				/>
 				Measure from here
 			</label>
+			<!--
+				OUTSIDE THE LABEL, so pressing it does not tick the box. Focusable, so a
+				tap or the keyboard shows the tip as a pointer resting on it does.
+			-->
+			<button
+				type="button"
+				class="info"
+				aria-label={MEASURE_TIP}
+				data-tip={MEASURE_TIP}><Info aria-hidden="true" /></button
+			>
 		</div>
 		{#if finding?.id === item.id}
 			{@render matches(finding)}
@@ -1737,27 +1773,32 @@
 					checked={item.prepDone}
 					onchange={(e) => edit(item.id, { prepDone: e.currentTarget.checked })}
 				/>
-				Done
+				<!-- Not "Done", which is the button below. -->
+				Handled
 			</label>
 		</div>
 
-		<div class="actions">
-			<button
-				type="button"
-				class="pill danger"
-				onclick={() => {
-					if (confirming !== item.id) return (confirming = item.id);
-					confirming = null;
-					done();
-					sync.do({ type: 'remove', id: item.id });
-				}}
-				onblur={() => confirming === item.id && (confirming = null)}
-			>
-				{confirming === item.id ? 'Delete for everyone' : 'Delete'}
-			</button>
-			<span class="spacer"></span>
-			<button type="button" class="pill primary" onclick={done}> Done </button>
-		</div>
+		<!-- In a card on the map, the band holds these: its pencil puts the form
+		away, and its foot deletes. -->
+		{#if onPage}
+			<div class="actions">
+				<button
+					type="button"
+					class="pill danger"
+					onclick={() => {
+						if (confirming !== item.id) return (confirming = item.id);
+						confirming = null;
+						done();
+						sync.do({ type: 'remove', id: item.id });
+					}}
+					onblur={() => confirming === item.id && (confirming = null)}
+				>
+					{confirming === item.id ? 'Delete for everyone' : 'Delete'}
+				</button>
+				<span class="spacer"></span>
+				<button type="button" class="pill primary" onclick={done}>Done</button>
+			</div>
+		{/if}
 	</div>
 {/snippet}
 
@@ -2532,6 +2573,67 @@
 		font-size: var(--text-label1);
 		text-align: start;
 		cursor: pointer;
+	}
+
+	/*
+	 * THE TIP opens from the line's start toward the form's free width, so it
+	 * is not cut off at the edge of a card, and stands above it.
+	 */
+	.check-line {
+		position: relative;
+		display: flex;
+		align-items: center;
+		gap: var(--space-6);
+	}
+
+	.info {
+		appearance: none;
+		padding: 0;
+		border: none;
+		background: none;
+		display: inline-flex;
+		color: color-mix(in oklab, var(--fg) 60%, transparent);
+		border-radius: var(--radius-round);
+		cursor: help;
+	}
+
+	.info :global(svg) {
+		inline-size: 1rem;
+		block-size: 1rem;
+	}
+
+	.info:focus-visible {
+		outline: 2px solid var(--fg);
+		outline-offset: 2px;
+	}
+
+	.info::after {
+		content: attr(data-tip);
+		position: absolute;
+		inset-inline-start: 0;
+		inset-block-end: calc(100% + var(--space-4));
+		z-index: 1;
+		inline-size: max-content;
+		max-inline-size: min(18rem, 100%);
+		padding: var(--space-6) var(--space-8);
+		border-radius: var(--radius-s);
+		background-color: var(--bg);
+		color: var(--fg);
+		box-shadow:
+			inset 0 0 0 1px var(--edge),
+			0 var(--space-4) var(--space-16) rgb(0 0 0 / 12%);
+		font-size: var(--text-label1);
+		line-height: var(--leading-tight);
+		/* A button centres its words; a tip reads from the start. */
+		text-align: start;
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity var(--motion-morph) ease-out;
+	}
+
+	.info:hover::after,
+	.info:focus::after {
+		opacity: 1;
 	}
 
 	/* A match somewhere else of the same name, said so before it is chosen. */

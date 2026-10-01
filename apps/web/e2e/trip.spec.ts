@@ -797,6 +797,16 @@ test.describe('unlocked', () => {
 		await expect(popup.locator('strong')).toHaveText('E2E e2e-one');
 
 		await popup.getByRole('button', { name: 'Edit E2E e2e-one' }).click();
+
+		// Scrolled out of view, its dot takes the card with it, form open or not,
+		// so a card never stands over the bar.
+		await popup.locator('input').first().focus();
+		await page.evaluate(() => scrollBy(0, innerHeight));
+		await expect(popup.locator('.pop-body')).toHaveCount(0);
+		await page.evaluate(() => scrollTo(0, 0));
+		await map.locator('path[data-pin="e2e-one"]').click({ force: true });
+		await popup.getByRole('button', { name: 'Edit E2E e2e-one' }).click();
+
 		await popup.getByRole('button', { name: 'Find' }).click();
 		await popup.getByRole('button', { name: /E2E Cove/ }).click();
 		await expect(page.getByRole('status')).toHaveText('All changes saved.');
@@ -804,6 +814,16 @@ test.describe('unlocked', () => {
 		const found = (await storedDay(page)).find((i) => i.id === 'e2e-one')!;
 		expect(found.place).toBe('E2E beach');
 		expect(found.at).toEqual(cove);
+
+		// The band's foot deletes it, on the second press and not the first.
+		await popup.getByRole('button', { name: 'Delete E2E e2e-one' }).click();
+		expect((await storedDay(page)).some((i) => i.id === 'e2e-one')).toBe(true);
+		await popup
+			.getByRole('button', { name: 'Delete E2E e2e-one for everyone' })
+			.click();
+		await expect(popup.locator('.pop-body')).toHaveCount(0);
+		await expect(page.getByRole('status')).toHaveText('All changes saved.');
+		expect((await storedDay(page)).some((i) => i.id === 'e2e-one')).toBe(false);
 	});
 
 	test('each change is written into the history under its author’s name', async ({

@@ -8,8 +8,11 @@
 		base: boolean;
 		/* Whether its popup offers the edit form. A thing on the trip, not a base. */
 		editable: boolean;
-		/* Lines under the title in its popup: the day, then the distances. */
+		/* Lines under the title in its card: when, what and where, how far. */
 		lines: string[];
+		/* What is still to do before the trip, if anything. */
+		todo?: string;
+		notes?: string;
 	}
 </script>
 
@@ -19,17 +22,21 @@
 	import type { Snippet } from 'svelte';
 
 	import Pencil from '@lucide/svelte/icons/pencil';
+	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import X from '@lucide/svelte/icons/x';
 
 	let {
 		pins,
 		full = false,
 		editor,
+		remove: removeThing,
 	}: {
 		pins: Pin[];
 		full?: boolean;
 		/* The board's own edit form, for a thing, and how to put it away. */
 		editor?: Snippet<[string, () => void]>;
+		/* Delete a thing, for everyone. */
+		remove?: (id: string) => void;
 	} = $props();
 
 	/*
@@ -86,9 +93,13 @@
 		room: number;
 	} | null>(null);
 
+	/* A delete asks twice, as the row's does: the first press only arms it. */
+	let arming = $state(false);
+
 	function close() {
 		openId = null;
 		editing = false;
+		arming = false;
 	}
 
 	function show(id: string) {
@@ -176,7 +187,8 @@
 	 * PLACE THE CARD BY ITS DOT: above it when it fits, below when only that
 	 * fits, else on whichever side has more room with the words scrolling. Kept
 	 * inside the window, and below the bar. A dot panned or scrolled out of sight
-	 * takes its card with it, unless the form is open in it.
+	 * takes its card with it, form open or not, so a card never stands over the
+	 * bar; the field being typed in is left first, which saves it.
 	 */
 	const MARGIN = 8;
 	// A base's dot is 9px across its middle, and the pointer 6px more.
@@ -204,7 +216,12 @@
 			point.y <= box.height &&
 			y >= ceiling &&
 			y <= floor;
-		if (!seen && !editing) return close();
+		if (!seen) {
+			const typing = document.activeElement;
+			if (typing instanceof HTMLElement && popEl.contains(typing))
+				typing.blur();
+			return close();
+		}
 
 		const body = popEl.querySelector<HTMLElement>('.pop-body');
 		const height = body?.scrollHeight ?? popEl.offsetHeight;
@@ -352,13 +369,16 @@
 >
 	{#if open}
 		<div class="pop-body">
-			<strong>{open.title}</strong>
 			{#if editing && editor}
+				<!-- The form's own Title field stands for the name. -->
 				{@render editor(open.id, () => (editing = false))}
 			{:else}
+				<strong>{open.title}</strong>
 				{#each open.lines as line, i (i)}
 					<p>{line}</p>
 				{/each}
+				{#if open.todo}<p class="todo">To do: {open.todo}</p>{/if}
+				{#if open.notes}<p class="notes">{open.notes}</p>{/if}
 			{/if}
 		</div>
 		<div class="pop-band">
@@ -372,9 +392,34 @@
 					aria-label="Edit {open.title}"
 					aria-expanded={editing}
 					data-open={editing || undefined}
-					onclick={() => (editing = !editing)}
+					onclick={() => {
+						editing = !editing;
+						arming = false;
+					}}
 				>
 					<Pencil />
+				</button>
+			{/if}
+			<!-- At the foot of the band, apart from the two that keep the card. -->
+			{#if editing && open.editable && removeThing}
+				{@const label = arming
+					? `Delete ${open.title} for everyone`
+					: `Delete ${open.title}`}
+				<button
+					type="button"
+					class="control remove"
+					aria-label={label}
+					title={arming ? 'Press again to delete for everyone' : 'Delete'}
+					data-open={arming || undefined}
+					onclick={() => {
+						if (!arming) return (arming = true);
+						const id = open.id;
+						close();
+						removeThing(id);
+					}}
+					onblur={() => (arming = false)}
+				>
+					<Trash2 />
 				</button>
 			{/if}
 		</div>
@@ -503,9 +548,15 @@
 		visibility: hidden;
 	}
 
-	/* 24rem is the edit form's width and the band beside it. */
+	/* 26rem holds the form's Title and Kind side by side, and the band. */
 	.pop.editing {
-		inline-size: min(24rem, 100vw - var(--space-16) * 2);
+		inline-size: min(26rem, 100vw - var(--space-16) * 2);
+		max-inline-size: none;
+	}
+
+	/* The title gives way first, so Kind keeps its place beside it. */
+	.pop :global(.editor .grow) {
+		flex-basis: 10rem;
 	}
 
 	/*
@@ -576,7 +627,8 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
-		padding: var(--space-4);
+		/* 6px, so the 28px × centres on the title's line 12px down. */
+		padding: var(--space-6);
 		border-start-end-radius: var(--radius-l);
 		border-end-end-radius: var(--radius-l);
 		background-color: var(--shell);
@@ -587,6 +639,10 @@
 			inset 0 -1px 0 var(--edge);
 	}
 
+	.pop-band .remove {
+		margin-block-start: auto;
+	}
+
 	.pop-band :global(svg) {
 		inline-size: 1rem;
 		block-size: 1rem;
@@ -595,6 +651,28 @@
 	.pop p {
 		margin: 0;
 		color: color-mix(in oklab, var(--fg) 60%, transparent);
+	}
+
+	/* The row's to-do highlight, the thing on it that wants reading first. */
+	.pop p.todo {
+		align-self: start;
+		margin-block-start: var(--space-4);
+		padding: var(--space-2) var(--space-6);
+		border-radius: var(--radius-s);
+		background-color: var(--accent);
+		color: var(--accent-fg);
+	}
+
+	/* The notes in full colour, a step below, and four lines at most. */
+	.pop p.notes {
+		margin-block-start: var(--space-4);
+		color: var(--fg);
+		white-space: pre-line;
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 4;
+		line-clamp: 4;
+		overflow: hidden;
 	}
 
 	/* The form's own step between fields, from the title down to the first. */
