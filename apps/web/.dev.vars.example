@@ -1,4 +1,4 @@
 # Copy to .dev.vars for local work. These open the dummy trip in
-# scripts/dummy-trip.json at /shared/local-trip, and are not the real ones.
+# scripts/dummy-trip.json at /trip-planner/local-trip, and are not the real ones.
 TRIP_SLUG=local-trip
 TRIP_PASSCODE=local
