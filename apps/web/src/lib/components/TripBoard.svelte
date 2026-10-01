@@ -348,7 +348,12 @@
 	}
 
 	function choose(id: string, query: string, match: PlaceMatch) {
-		if (pinOf(id)?.place !== query) edit(id, { place: query });
+		// A base's place is a base's own edit, and a thing's is a thing's.
+		if (pinOf(id)?.place !== query) {
+			if (trip.bases?.some((b) => b.id === id))
+				sync.do({ type: 'editBase', id, fields: { place: query } });
+			else edit(id, { place: query });
+		}
 		sync.do({ type: 'pin', id, place: query, at: match.at });
 		finding = null;
 	}
@@ -1259,8 +1264,31 @@
 											id: base.id,
 											fields: { place: e.currentTarget.value.trim() },
 										})}
+									onkeydown={(e) => {
+										if (e.key !== 'Enter') return;
+										e.preventDefault();
+										void find(base.id, e.currentTarget.value);
+									}}
 								/>
 							</label>
+							<!-- A mark and not a word: the drawer has room for one more circle
+							     in the row, and not for a pill. -->
+							<button
+								type="button"
+								class="control"
+								aria-label="Find {base.label} on the map"
+								title="Find on the map"
+								onclick={(e) =>
+									find(
+										base.id,
+										e.currentTarget
+											.closest('.row')
+											?.querySelector<HTMLInputElement>('.grow input')?.value ??
+											'',
+									)}
+							>
+								<Search />
+							</button>
 							<button
 								type="button"
 								class="control"
@@ -1270,9 +1298,12 @@
 								<X />
 							</button>
 						</div>
-						{#if base.place && base.at === null}
+						{#if finding?.id === base.id}
+							{@render matches(finding)}
+						{:else if base.place && base.at === null}
 							<p class="note">
-								{base.label} was not found on the map. A fuller address may help.
+								{base.label} was not found on the map. Find shows what the map knows,
+								or add the town or state.
 							</p>
 						{/if}
 					{/each}

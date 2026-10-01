@@ -870,6 +870,54 @@ test.describe('unlocked', () => {
 		expect((await storedDay(page)).some((i) => i.id === 'e2e-one')).toBe(false);
 	});
 
+	test('a base’s Find pins the match chosen, and keeps what was typed', async ({
+		page,
+	}) => {
+		const lodge = { lat: 21.28, lon: -157.83 };
+		const inn = { lat: 21.29, lon: -157.84 };
+		await page.route('**/api/geocode?**', (route) =>
+			new URL(route.request().url()).searchParams.get('all') === '1'
+				? route.fulfill({
+						json: {
+							matches: [
+								{ name: 'E2E Lodge, Somewhere', at: lodge },
+								{ name: 'E2E Inn, Elsewhere', at: inn },
+							],
+						},
+					})
+				: route.abort(),
+		);
+		await page.request.post(API, {
+			data: {
+				type: 'addBase',
+				base: { id: 'e2e-find', label: 'E2E Stay', place: '' },
+			},
+		});
+		try {
+			await page.reload();
+			await page.locator('.board[data-ready]').waitFor({ state: 'attached' });
+			await page.getByRole('button', { name: 'Settings', exact: true }).click();
+			// By its Find, since a field's value is not an attribute to match on.
+			const find = page.getByRole('button', {
+				name: 'Find E2E Stay on the map',
+			});
+			const row = page.locator('.row.base').filter({ has: find });
+			await row.locator('.grow input').fill('E2E inn');
+			await find.click();
+			await page.getByRole('button', { name: /E2E Inn/ }).click();
+			await expect(page.getByRole('status')).toHaveText('All changes saved.');
+
+			const { trip } = await (await page.request.get(API)).json();
+			const base = trip.bases.find((b: { id: string }) => b.id === 'e2e-find');
+			expect(base.place).toBe('E2E inn');
+			expect(base.at).toEqual(inn);
+		} finally {
+			await page.request.post(API, {
+				data: { type: 'removeBase', id: 'e2e-find' },
+			});
+		}
+	});
+
 	test('each change is written into the history under its author’s name', async ({
 		page,
 		browser,
