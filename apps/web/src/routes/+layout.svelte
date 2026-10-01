@@ -264,7 +264,7 @@
 	-->
 	<a
 		class="brand"
-		class:showing-page={scrolledPast && !!here}
+		class:showing-page={!!here && (scrolledPast || !!bar.title)}
 		href="/"
 		aria-label={scrollsToTop ? 'Back to the top' : site.name}
 		aria-current={page.url.pathname === '/' ? 'page' : undefined}

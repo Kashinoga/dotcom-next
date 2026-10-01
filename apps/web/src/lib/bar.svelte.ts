@@ -10,8 +10,8 @@
  * NOT THE APPS' NAME. An app in $lib/apps has its name REPLACE the site's in the
  * bar, because on a fullscreen app the bar is the app's chrome. A title claimed
  * here is ADDED after whichever name the bar wears: after the site's on a page
- * of the site, and after the app's on a page inside one — "Trip Planner | GG in
- * Hawaii '26".
+ * of the site, and after the app's on a page inside one, where the app's name
+ * shows from the start — "Trip Planner | GG in Hawaii '26".
  */
 
 import type { Component } from 'svelte';
