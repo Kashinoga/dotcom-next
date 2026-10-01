@@ -802,6 +802,19 @@ test.describe('unlocked', () => {
 			await expect(page.locator('.pop strong')).toHaveText('E2E Hotel');
 			await expect(page.locator('.pop')).toContainText('E2E hotel');
 
+			// A base is edited in Settings, with the others: its pencil opens them
+			// with that base's name in hand.
+			await page
+				.getByRole('button', { name: 'Edit E2E Hotel in Settings' })
+				.click();
+			await expect(page.locator('.pop strong')).toHaveCount(0);
+			const name = page.locator('[data-base="e2e-base"] input').first();
+			await expect(name).toBeFocused();
+			await expect(name).toHaveValue('E2E Hotel');
+			await page.getByRole('button', { name: 'Close settings' }).click();
+			await map.locator('.leaflet-tooltip', { hasText: 'E2E Hotel' }).click();
+			await expect(page.locator('.pop strong')).toHaveText('E2E Hotel');
+
 			// Full view fills the page under the bar. Escape puts away the base's
 			// card first, and then the full view.
 			await page.getByRole('button', { name: 'Full view' }).click();
@@ -818,6 +831,42 @@ test.describe('unlocked', () => {
 				data: { type: 'removeBase', id: 'e2e-base' },
 			});
 		}
+	});
+
+	test('the wheel is the map’s only once the map is chosen', async ({
+		page,
+	}) => {
+		const map = page.locator('.map-section .map');
+		await expect(map).toBeVisible();
+		await expect(map).not.toHaveClass(/engaged/);
+
+		// A press chooses it, and the ring says so. Leaflet writes its own
+		// outline off on the press; the ring must outlast that.
+		const box = (await map.boundingBox())!;
+		await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+		await expect(map).toHaveClass(/engaged/);
+		await expect(map).toHaveCSS('outline-style', 'solid');
+
+		// And it stays chosen through a drag.
+		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(
+			box.x + box.width / 2 + 80,
+			box.y + box.height / 2 + 40,
+			{
+				steps: 5,
+			},
+		);
+		await page.mouse.up();
+		await expect(map).toHaveCSS('outline-style', 'solid');
+
+		// Escape lets go, and so does a press anywhere else.
+		await page.keyboard.press('Escape');
+		await expect(map).not.toHaveClass(/engaged/);
+		await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+		await expect(map).toHaveClass(/engaged/);
+		await page.locator('h1').click();
+		await expect(map).not.toHaveClass(/engaged/);
 	});
 
 	test('a pin’s popup edits the thing, and Find pins the match chosen', async ({

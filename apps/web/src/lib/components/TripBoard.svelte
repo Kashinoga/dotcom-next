@@ -101,6 +101,26 @@
 	});
 
 	/*
+	 * A BASE'S PIN SENDS ITS PENCIL HERE: Settings opens, and the base's own
+	 * Name is the field with the focus, so the next key edits that base and not
+	 * whichever field the dialog would otherwise have started on. After the
+	 * dialog has opened, which is an effect's doing, and after the browser has
+	 * given the dialog its own first focus.
+	 */
+	async function editBase(id: string) {
+		panel = 'settings';
+		await tick();
+		requestAnimationFrame(() => {
+			const field = settingsDialog?.querySelector<HTMLInputElement>(
+				`[data-base="${CSS.escape(id)}"] input`,
+			);
+			field?.scrollIntoView({ block: 'nearest' });
+			field?.focus();
+			field?.select();
+		});
+	}
+
+	/*
 	 * A THING THAT CHANGES LISTS GOES THERE, from where it was: a row onto
 	 * another day or into the ideas, a checked item into "done". One pair per
 	 * kind of list, so a row never flies into the checklist. With nowhere to
@@ -938,6 +958,7 @@
 				full={fullMap}
 				editor={mapEditor}
 				remove={(id) => sync.do({ type: 'remove', id })}
+				{editBase}
 			/>
 		</section>
 	{/if}
@@ -1258,7 +1279,7 @@
 					</p>
 
 					{#each trip.bases ?? [] as base (base.id)}
-						<div class="row base">
+						<div class="row base" data-base={base.id}>
 							<label class="field">
 								<span>Name</span>
 								<input

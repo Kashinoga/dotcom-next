@@ -39,6 +39,7 @@
 		full = false,
 		editor,
 		remove: removeThing,
+		editBase,
 	}: {
 		pins: Pin[];
 		full?: boolean;
@@ -46,6 +47,8 @@
 		editor?: Snippet<[string, () => void]>;
 		/* Delete a thing, for everyone. */
 		remove?: (id: string) => void;
+		/* Take a base to where it is edited: the board's Settings. */
+		editBase?: (id: string) => void;
 	} = $props();
 
 	/*
@@ -123,7 +126,8 @@
 		void import('leaflet').then((leaflet) => {
 			if (gone || !container) return;
 			map = leaflet.map(container, {
-				// A wheel over the map scrolls the page. The buttons zoom.
+				// A wheel over the map scrolls the page, until the map is chosen;
+				// see `engaged`. The buttons zoom either way.
 				scrollWheelZoom: false,
 				// One finger scrolls the page on a phone; two pinch the map.
 				dragging: !leaflet.Browser.mobile,
@@ -181,12 +185,67 @@
 		};
 	});
 
-	/* Escape puts the popup away first, before the board hears it and leaves full view. */
+	/*
+	 * THE WHEEL IS THE MAP'S ONCE THE MAP IS CHOSEN. Over a map that has not
+	 * been, a wheel scrolls the page, so a reader scrolling down the board is
+	 * not caught in a map they were only passing over. A press on the map
+	 * chooses it — Leaflet focuses its own box on the press — and so does
+	 * tabbing to it. From then on the wheel zooms, and a ring round the map
+	 * says where the wheel has gone.
+	 *
+	 * Chosen for as long as focus is anywhere in the map, its zoom buttons and
+	 * pins included. A press anywhere else, a Tab away or Escape hands the
+	 * wheel back to the page.
+	 *
+	 * ONLY WITH A POINTER THAT HOVERS. A wheel is a mouse's or a trackpad's; a
+	 * finger pinches the map already, and a ring on every tap would be a ring
+	 * saying nothing.
+	 */
+	let engaged = $state(false);
+
+	$effect(() => {
+		if (!container || !L) return;
+		const box = container;
+		const hovers = matchMedia('(hover: hover)');
+
+		const sync = () => {
+			engaged = hovers.matches && box.contains(document.activeElement);
+			if (engaged) map?.scrollWheelZoom.enable();
+			else map?.scrollWheelZoom.disable();
+		};
+
+		/* A frame later, so focus moving between two things in the map — the
+		 * box to a zoom button — has landed before it is asked where it is. */
+		let frame = 0;
+		const later = () => {
+			cancelAnimationFrame(frame);
+			frame = requestAnimationFrame(sync);
+		};
+
+		box.addEventListener('focusin', sync);
+		box.addEventListener('focusout', later);
+		return () => {
+			cancelAnimationFrame(frame);
+			box.removeEventListener('focusin', sync);
+			box.removeEventListener('focusout', later);
+		};
+	});
+
+	/*
+	 * Escape puts the popup away first, before the board hears it and leaves
+	 * full view. Without a popup it lets go of the map too, and still lets the
+	 * board hear it: letting go takes nothing off the screen, so it is not worth
+	 * a press of its own on the way out of full view.
+	 */
 	$effect(() => {
 		const onKey = (event: KeyboardEvent) => {
-			if (event.key !== 'Escape' || !openId) return;
-			event.stopImmediatePropagation();
-			close();
+			if (event.key !== 'Escape') return;
+			if (openId) {
+				event.stopImmediatePropagation();
+				close();
+			} else if (engaged) {
+				(document.activeElement as HTMLElement | null)?.blur();
+			}
 		};
 		addEventListener('keydown', onKey, true);
 		return () => removeEventListener('keydown', onKey, true);
@@ -384,7 +443,7 @@
 	}
 </script>
 
-<div class="map" bind:this={container}></div>
+<div class="map" class:engaged bind:this={container}></div>
 
 <div
 	class="pop"
@@ -417,6 +476,26 @@
 			<button type="button" class="control" aria-label="Close" onclick={close}>
 				<X />
 			</button>
+			<!--
+				A BASE IS EDITED IN SETTINGS, with the others, and not in a card: it
+				has a name and a place and nothing else, and Settings is where its
+				Find is. The pencil takes it there.
+			-->
+			{#if open.base && !open.editable && editBase}
+				<button
+					type="button"
+					class="control"
+					aria-label="Edit {open.title} in Settings"
+					title="Edit in Settings"
+					onclick={() => {
+						const id = open.id;
+						close();
+						editBase(id);
+					}}
+				>
+					<Pencil />
+				</button>
+			{/if}
 			{#if open.editable && editor}
 				<button
 					type="button"
@@ -468,6 +547,29 @@
 		/* Below the bar and the drawers, which Leaflet's own z-indexes are not. */
 		isolation: isolate;
 		z-index: 0;
+	}
+
+	/*
+	 * THE WHEEL IS THE MAP'S: the site's focus ring, round the whole map, for as
+	 * long as it is chosen. Leaflet's own focus outline is taken off, so a
+	 * keyboard reaching the map shows this one ring and not two.
+	 */
+	.map:not(.engaged):focus,
+	.map:not(.engaged):focus-visible {
+		outline: none;
+	}
+
+	/*
+	 * `!important`, because Leaflet writes `outline-style: none` onto the map's
+	 * own style on every press (`DomUtil.preventOutline`) and takes it off only
+	 * at the next key. Without this the ring went on a click or a drag — the
+	 * very presses that choose the map — and came back only when a pin took the
+	 * focus.
+	 */
+	.map.engaged {
+		outline: 2px solid var(--fg);
+		outline-style: solid !important;
+		outline-offset: 2px;
 	}
 
 	/*
