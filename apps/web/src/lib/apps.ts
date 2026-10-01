@@ -20,6 +20,7 @@ import type { Component } from 'svelte';
 // makes the dev server pre-bundle all 1600.
 import CloudSun from '@lucide/svelte/icons/cloud-sun';
 import FaceSlightlySmiling from '@lucide/svelte/icons/face-slightly-smiling';
+import Luggage from '@lucide/svelte/icons/luggage';
 import SquarePen from '@lucide/svelte/icons/square-pen';
 
 export interface App {
@@ -114,6 +115,15 @@ export const apps: App[] = [
 		href: '/text-editor',
 		icon: SquarePen,
 		fullscreen: true,
+	},
+	{
+		slug: 'trip-planner',
+		name: 'Trip Planner',
+		description:
+			'A trip, planned together: the days, the places, and the miles between them.',
+		// The page about it. Each trip is under it at an address of its own.
+		href: '/trip-planner',
+		icon: Luggage,
 	},
 	{
 		slug: 'weather',

@@ -457,6 +457,8 @@ test('an address that is not the trip is the site’s ordinary 404', async ({
 	 * one a mistyped URL gets, for the page and for its API alike.
 	 */
 	for (const path of [
+		'/trip-planner/definitely-not-the-trip',
+		'/trip-planner/definitely-not-the-trip/api',
 		'/shared/definitely-not-the-trip',
 		'/shared/definitely-not-the-trip/api',
 		'/trip',
@@ -468,14 +470,56 @@ test('an address that is not the trip is the site’s ordinary 404', async ({
 
 const SLUG = process.env.TRIP_SLUG;
 const PASSCODE = process.env.TRIP_PASSCODE;
-const PAGE = `/shared/${SLUG}`;
+const PAGE = `/trip-planner/${SLUG}`;
 const API = `${PAGE}/api`;
+
+test('the page about it is open to anybody, and listed among the apps', async ({
+	page,
+}) => {
+	await page.goto('/trip-planner');
+	await expect(page.locator('h1')).toHaveText('Trip Planner');
+	await page.goto('/apps');
+	await expect(
+		page.getByRole('link', { name: 'Trip Planner' }),
+	).toHaveAttribute('href', '/trip-planner');
+});
 
 test.describe('at the trip’s address', () => {
 	test.skip(
 		!SLUG || !PASSCODE,
 		'Set TRIP_SLUG and TRIP_PASSCODE to the development values to run these.',
 	);
+
+	test('the old address sends a signed-in browser on, still signed in', async ({
+		page,
+	}) => {
+		const old = `/shared/${SLUG}`;
+		await page.context().addCookies([
+			{
+				name: 'trip_session',
+				value: await signSession(PASSCODE!, 'E2E Moved'),
+				domain: 'localhost',
+				path: old,
+				httpOnly: true,
+				secure: true,
+				sameSite: 'Lax',
+			},
+		]);
+		await page.goto(`${old}?from=chat`);
+		expect(new URL(page.url()).pathname).toBe(PAGE);
+		expect(new URL(page.url()).search).toBe('?from=chat');
+		await page.locator('.board[data-ready]').waitFor({ state: 'attached' });
+
+		const cookies = await page.context().cookies();
+		const session = cookies.filter((c) => c.name === 'trip_session');
+		expect(session.map((c) => c.path)).toEqual([PAGE]);
+
+		// A change sent to the old API lands too, method and body intact.
+		const response = await page.request.post(`${old}/api`, {
+			data: { type: 'remove', id: 'no-such-thing' },
+		});
+		expect(response.status()).toBe(200);
+	});
 
 	test('the locked page carries nothing of the trip', async ({
 		page,

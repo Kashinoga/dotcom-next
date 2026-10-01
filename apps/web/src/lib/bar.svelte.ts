@@ -8,9 +8,10 @@
  * claim's cleanup takes it back out when the page goes.
  *
  * NOT THE APPS' NAME. An app in $lib/apps has its name REPLACE the site's in the
- * bar, because on a fullscreen app the bar is the app's chrome. A page claiming a
- * title here is still a page of the site, so its name is ADDED after the site's
- * — "Kashinoga | GG in Hawaii '26" — and the site's name never leaves.
+ * bar, because on a fullscreen app the bar is the app's chrome. A title claimed
+ * here is ADDED after whichever name the bar wears: after the site's on a page
+ * of the site, and after the app's on a page inside one — "Trip Planner | GG in
+ * Hawaii '26".
  */
 
 import type { Component } from 'svelte';
@@ -32,14 +33,7 @@ export interface BarStatus {
 	Icon?: Component;
 }
 
-/* An app the bar names in place of the site's, like those in $lib/apps. */
-export interface BarApp {
-	name: string;
-	Icon: Component;
-}
-
 let title = $state<string | null>(null);
-let app = $state<BarApp | null>(null);
 let status = $state<BarStatus | null>(null);
 
 export const bar = {
@@ -51,28 +45,12 @@ export const bar = {
 		return status;
 	},
 
-	get app() {
-		return app;
-	},
-
 	/* Call inside an $effect. Returns the cleanup, so the name leaves with the page
 	 * — and so an effect re-run with a new name replaces the old one in a step. */
 	name(value: string) {
 		title = value;
 		return () => {
 			title = null;
-		};
-	},
-
-	/*
-	 * AN APP WITHOUT A PUBLIC ADDRESS, for the layout to wear as it wears one in
-	 * $lib/apps: the Trip Planner, whose address is a secret and so cannot be
-	 * written into that list to be looked up.
-	 */
-	claim(value: BarApp) {
-		app = value;
-		return () => {
-			app = null;
 		};
 	},
 

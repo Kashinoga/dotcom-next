@@ -44,7 +44,8 @@
 	],
 
 	// THE TRIP'S ADDRESS AND PASSCODE are secrets and are not written here, because
-	// this repository is public. The page answers only at /shared/<TRIP_SLUG>.
+	// this repository is public. The page answers only at
+	// /trip-planner/<TRIP_SLUG>, and the old /shared/<TRIP_SLUG> sends people there.
 	// Set both with `pnpm --filter web exec wrangler secret put TRIP_SLUG` (and
 	// TRIP_PASSCODE), and for local work put `TRIP_SLUG=…` and `TRIP_PASSCODE=…`
 	// in apps/web/.dev.vars, which git ignores.

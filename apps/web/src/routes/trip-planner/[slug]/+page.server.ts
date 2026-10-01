@@ -1,10 +1,10 @@
-import { fail, redirect, type Cookies } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 
 import {
 	passcodeMatches,
 	readStored,
 	SESSION_COOKIE,
-	SESSION_SECONDS,
+	setSession,
 	signSession,
 	tripAt,
 	verifySession,
@@ -19,7 +19,7 @@ import type { Actions, PageServerLoad } from './$types';
  * request without the cookie is sent the lock and nothing else — the itinerary
  * is not in the HTML, hidden or otherwise.
  *
- * And only at the one address `TRIP_SLUG` names. Every other /shared/… is the
+ * And only at the one address `TRIP_SLUG` names. Every other /trip-planner/… is the
  * site's 404; see `tripAt`.
  */
 export const prerender = false;
@@ -59,26 +59,6 @@ export const load: PageServerLoad = async ({
 		...(await readStored(env.db)),
 	};
 };
-
-/*
- * `lax` and NOT `strict`, which looks safer and would break the one thing a
- * friend actually does: tap a link to this page in a group chat. A strict cookie
- * is not sent on a navigation that starts on another site, so every one of those
- * would land on the lock. Lax is sent on that and withheld from a cross-site
- * POST, which is where the forgery risk lives.
- *
- * `path` is the trip's own address, so the cookie goes with a request for this
- * page and its API and with nothing else on the site.
- */
-function setSession(cookies: Cookies, path: string, value: string) {
-	cookies.set(SESSION_COOKIE, value, {
-		path,
-		httpOnly: true,
-		secure: true,
-		sameSite: 'lax',
-		maxAge: SESSION_SECONDS,
-	});
-}
 
 export const actions: Actions = {
 	unlock: async ({ request, cookies, params, platform, getClientAddress }) => {

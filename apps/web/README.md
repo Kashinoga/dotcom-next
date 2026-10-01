@@ -22,9 +22,9 @@ Its content changes with the state of the build directory, so do not compare it
 with `wrangler types --check`. The template did this in `build` and in `check`,
 and the two wanted different content.
 
-## The Shared Trip, Locally
+## The Trip Planner, Locally
 
-The trip at `/shared/<TRIP_SLUG>` answers only when its address and passcode are
+The trip at `/trip-planner/<TRIP_SLUG>` answers only when its address and passcode are
 set, and shows only what is in the database. For local work there is a dummy
 trip, so nothing real has to leave the machine it lives on.
 
@@ -33,7 +33,8 @@ cp apps/web/.dev.vars.example apps/web/.dev.vars
 pnpm --filter web trip:seed scripts/dummy-trip.json
 ```
 
-Then open `http://localhost:5173/shared/local-trip`; the passcode is `local`.
+Then open `http://localhost:5173/trip-planner/local-trip`; the passcode is
+`local`. The old address, `/shared/local-trip`, sends you there.
 The seed will not write over a trip already in the local database. Add
 `--replace` to put the dummy back after a change.
 

@@ -11,7 +11,6 @@
 	import Footprints from '@lucide/svelte/icons/footprints';
 	import GripVertical from '@lucide/svelte/icons/grip-vertical';
 	import Info from '@lucide/svelte/icons/info';
-	import Luggage from '@lucide/svelte/icons/luggage';
 	import MapPin from '@lucide/svelte/icons/map-pin';
 	import Maximize2 from '@lucide/svelte/icons/maximize-2';
 	import Minimize2 from '@lucide/svelte/icons/minimize-2';
@@ -226,7 +225,6 @@
 	 */
 	$effect(() => bar.report(STATUS[sync.state]));
 	$effect(() => bar.name(trip.title));
-	$effect(() => bar.claim({ name: 'Trip Planner', Icon: Luggage }));
 	$effect(() => ontrip?.(trip));
 
 	/* What a keyboard move said, for a screen reader. Separate from the status,

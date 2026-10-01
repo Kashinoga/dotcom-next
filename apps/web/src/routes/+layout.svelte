@@ -77,11 +77,13 @@
 		const path = page.url.pathname;
 		if (onApps) return { name: 'Apps', Icon: LayoutGrid, fullscreen: false };
 
-		const app = apps.find((a) => a.href === path);
-		if (app?.icon)
-			return { name: app.name, Icon: app.icon, fullscreen: !!app.fullscreen };
-		// An app at an address that cannot be listed, claimed by its own page.
-		return bar.app ? { ...bar.app, fullscreen: false } : null;
+		// Its own address or one under it: a trip is at /trip-planner/<slug>.
+		const app = apps.find(
+			(a) => a.href && (path === a.href || path.startsWith(`${a.href}/`)),
+		);
+		return app?.icon
+			? { name: app.name, Icon: app.icon, fullscreen: !!app.fullscreen }
+			: null;
 	});
 
 	/*
