@@ -24,6 +24,8 @@
 		tagline,
 		optical = '0em',
 		desk = false,
+		wide = false,
+		panel = false,
 		serif = [],
 		mark,
 		tools,
@@ -47,6 +49,24 @@
 		 * The page's own content brings the rest.
 		 */
 		desk?: boolean;
+		/*
+		 * A LETTER THAT OUTGROWS THE MEASURE, for a page whose
+		 * content is not lines to be read — a wall of things to pick from. It
+		 * takes the window, a panel gap clear of either edge, as a desk does.
+		 */
+		wide?: boolean;
+		/*
+		 * A PANEL AND NOT A LETTER: a sheet the height of the window, which does
+		 * not grow with what is in it. The page's content gets what is left
+		 * under the masthead, and scrolls inside it.
+		 *
+		 * A LETTER grows and the page scrolls, which suits a page to work
+		 * through with room to spare — the Trip Planner. A PANEL suits one to
+		 * look things up in, whose controls should stay at its head without
+		 * being made to stick — the Emoji Viewer. A panel app in $lib/apps is
+		 * one without passing this.
+		 */
+		panel?: boolean;
 		/*
 		 * A MARK THE ADDRESS CANNOT GIVE: a page whose one address shows two
 		 * things, as a shared trip does when it is locked.
@@ -74,12 +94,14 @@
 		'/media-requests': CircleDashedCheck,
 	};
 
+	const app = $derived(apps.find((a) => a.href === page.url.pathname));
+
 	const Icon = $derived(
-		mark ??
-			marks[page.url.pathname] ??
-			apps.find((app) => app.href === page.url.pathname)?.icon ??
-			StickyNote,
+		mark ?? marks[page.url.pathname] ?? app?.icon ?? StickyNote,
 	);
+
+	// A panel app is one without being told; see $lib/apps.
+	const isPanel = $derived(panel || !!app?.panel);
 
 	/*
 	 * THE TAGLINE CUT AT THE MARKED WORDS. A split on a pattern with one
@@ -100,7 +122,7 @@
 	it holds — the reading measure, or a wide page's grid — and centred on the
 	shell, a panel gap clear of the window's edges.
 -->
-<div class="sheet" class:desk>
+<div class="sheet" class:desk class:wide class:panel={isPanel}>
 	<section class="hero" style="--title-optical: {optical}">
 		<!--
 		`data-page-title` IS A CONTRACT WITH THE BAR. The bar wears a page's name
@@ -199,13 +221,52 @@
 	}
 
 	.sheet {
-		min-block-size: calc(100dvh - var(--bar-block-size) - var(--gap-panel) * 2);
+		min-block-size: calc(100dvh - var(--bar-block-size) - var(--gap-panel));
 		/* The measure caps the line. */
 		inline-size: min(var(--measure), 100% - var(--gap-panel) * 2);
-		margin: var(--gap-panel) auto;
+		/*
+		 * ONE GAP ON EVERY SIDE, and the top one is the bar's to draw: the bar is
+		 * a control between two `--gap-panel` paddings, so its lower one is
+		 * already this step. A margin here as well made two at the top against
+		 * one at the sides, as the Text Editor's desk had worked out already.
+		 */
+		margin: 0 auto var(--gap-panel);
 		border-radius: var(--radius-l);
 		background-color: var(--bg);
 		box-shadow: inset 0 0 0 1px var(--frame);
+	}
+
+	/*
+	 * WIDE AT EVERY SIZE, and not only past a desktop's. On a phone the measure
+	 * is the window already; between that and a desktop a wall of things would
+	 * otherwise sit in a reading column with the window's sides left empty.
+	 * It also means a wide sheet is always the window less a panel gap, which
+	 * is what lets the Emoji Viewer's dock reach the window's edges.
+	 */
+	.sheet.wide {
+		inline-size: calc(100% - var(--gap-panel) * 2);
+	}
+
+	/*
+	 * EXACTLY THE WINDOW, less the bar and the panel gap below, which is the
+	 * least an ordinary sheet is. The hero and the prose pass the height
+	 * down, and the prose's `min-block-size: 0` is what lets the page's own
+	 * scroller inside it be shorter than what it holds.
+	 */
+	.sheet.panel {
+		display: flex;
+		flex-direction: column;
+		block-size: calc(100dvh - var(--bar-block-size) - var(--gap-panel));
+	}
+
+	.sheet.panel .hero {
+		flex: 1;
+		min-block-size: 0;
+	}
+
+	.sheet.panel .prose {
+		flex: 1;
+		min-block-size: 0;
 	}
 
 	/*
@@ -332,10 +393,8 @@
 		gap: var(--space-16);
 
 		/*
-		 * NOT DECORATION, and not spare. A page can hang something in the margin
-		 * beside the letter by positioning it against this box — the Emoji Viewer's
-		 * group list does exactly that, with `inset-inline-start: 100%`. Take this
-		 * line out and that rail goes and stands against the viewport instead,
+		 * NOT DECORATION. A page can position something against this box, and
+		 * without this line it would be placed against the viewport instead,
 		 * which is a long way from where it belongs.
 		 */
 		position: relative;

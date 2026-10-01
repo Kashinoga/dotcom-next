@@ -188,6 +188,81 @@ h6 {
 }
 
 /*
+ * THE SCROLLBAR STARTS BELOW THE BAR. The page scrolls on <html>, and the bar is
+ * sticky inside it, so the scrollbar ran the window's full height and its thumb
+ * slid up under the bar's frost. The answer, as in the old site, is at the
+ * TRACK and not the box: margin the track by the bar's height, and the thumb's
+ * whole travel stays below the bar while the page still passes under it.
+ *
+ * WHERE THERE IS A MOUSE ONLY. Styling any part of the scrollbar trades the
+ * system's thin overlay bar for this one, and a phone or tablet is better off
+ * with its own.
+ *
+ * LITERALS FOR THE COLOURS. A custom property or color-mix() inside a
+ * ::-webkit-scrollbar part kills the declaration silently and the thumb paints
+ * nothing; the margin may use var(). So the dark arm repeats the two selectors
+ * the dark tokens use further down.
+ *
+ * `.scrolls` WEARS THE SAME BAR, for a box that scrolls inside the page, as
+ * the Emoji Viewer's wall does. It runs under nothing, so its track has no
+ * margin.
+ *
+ * NOT IN FIREFOX, which has no scrollbar parts and no track margin. Nothing here
+ * sets `scrollbar-color` or `scrollbar-width` for it, either: either one, on any
+ * engine that has both, switches every rule below off.
+ */
+@media (hover: hover) and (pointer: fine) {
+	:root::-webkit-scrollbar,
+	.scrolls::-webkit-scrollbar {
+		width: 10px;
+	}
+
+	:root::-webkit-scrollbar-track,
+	.scrolls::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	:root::-webkit-scrollbar-track {
+		margin-top: var(--bar-block-size);
+	}
+
+	:root::-webkit-scrollbar-thumb,
+	.scrolls::-webkit-scrollbar-thumb {
+		background: rgb(0 0 0 / 28%);
+		background-clip: padding-box;
+		border: 2px solid transparent;
+		border-radius: 4px;
+	}
+
+	:root::-webkit-scrollbar-thumb:hover,
+	.scrolls::-webkit-scrollbar-thumb:hover {
+		background-color: rgb(0 0 0 / 45%);
+	}
+
+	:root[data-mode='dark']::-webkit-scrollbar-thumb,
+	:root[data-mode='dark'] .scrolls::-webkit-scrollbar-thumb {
+		background-color: rgb(255 255 255 / 30%);
+	}
+
+	:root[data-mode='dark']::-webkit-scrollbar-thumb:hover,
+	:root[data-mode='dark'] .scrolls::-webkit-scrollbar-thumb:hover {
+		background-color: rgb(255 255 255 / 50%);
+	}
+}
+
+@media (hover: hover) and (pointer: fine) and (prefers-color-scheme: dark) {
+	:root:not([data-mode='light'])::-webkit-scrollbar-thumb,
+	:root:not([data-mode='light']) .scrolls::-webkit-scrollbar-thumb {
+		background-color: rgb(255 255 255 / 30%);
+	}
+
+	:root:not([data-mode='light'])::-webkit-scrollbar-thumb:hover,
+	:root:not([data-mode='light']) .scrolls::-webkit-scrollbar-thumb:hover {
+		background-color: rgb(255 255 255 / 50%);
+	}
+}
+
+/*
  * THE BAR JOINS THE DESK on a fullscreen app, and the frost comes off with it.
  *
  * The frost is for a LETTER going soft as it passes under the bar. Nothing

@@ -89,7 +89,7 @@ test('a touchscreen gets the larger target back', async ({ browser }) => {
 test('the bar stays at the top once the page moves under it', async ({
 	page,
 }) => {
-	await page.goto('/emoji-viewer');
+	await page.goto('/apps');
 	await page.evaluate(() => window.scrollTo(0, 1200));
 
 	const box = await page.locator('header').boundingBox();
@@ -178,13 +178,13 @@ test('the column does not move between pages', async ({ page }) => {
 	await page.goto('/apps');
 	const apps = await page.locator('.prose').boundingBox();
 
-	await page.goto('/emoji-viewer');
-	const emoji = await page.locator('.prose').boundingBox();
-
+	/*
+	 * The Emoji Viewer is not asked: on a desktop it is a wide letter, and takes
+	 * the window rather than the measure. That move is a crossing to a different
+	 * kind of page, which is paid for on purpose, as an app's is.
+	 */
 	expect(apps?.x).toBe(home?.x);
-	expect(emoji?.x).toBe(home?.x);
 	expect(apps?.width).toBe(home?.width);
-	expect(emoji?.width).toBe(home?.width);
 });
 
 test('the mark and the name are one link home, at the start of the bar', async ({
@@ -226,22 +226,58 @@ test('the mark and the name are one link home, at the start of the bar', async (
  * THE BAR PICKS THE PAGE UP where the page puts it down. These four are about
  * the swap, and the first one is the one that matters: the LINK'S NAME never
  * changes while it is still a link home, whatever the bar is drawn as.
+ *
+ * On Apps, which scrolls far enough for its title to go under the bar. It was
+ * the Emoji Viewer, until its wall began to scroll inside a panel that stays.
+ * Scrolled to the END, and not to a number: how far that is depends on the
+ * window and the cards.
  */
-test('the bar wears the page name once the title has gone under it', async ({
+const LONG = '/apps';
+const toEnd = (page: import('@playwright/test').Page) =>
+	page.evaluate(() => {
+		scrollTo(0, document.documentElement.scrollHeight);
+		return Math.round(scrollY);
+	});
+/*
+ * A PANEL APP'S TITLE NEVER LEAVES THE SCREEN, so the bar cannot wait for it to.
+ * Its name stands beside the site's from the start, and the brand stays the
+ * site's: the site is still around a panel app, as it is not around a
+ * fullscreen one.
+ */
+test('a panel app names itself beside the site from the start', async ({
 	page,
 }) => {
 	await page.goto('/emoji-viewer');
 
+	await expect(page.locator('.crumb-name')).toHaveText('Emoji Viewer');
+	await expect(page.locator('.crumb')).toHaveCSS('opacity', '1');
+	await expect(page.locator('.brand-state.site')).toHaveCSS('opacity', '1');
+	await expect(page.locator('.brand')).not.toHaveClass(/showing-page/);
+
+	// Even with the page scrolled as far as it goes, the brand does not turn
+	// into the app's name and does not become a way back to the top.
+	await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+	await expect(page.locator('.brand')).not.toHaveClass(/showing-page/);
+	await expect(
+		page.getByRole('link', { name: 'Kashinoga', exact: true }),
+	).toHaveAttribute('href', '/');
+});
+
+test('the bar wears the page name once the title has gone under it', async ({
+	page,
+}) => {
+	await page.goto(LONG);
+
 	const site = page.locator('.brand-state.site');
 	const here = page.locator('.brand-state.page');
-	await expect(here).toHaveText('Emoji Viewer');
+	await expect(here).toHaveText('Apps');
 
 	// At rest the site's name is the one showing.
 	await expect(site).toHaveCSS('opacity', '1');
 	await expect(here).toHaveCSS('opacity', '0');
 
 	// The h1 is what decides, so scroll until it has passed the bar's lower edge.
-	await page.evaluate(() => scrollTo(0, 600));
+	await toEnd(page);
 	await expect(here).toHaveCSS('opacity', '1');
 	await expect(site).toHaveCSS('opacity', '0');
 });
@@ -249,12 +285,12 @@ test('the bar wears the page name once the title has gone under it', async ({
 test('the brand is a link home by name however it is drawn', async ({
 	page,
 }) => {
-	await page.goto('/emoji-viewer');
-	await page.evaluate(() => scrollTo(0, 600));
+	await page.goto(LONG);
+	await toEnd(page);
 	await expect(page.locator('.brand-state.page')).toHaveCSS('opacity', '1');
 
 	/*
-	 * READING "EMOJI VIEWER" AND GOING HOME would be a link that lies. The label
+	 * READING "APPS" AND GOING HOME would be a link that lies. The label
 	 * is pinned to the site's name, so what a screen reader announces and what
 	 * the press does still agree.
 	 */
@@ -267,8 +303,8 @@ test('the brand is a link home by name however it is drawn', async ({
 test('a pointer can ask where the brand goes before pressing it', async ({
 	page,
 }) => {
-	await page.goto('/emoji-viewer');
-	await page.evaluate(() => scrollTo(0, 600));
+	await page.goto(LONG);
+	const end = await toEnd(page);
 
 	const brand = page.locator('.brand');
 	const site = page.locator('.brand-state.site');
@@ -277,8 +313,7 @@ test('a pointer can ask where the brand goes before pressing it', async ({
 	/*
 	 * `mouse.move` AND NOT `locator.hover()`, and this is not a preference.
 	 * `hover()` scrolls its target into view first, and the bar is sticky — so it
-	 * scrolls to where the bar SITS IN THE DOCUMENT, which is the top. Measured:
-	 * 600 goes to 192. The name would then come back because the title had
+	 * scrolls to where the bar SITS IN THE DOCUMENT, which is the top. The name would then come back because the title had
 	 * returned, and this test would pass whether or not hovering does anything.
 	 */
 	const box = (await brand.boundingBox())!;
@@ -287,7 +322,7 @@ test('a pointer can ask where the brand goes before pressing it', async ({
 	// Still scrolled past — so the name came back because of the pointer.
 	await expect(brand).toHaveClass(/showing-page/);
 	await expect(site).toHaveCSS('opacity', '1');
-	expect(await page.evaluate(() => Math.round(scrollY))).toBe(600);
+	expect(await page.evaluate(() => Math.round(scrollY))).toBe(end);
 });
 
 test('without a hover to ask with, the brand returns to the top instead', async ({
@@ -297,8 +332,8 @@ test('without a hover to ask with, the brand returns to the top instead', async 
 	// pointer gets is not available here. The press does the harmless thing.
 	const context = await browser.newContext({ hasTouch: true, isMobile: true });
 	const page = await context.newPage();
-	await page.goto('/emoji-viewer');
-	await page.evaluate(() => scrollTo(0, 600));
+	await page.goto(LONG);
+	await toEnd(page);
 	await expect(page.locator('.brand-state.page')).toHaveCSS('opacity', '1');
 
 	// The name follows the deed: it is no longer offering to go home.
@@ -312,7 +347,7 @@ test('without a hover to ask with, the brand returns to the top instead', async 
 		.poll(async () => page.evaluate(() => Math.round(scrollY)))
 		.toBe(0);
 	// And it did NOT navigate.
-	await expect(page).toHaveURL(/\/emoji-viewer$/);
+	await expect(page).toHaveURL(/\/apps$/);
 
 	await context.close();
 });
@@ -661,7 +696,8 @@ test('the editor takes the window; a letter takes the measure', async ({
 }) => {
 	await page.setViewportSize({ width: 1500, height: 1000 });
 
-	await page.goto('/emoji-viewer');
+	// Apps, and not the Emoji Viewer, which is a wide letter on a desktop.
+	await page.goto('/apps');
 	const letter = (await page.locator('.hero').boundingBox())!;
 
 	await page.goto('/text-editor');

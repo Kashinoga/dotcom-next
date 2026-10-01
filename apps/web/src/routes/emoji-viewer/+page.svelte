@@ -28,13 +28,28 @@
 		})).filter((group) => group.emojis.length > 0);
 	});
 
+	/*
+	 * THE GROUP ON SHOW, chosen in the strip. '' is All.
+	 *
+	 * It is kept through a search that empties it, and the strip shows All for
+	 * as long as it is gone, so clearing the search puts the reader back in the
+	 * group they had chosen rather than in All.
+	 */
+	let chosen = $state('');
+
+	const showing = $derived(
+		groups.some((group) => group.name === chosen) ? chosen : '',
+	);
+
+	const shown = $derived(
+		showing ? groups.filter((group) => group.name === showing) : groups,
+	);
+
 	const total = $derived(
 		groups.reduce((n, group) => n + group.emojis.length, 0),
 	);
 
-	// "Smileys & Emotion" becomes "smileys-emotion". The group's name is the only
-	// thing that identifies it, so the anchor is made from the name rather than
-	// kept beside it as a second field that could disagree.
+	// "Smileys & Emotion" becomes "smileys-emotion", for the section's id.
 	const slug = (name: string) =>
 		name
 			.toLowerCase()
@@ -42,88 +57,46 @@
 			.replace(/^-|-$/g, '');
 
 	/*
-	 * THE GROUP THE READER IS IN, for the list beside the wall.
-	 *
-	 * Measured from the scroll position rather than watched with an
-	 * IntersectionObserver. An observer only reports the crossings it samples, and
-	 * a jump can carry a heading from below the line to above it between two
-	 * frames without ever being seen on it. Asking "which is the last heading
-	 * above the line" cannot miss, because it does not depend on having watched
-	 * the journey.
+	 * CHOOSING A GROUP STARTS IT FROM THE TOP. The wall is a different wall
+	 * now, and a scroll position left over from the old one would land the
+	 * reader somewhere in the middle of it, or past its end.
 	 */
-	let active = $state('');
+	let scroller = $state<HTMLElement>();
+
+	function choose(name: string) {
+		chosen = name;
+		scroller?.scrollTo({ top: 0 });
+	}
+
+	/*
+	 * THE CHOSEN TAB STAYS IN SIGHT. On a phone the strip is wider than the
+	 * window and scrolls sideways, and a tab scrolled out of it is a choice the
+	 * reader cannot see. The STRIP is scrolled, by hand, and not the tab into
+	 * view: that would scroll the page too, out from under the reader.
+	 */
+	let strip = $state<HTMLElement>();
+
+	/*
+	 * TRUE ONCE THE PAGE IS LIVE. Every button here is in the prerendered HTML
+	 * and can be pressed before a handler is attached, to no effect; the strip
+	 * says when that is over, for whatever needs to know — the tests first.
+	 */
+	let live = $state(false);
+	$effect(() => {
+		live = true;
+	});
 
 	$effect(() => {
-		// Named so the effect re-runs when a search changes the list.
-		const current = groups;
+		const tab = strip?.querySelector<HTMLElement>(
+			`[data-group="${CSS.escape(showing)}"]`,
+		);
+		if (!strip || !tab) return;
 
-		let frame = 0;
-
-		const update = () => {
-			frame = 0;
-
-			/*
-			 * THE LINE IS THE ONE THE BROWSER ALREADY USES, and it is asked for each
-			 * heading rather than worked out once.
-			 *
-			 * It was the bar's lower edge, and that was a second number: following a
-			 * link put the heading at `scroll-padding-block-start`, 92px, while this
-			 * asked which heading had passed 77px. The heading a reader had just
-			 * jumped to therefore sat BELOW the deciding line, and the mark stayed on
-			 * the group above it — the list pointing at the wrong place at the exact
-			 * moment it had been asked to point somewhere.
-			 *
-			 * A heading now has a `scroll-margin` of its own as well, to clear the
-			 * search field that stays under the bar. Reading BOTH off the page is
-			 * what keeps the jump and the mark in step; a copy of either number here
-			 * would be the same bug again, waiting.
-			 */
-			const root = getComputedStyle(document.documentElement);
-			const padding = Number.parseFloat(root.scrollPaddingTop);
-			const bar =
-				document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
-			// `auto` parses to NaN, which is what a page with no padding reports.
-			const scrollport = Number.isFinite(padding) ? padding : bar;
-
-			let found = '';
-			for (const group of current) {
-				const el = document.getElementById(slug(group.name));
-				if (!el) continue;
-
-				const margin = Number.parseFloat(getComputedStyle(el).scrollMarginTop);
-				/*
-				 * Two pixels of slack, and they are needed: a jump lands the heading
-				 * on 92.39 against a padding of 92, because the wall's rows do not
-				 * fall on whole pixels. One pixel left six tenths of a pixel between
-				 * working and not, which is a coincidence and not a margin. The next
-				 * heading is five hundred pixels away, so there is nothing for the
-				 * slack to catch.
-				 */
-				const line = scrollport + (Number.isFinite(margin) ? margin : 0) + 2;
-
-				if (el.getBoundingClientRect().top <= line) found = slug(group.name);
-			}
-
-			// Before the first heading has reached the line there is no group above
-			// it, and the first one is still the one being read towards.
-			active = found || (current[0] ? slug(current[0].name) : '');
-		};
-
-		// The handler runs on every scroll event; the work waits for a frame, so a
-		// fast scroll measures once per paint instead of once per event.
-		const onScroll = () => {
-			if (!frame) frame = requestAnimationFrame(update);
-		};
-
-		update();
-		addEventListener('scroll', onScroll, { passive: true });
-		addEventListener('resize', onScroll, { passive: true });
-
-		return () => {
-			cancelAnimationFrame(frame);
-			removeEventListener('scroll', onScroll);
-			removeEventListener('resize', onScroll);
-		};
+		const start = tab.offsetLeft - strip.offsetLeft;
+		const end = start + tab.offsetWidth;
+		if (start < strip.scrollLeft) strip.scrollLeft = start;
+		else if (end > strip.scrollLeft + strip.clientWidth)
+			strip.scrollLeft = end - strip.clientWidth;
 	});
 
 	/*
@@ -175,22 +148,65 @@
 />
 
 <Letter
+	wide
 	title="Emoji Viewer"
 	tagline="Drawn by your own device."
 	serif={['your own device']}
 >
 	<!--
-		The field STAYS, directly under the bar, because the wall below it is some
-		three thousand pixels tall and the search was otherwise a scroll back to
-		the top. The wrapper does the sticking rather than the field: SearchField
-		draws a control and should not also decide where a page keeps it.
+		THE PANEL STANDS STILL and the wall scrolls inside it, as the Text
+		Editor's document does: the frame is always drawn, and the search and
+		the strip are always at its head, because nothing moves them. The page
+		itself still scrolls, by the footer's height, so the footer is there to
+		be found past the end; a wall scrolled to its foot hands the scroll on
+		to the page by itself.
+
+		THE STRIP FILTERS; it does not jump. A tab shows its group alone, and All
+		shows the lot. A search narrows the strip with the wall, rather than
+		offering a group that has nothing left in it.
+
+		Buttons that are pressed, and not a tablist. A tablist promises arrow keys
+		between its tabs and a panel for each; this is a set of choices of what
+		the one wall shows, which is what `aria-pressed` says.
 	-->
-	<div class="search frost">
-		<SearchField
-			bind:value={query}
-			label="Search the emojis by name"
-			placeholder="Search by name"
-		/>
+	<div class="dock">
+		<div class="search">
+			<SearchField
+				bind:value={query}
+				label="Search the emojis by name"
+				placeholder="Search by name"
+			/>
+		</div>
+
+		{#if total > 0}
+			<span class="divider" aria-hidden="true"></span>
+			<div
+				class="tabs"
+				role="group"
+				aria-label="Show emoji group"
+				data-live={live || undefined}
+				bind:this={strip}
+			>
+				<button
+					type="button"
+					data-group=""
+					aria-pressed={showing === ''}
+					onclick={() => choose('')}
+				>
+					All
+				</button>
+				{#each groups as group (group.name)}
+					<button
+						type="button"
+						data-group={group.name}
+						aria-pressed={showing === group.name}
+						onclick={() => choose(group.name)}
+					>
+						{group.name}
+					</button>
+				{/each}
+			</div>
+		{/if}
 	</div>
 
 	<!--
@@ -218,226 +234,201 @@
 		</Morph>
 	</p>
 
-	{#if total === 0}
-		<p>
-			I found nothing for “{query}”.
-		</p>
-	{:else}
-		<!--
-			THE GROUPS, LISTED, standing in the margin beside the wall.
+	<!--
+		THE WALL'S OWN SCROLL, and its own scrollbar, which starts at the wall's
+		top edge and so never runs under anything.
+	-->
+	<div class="scroller scrolls" bind:this={scroller}>
+		{#if total === 0}
+			<p>
+				I found nothing for “{query}”.
+			</p>
+		{:else}
+			<!--
+				THE GROUPS IN COLUMNS, as many as the sheet has room for, each group
+				kept whole in one of them. A desktop sees most of the wall at once
+				instead of one long column of it; a phone has room for one column and
+				gets the page it had. One group on its own takes the whole width.
+			-->
+			<div class="groups" class:single={shown.length === 1}>
+				{#each shown as group (group.name)}
+					<section class="group" id={slug(group.name)}>
+						<h2>{group.name}</h2>
 
-			It is inside the letter and not in the layout, because it belongs to
-			this page and knows what is in it — a search narrows the wall, and the
-			list narrows with it rather than offering a jump to a group that is no
-			longer on the page.
+						<div class="wall">
+							{#each group.emojis as [char, name] (char)}
+								<!--
+								A <button> and not a <div> with a click on it. This does
+								something, so it has to be reachable by Tab, pressable by
+								Enter and Space, and announced as a button — all of which a
+								button is given and a div has to be taught.
 
-			`aria-current="location"` and not `"page"`: the reader is not on another
-			page, they are at a place within this one, which is the word that means.
-		-->
-		<nav class="rail" aria-label="Emoji groups">
-			<ol class="toc">
-				{#each groups as group (group.name)}
-					<li>
-						<a
-							href="#{slug(group.name)}"
-							aria-current={active === slug(group.name)
-								? 'location'
-								: undefined}
-						>
-							{group.name}
-						</a>
-					</li>
+								The character is hidden from the reading, and the NAME is the
+								button's label. A screen reader saying "smiling face with
+								sunglasses" is useful; one attempting the glyph is not.
+							-->
+								<button
+									type="button"
+									class:copied={copied === char}
+									onclick={() => copy(char)}
+									title={name}
+									aria-label={name}
+								>
+									<span aria-hidden="true">{char}</span>
+								</button>
+							{/each}
+						</div>
+					</section>
 				{/each}
-			</ol>
-		</nav>
-
-		{#each groups as group (group.name)}
-			<section class="group" id={slug(group.name)}>
-				<h2>{group.name}</h2>
-
-				<div class="wall">
-					{#each group.emojis as [char, name] (char)}
-						<!--
-							A <button> and not a <div> with a click on it. This does
-							something, so it has to be reachable by Tab, pressable by
-							Enter and Space, and announced as a button — all of which a
-							button is given and a div has to be taught.
-
-							The character is hidden from the reading, and the NAME is the
-							button's label. A screen reader saying "smiling face with
-							sunglasses" is useful; one attempting the glyph is not.
-						-->
-						<button
-							type="button"
-							class:copied={copied === char}
-							onclick={() => copy(char)}
-							title={name}
-							aria-label={name}
-						>
-							<span aria-hidden="true">{char}</span>
-						</button>
-					{/each}
-				</div>
-			</section>
-		{/each}
-	{/if}
+			</div>
+		{/if}
+	</div>
 </Letter>
 
 <style>
 	/*
-	 * THE RAIL, standing in the margin OUTSIDE the letter, on the end side — the
-	 * right where the writing runs left to right, and the left where it does not.
+	 * THE DOCK: the search field, and the strip of groups beside it where the
+	 * sheet is wide enough, under it where not. It does not move — the wall
+	 * scrolls below it — so it needs no glass and no stickiness.
 	 *
-	 * `inset-inline-start: 100%` puts its start edge on the prose's end edge, and
-	 * mirrors by itself: in a right-to-left document that resolves to `right:
-	 * 100%`, which lays it out from the prose's other side. Nothing here names a
-	 * physical direction.
+	 * 76rem, because the strip is some 850px of tabs and the field keeps 18rem
+	 * beside it; narrower than that and the tabs would be scrolling sideways on
+	 * a desktop. The strip scrolls rather than breaks if they ever do.
 	 *
-	 * The rail is absolute and runs the FULL HEIGHT of the prose; the list inside
-	 * it is what sticks. That is the division that makes this work — sticky needs
-	 * a box to travel inside, and an absolutely positioned element cannot be
-	 * sticky itself.
-	 *
-	 * It measures itself against `.prose`, which Letter.svelte keeps
-	 * `position: relative` FOR THIS, and now for nothing else — a yellow rule
-	 * used to stand on the other side and is gone. The note is there too, so
-	 * neither file can drop it believing the other has no use for it.
+	 * The gap between the two rows is room for the field's focus ring, which
+	 * stands 4px outside its edge and touched the strip when the gap was 4px.
 	 */
-	.rail {
-		position: absolute;
-		inset-block: 0;
-		inset-inline-start: 100%;
-		/* Past the sheet's padding and one panel gap: the list is a panel of its
-		 * own beside the document, as a side bar is in Modern UI. */
-		margin-inline-start: calc(var(--space-16) + var(--gap-panel));
-		inline-size: 11rem;
-
-		/*
-		 * Hidden until the shell beside the sheet has room for it, or it would
-		 * sit on the wall. Every group is still a heading, so nothing is lost but
-		 * a shortcut.
-		 */
-		display: none;
+	.dock {
+		flex: none;
+		display: grid;
+		gap: var(--space-12);
 	}
 
-	@media (min-width: 70rem) {
-		.rail {
+	/*
+	 * THE DIVIDER between the field and the strip, where they share a row: a
+	 * short rule, not the row's full height, in the field's own edge colour, so
+	 * it reads as a pause between two kinds of control rather than a wall.
+	 * Stacked, the two rows already part them, and it is not drawn.
+	 */
+	.divider {
+		display: none;
+		align-self: center;
+		inline-size: 1px;
+		block-size: var(--space-16);
+		background-color: var(--edge);
+	}
+
+	@media (min-width: 76rem) {
+		.dock {
+			grid-template-columns: 18rem auto minmax(0, 1fr);
+		}
+
+		.divider {
 			display: block;
 		}
 	}
 
 	/*
-	 * The list stops where the search field does, and the offset is written the
-	 * same way in both rules so their top edges stay level (a test holds this).
-	 * A side panel on the shell, framed like the sheet; no frost, because
-	 * nothing passes behind it.
+	 * THE STRIP: one line of tabs, as an editor's are. Where the groups do not
+	 * fit across — a phone — it scrolls sideways rather than wrapping onto a
+	 * second line.
 	 */
-	.toc {
-		position: sticky;
-		inset-block-start: calc(var(--bar-block-size) + var(--space-16));
-
-		list-style: none;
-		padding: var(--space-8);
+	.tabs {
 		display: flex;
-		flex-direction: column;
-		border-radius: var(--radius-l);
-		background-color: var(--rail);
-		box-shadow: inset 0 0 0 1px var(--frame);
+		gap: var(--space-4);
+		block-size: var(--control-block-size);
+		overflow-x: auto;
+		overscroll-behavior-x: contain;
+		scrollbar-width: none;
 	}
 
-	.toc a {
-		display: block;
-		padding: var(--space-4) var(--space-8);
+	.tabs::-webkit-scrollbar {
+		display: none;
+	}
+
+	.tabs button {
+		display: inline-flex;
+		align-items: center;
+		flex: none;
+		padding-inline: var(--space-8);
+		font: inherit;
 		font-size: var(--text-label1);
 		line-height: var(--leading-tight);
-		text-decoration: none;
+		white-space: nowrap;
+		cursor: pointer;
+		border: none;
+		border-radius: var(--radius-s);
+		background: none;
 
-		/*
-		 * A group not being read steps back, and the mark beside it is drawn but
-		 * transparent. EVERY item carries the border, so the one that lights up
-		 * does not shove its own text sideways.
-		 */
+		/* A group not on show steps back. */
 		color: color-mix(in oklab, var(--fg) 60%, transparent);
-		border-inline-start: 2px solid transparent;
 	}
 
-	.toc a:hover {
+	.tabs button:hover {
 		color: var(--fg);
-		text-decoration: underline;
+		background-color: var(--surface-hover);
 	}
 
-	.toc a:focus-visible {
+	.tabs button:focus-visible {
 		outline: 2px solid var(--fg);
 		outline-offset: -2px;
 	}
 
-	/* WHERE THE READER IS. The accent marks it, and the words come back to full
-	 * strength — the colour alone would be the only signal, and the yellow is not
-	 * legible enough on white to be asked to carry it by itself. */
-	.toc a[aria-current='location'] {
-		color: var(--fg);
-		border-inline-start-color: var(--accent);
+	/*
+	 * WHAT IS ON SHOW: the whole tab in the accent, as a copied cell is.
+	 * `--accent-fg` on it in either mode, because light letters on the yellow
+	 * are 1.3:1. It follows `:hover`, so a pointer resting on the chosen tab
+	 * does not wash the yellow out.
+	 */
+	.tabs button[aria-pressed='true'],
+	.tabs button[aria-pressed='true']:hover {
+		color: var(--accent-fg);
+		background-color: var(--accent);
 	}
 
 	/*
-	 * THE FIELD STANDS STILL, a step below the bar.
+	 * COLUMNS, and not a grid of rows. Groups run from 54 emojis to over a
+	 * hundred, and in rows each row would be as tall as its tallest group with
+	 * the rest standing over empty space. Columns let each group sit straight
+	 * under the one before it, so the wall packs like masonry.
 	 *
-	 * `--bar-block-size` and not a number: the bar publishes its height and this
-	 * reads it, so the two cannot drift apart. The `--space-16` on top of it is
-	 * air between the bar and the field, and THE LIST IN THE MARGIN ADDS THE SAME
-	 * — the two must be written identically, because their top edges lining up
-	 * across the page is the whole point of the step.
-	 *
-	 * WHAT IT IS MADE OF is `.frost`, in src/app.css, and the ground under it is
-	 * not decoration: once the field stops, the wall keeps moving behind it, and
-	 * without something there the emojis would scroll straight through the words
-	 * being typed. The frost keeps them visible and soft instead of hidden — the
-	 * same glass the bar above is made of, so the two read as one piece of
-	 * furniture rather than a pane and a lid.
-	 *
-	 * Where a browser cannot draw glass the recipe's opaque floor stands, and the
-	 * wall is simply hidden. That is the older behaviour and still the safe one.
-	 *
-	 * No z-index. Sticky makes this a positioned box, and a positioned box paints
-	 * over the in-flow wall by itself. The rail beside the prose is positioned
-	 * too and comes later, but the two never share any ground.
+	 * `column-width` and not a count: the sheet decides how many fit, and a
+	 * phone's measure fits one, which is the page it already had.
 	 */
-	.search {
-		position: sticky;
-		inset-block-start: calc(var(--bar-block-size) + var(--space-16));
+	/*
+	 * THE SCROLLER takes what the panel has left under the dock and the note.
+	 * `min-block-size: 0` is what lets it be shorter than the wall in it — a
+	 * flex item will not otherwise shrink below its content — and so scroll.
+	 *
+	 * `stable`, so a wall that stops needing to scroll, a short group or a
+	 * narrow search, does not take the gutter back and shove every column
+	 * sideways by a scrollbar's width.
+	 */
+	.scroller {
+		flex: 1;
+		min-block-size: 0;
+		overflow-y: auto;
+		scrollbar-gutter: stable;
+	}
 
-		/*
-		 * THE GLASS IS CUT TO THE SHAPE OF THE CONTROL. `backdrop-filter` clips to
-		 * the border box, radius included, so without this the frost is a
-		 * rectangle behind a pill and its four corners stand outside the field
-		 * they belong to — visible the moment anything passes under them.
-		 *
-		 * The same token the field's own edge takes, and it has to be: two radii
-		 * that must agree and cannot check each other would drift the first time
-		 * either moved. `.frost` does not carry this, because the bar wears the
-		 * same glass and is square.
-		 */
-		border-radius: var(--radius-s);
+	.groups {
+		column-width: 24rem;
+		column-gap: var(--space-32);
+	}
+
+	/* One group fills the sheet, rather than standing in a column of it. */
+	.groups.single {
+		columns: auto;
 	}
 
 	.group {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-8);
-
-		/*
-		 * A HEADING HAS TWO THINGS TO CLEAR NOW, not one. The document's
-		 * `scroll-padding-block-start` already stands a jump clear of the bar; this
-		 * adds the field that now sits under it, so a heading lands below both
-		 * rather than behind the search.
-		 *
-		 * It is `scroll-margin` on the target and not more `scroll-padding` on the
-		 * document, because only THIS page has a field that stays. The two add up,
-		 * which is what makes them separable.
-		 */
-		scroll-margin-block-start: calc(
-			var(--control-block-size) + var(--space-16)
-		);
+		/* A group is never split across two columns, and the space under it is
+		 * padding rather than margin, which a column would swallow at its foot. */
+		break-inside: avoid;
+		padding-block-end: var(--space-16);
 	}
 
 	h2 {

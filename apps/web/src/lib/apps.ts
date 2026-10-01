@@ -54,6 +54,22 @@ export interface App {
 	 * around them; the Emoji Viewer is one, and only a working surface is not.
 	 */
 	fullscreen?: boolean;
+	/*
+	 * A PANEL APP keeps the site around it — the masthead, the footer past the
+	 * end — but its sheet is the window's height and its content scrolls inside
+	 * it, so its controls stay at its head without being made to stick. The
+	 * Emoji Viewer's wall is one: one long thing to look through.
+	 *
+	 * The page's title then never goes under the bar, so the bar would never
+	 * say where you are. It says it from the start instead, beside the site's
+	 * name rather than in place of it: the site is still around this page, as
+	 * it is not around a fullscreen one.
+	 *
+	 * Here and not on the page, so the sheet ($lib/components/Letter) and the
+	 * bar (src/routes/+layout.svelte) read the one fact, and both are right on
+	 * the prerendered page before any script has run.
+	 */
+	panel?: boolean;
 }
 
 export const apps: App[] = [
@@ -81,6 +97,7 @@ export const apps: App[] = [
 		description: 'Browse and copy the system emojis, drawn by your own device.',
 		href: '/emoji-viewer',
 		icon: FaceSlightlySmiling,
+		panel: true,
 	},
 	{
 		slug: 'intergalactic-park-ranger',

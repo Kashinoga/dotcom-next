@@ -75,16 +75,36 @@
 	 */
 	const here = $derived.by(() => {
 		const path = page.url.pathname;
-		if (onApps) return { name: 'Apps', Icon: LayoutGrid, fullscreen: false };
+		if (onApps)
+			return {
+				name: 'Apps',
+				Icon: LayoutGrid,
+				fullscreen: false,
+				panel: false,
+			};
 
 		// Its own address or one under it: a trip is at /trip-planner/<slug>.
 		const app = apps.find(
 			(a) => a.href && (path === a.href || path.startsWith(`${a.href}/`)),
 		);
 		return app?.icon
-			? { name: app.name, Icon: app.icon, fullscreen: !!app.fullscreen }
+			? {
+					name: app.name,
+					Icon: app.icon,
+					fullscreen: !!app.fullscreen,
+					panel: !!app.panel,
+				}
 			: null;
 	});
+
+	/*
+	 * THE NAME BESIDE THE SITE'S, in the crumb: one a page claimed in
+	 * $lib/bar.svelte, or a panel app's own. A panel app's title stays on the
+	 * screen, so the bar cannot wait for it to scroll away — it shows from the
+	 * start, and the brand stays the site's rather than turning into the app's.
+	 */
+	const panel = $derived(!!here?.panel);
+	const crumb = $derived(bar.title ?? (panel ? here!.name : null));
 
 	/*
 	 * A FULLSCREEN APP WEARS NO FOOTER. The footer is the site's furniture and a
@@ -193,7 +213,7 @@
 	// checked first. A page without a title, like the Text Editor, shows its name
 	// from the start, and there the brand stays a link home.
 	const scrollsToTop = $derived(
-		!!here && scrolledPast && !untitled && !canHover.current,
+		!!here && !panel && scrolledPast && !untitled && !canHover.current,
 	);
 
 	/*
@@ -264,7 +284,7 @@
 	-->
 	<a
 		class="brand"
-		class:showing-page={!!here && (scrolledPast || !!bar.title)}
+		class:showing-page={!!here && !panel && (scrolledPast || !!bar.title)}
 		href="/"
 		aria-label={scrollsToTop ? 'Back to the top' : site.name}
 		aria-current={page.url.pathname === '/' ? 'page' : undefined}
@@ -276,7 +296,12 @@
 				{site.name}
 			</span>
 
-			{#if here}
+			<!--
+				Not on a panel app, which never turns the brand into its own name.
+				Drawn but transparent, it would still hold the cell at its width, and
+				the crumb's separator would stand that far past "Kashinoga".
+			-->
+			{#if here && !panel}
 				<span class="brand-state page">
 					<span class="page-mark"><here.Icon /></span>
 					{here.name}
@@ -290,15 +315,15 @@
 		claimed one in $lib/bar.svelte. It arrives as the page's title goes under
 		the bar, the same moment and the same blur an app's name uses, and it is
 		there the whole time, only transparent — so nothing in the bar moves when it
-		appears.
+		appears. A panel app's name is here from the start; see `crumb`.
 
 		Hidden from the reading, because it is the page's <h1> said a second time,
 		and a screen reader already has the <h1>.
 	-->
-	{#if bar.title}
-		<span class="crumb" class:shown={scrolledPast} aria-hidden="true">
+	{#if crumb}
+		<span class="crumb" class:shown={scrolledPast || panel} aria-hidden="true">
 			<span class="separator"></span>
-			<span class="crumb-name">{bar.title}</span>
+			<span class="crumb-name">{crumb}</span>
 		</span>
 	{/if}
 

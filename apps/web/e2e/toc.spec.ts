@@ -1,305 +1,249 @@
 import { expect, test } from '@playwright/test';
 
 /*
- * The emoji TOC — the one piece of this site that could not be checked by hand
- * at all. Its active mark is scheduled on a frame, and a background tab has no
- * frames, so a browser sitting behind another window reports nothing. A test
- * page is always visible, which is the whole reason this file can exist.
+ * The Emoji Viewer's strip of groups, and the columns the wall stands in.
  *
- * The rail appears at 70rem, so the tests that examine it need a window wider
- * than that, and the one that checks it is absent needs one narrower.
+ * The strip FILTERS: a tab shows its group alone, and All shows the lot. It
+ * stays under the search field, a step below the bar, wherever the page is.
+ *
+ * The groups stand in columns on a desktop, so most of these run at a width
+ * that has more than one, and one at a phone's, which has one.
  */
 
 const WIDE = { width: 1400, height: 900 };
-const NARROW = { width: 900, height: 900 };
 
 /*
- * The page is prerendered, so its links and headings are all in the HTML before
- * Svelte has taken it over. The mark is written by a client-only effect, so its
- * arrival is the signal that the page is live — without waiting for it a test
- * can follow a link before anything is listening and then blame the page for
- * the answer it got.
+ * The page is prerendered, so every button is in the HTML before Svelte has
+ * taken it over, and a press then does nothing. The strip marks itself live
+ * from a client-only effect; its arrival is the signal.
  */
 async function open(page: import('@playwright/test').Page, size = WIDE) {
 	await page.setViewportSize(size);
 	await page.goto('/emoji-viewer');
-	await page
-		.locator('.toc a[aria-current="location"]')
-		.first()
-		.waitFor({ state: 'attached' });
+	await page.locator('.tabs[data-live]').waitFor({ state: 'attached' });
 }
 
-test('the rail stands outside the letter, on the end side', async ({
+const tab = (page: import('@playwright/test').Page, name: string) =>
+	page.locator('.tabs button', { hasText: name });
+
+const pressed = (page: import('@playwright/test').Page) =>
+	page.locator('.tabs button[aria-pressed="true"]');
+
+test('the groups wear as many columns as the sheet has room for', async ({
 	page,
 }) => {
 	await open(page);
 
-	const prose = (await page.locator('.prose').boundingBox())!;
-	const sheet = (await page.locator('.sheet').boundingBox())!;
-	const rail = (await page.locator('.rail').boundingBox())!;
-
-	// A panel of its own, one panel gap past the sheet's end edge, and spanning
-	// the whole column so the sticky list has its full height to travel in.
-	expect(Math.round(rail.x - (sheet.x + sheet.width))).toBe(4);
-	expect(Math.round(rail.width)).toBe(176);
-	expect(Math.round(rail.height)).toBe(Math.round(prose.height));
-});
-
-test('the rail keeps out of the way when there is no margin to stand in', async ({
-	page,
-}) => {
-	await open(page, NARROW);
-
-	await expect(page.locator('.rail')).toBeHidden();
-
-	// Nothing is lost but a shortcut: the groups are still headings, so heading
-	// navigation and find-in-page still reach every one of them.
-	await expect(page.getByRole('heading', { level: 2 })).toHaveCount(9);
-});
-
-test('the list stops short of the bar instead of sliding under it', async ({
-	page,
-}) => {
-	await open(page);
-	await page.evaluate(() => window.scrollTo(0, 2000));
-
-	const toc = (await page.locator('.toc').boundingBox())!;
-	const header = (await page.locator('header').boundingBox())!;
-	const search = (await page.locator('.search').boundingBox())!;
-
-	// It comes to rest CLEAR of the bar, a step below it rather than against it.
-	expect(toc.y).toBeGreaterThan(header.height);
-
-	/*
-	 * And on the same line as the search field. Both offsets are written as the
-	 * same expression, and this is the assertion that says so — the step of air
-	 * was once on one and not the other, which put them on different lines and
-	 * looked like a mistake because it was one.
-	 */
-	expect(Math.round(toc.y)).toBe(Math.round(search.y));
-
-	// Stated as CSS too, so a change to one that is not made to the other fails
-	// here rather than merely looking wrong to somebody.
-	const offsets = await page.evaluate(() => [
-		getComputedStyle(document.querySelector('.toc')!).insetBlockStart,
-		getComputedStyle(document.querySelector('.search')!).insetBlockStart,
-	]);
-	expect(offsets[0]).toBe(offsets[1]);
-});
-
-/*
- * THE TEST THAT COULD NOT BE RUN BY HAND. The mark is recomputed on a frame,
- * and the browser it was written in was behind another window the whole time,
- * so `requestAnimationFrame` never fired and the mark never moved. It looked
- * like a bug in the page and was a bug in the method.
- */
-test('the mark follows the reader down the wall', async ({ page }) => {
-	await open(page);
-
-	const active = () =>
-		page.locator('.toc a[aria-current="location"]').getAttribute('href');
-
-	// At rest, before any heading has reached the bar, the first group is the one
-	// being read towards.
-	expect(await active()).toBe('#smileys-emotion');
-
-	/*
-	 * The scroll positions are ASKED FOR, not written down. How far down the page
-	 * a group sits depends on how many columns the wall got, which depends on the
-	 * window — so a table of numbers here would be a table measured at one width
-	 * and wrong at every other.
-	 *
-	 * For each group: scroll until its heading sits exactly on the bar's lower
-	 * edge, which is the line the page uses to decide. The last groups may be
-	 * unreachable — a page cannot scroll past its end — and those are skipped
-	 * rather than quietly passed.
-	 */
-	const ids = await page
+	// At the default window the wall stands in more than one column: the
+	// headings do not all share one left edge.
+	const lefts = await page
 		.locator('.group')
-		.evaluateAll((els) => els.map((el) => el.id));
-	const reached: string[] = [];
-
-	for (const id of ids) {
-		const landed = await page.evaluate((name) => {
-			const el = document.getElementById(name)!;
-			const bar = document
-				.querySelector('header')!
-				.getBoundingClientRect().height;
-			const target = el.getBoundingClientRect().top + window.scrollY - bar;
-			window.scrollTo(0, target);
-			// Did the page actually go there, or did it run out of length?
-			return Math.abs(window.scrollY - target) < 2;
-		}, id);
-
-		if (!landed) continue;
-		reached.push(id);
-		await expect
-			.poll(active, { message: `heading ${id} on the line` })
-			.toBe(`#${id}`);
-	}
-
-	// If the walk never got past the first group the test proved nothing.
-	expect(reached.length).toBeGreaterThan(4);
-});
-
-test('exactly one group is ever marked', async ({ page }) => {
-	await open(page);
-	await page.evaluate(() => window.scrollTo(0, 2200));
-
-	await expect(page.locator('.toc a[aria-current="location"]')).toHaveCount(1);
-});
-
-test('following a link lands the heading clear of the bar', async ({
-	page,
-}) => {
-	await open(page);
-
-	for (const id of ['travel-places', 'symbols']) {
-		await page.locator(`.toc a[href="#${id}"]`).click();
-
-		const heading = (await page.locator(`#${id}`).boundingBox())!;
-		const header = (await page.locator('header').boundingBox())!;
-
-		// THE RULE, and it holds wherever the heading ends up: without
-		// `scroll-padding-block-start` the browser puts the target at the very top
-		// of the window, which on this site is behind the bar — the one thing the
-		// reader asked to see would be the one thing hidden.
-		expect(heading.y).toBeGreaterThanOrEqual(header.height);
-
-		/*
-		 * The exact landing, but ONLY where the page had room to make it. A jump
-		 * near the end of a document stops at the end of the document, and the
-		 * heading then sits lower than the padding asked for — which is the browser
-		 * being right, not wrong. Firefox draws the wall taller than Chromium does,
-		 * so it runs out on a jump where Chromium does not, and an unconditional
-		 * `toBe(92)` here was a test that only knew one engine.
-		 */
-		const atEnd = await page.evaluate(
-			() =>
-				window.scrollY >=
-				document.documentElement.scrollHeight - window.innerHeight - 1,
+		.evaluateAll((els) =>
+			els.map((el) => Math.round(el.getBoundingClientRect().left)),
 		);
-		/*
-		 * The landing is ASKED FOR, not written down: the document's scroll padding
-		 * plus this heading's own scroll margin. Hardcoding 92 was right until the
-		 * search field began to stay under the bar and the headings had to clear
-		 * that too — at which point the number moved and the test was measuring a
-		 * layout that no longer existed.
-		 *
-		 * Within a pixel. Firefox rounds a fractional landing differently from
-		 * Chromium, and a test that insists on one of the two answers is testing
-		 * the rounding rather than the padding.
-		 */
-		const expected = await page.evaluate((name) => {
-			const root = getComputedStyle(document.documentElement);
-			const el = document.getElementById(name)!;
-			return (
-				Number.parseFloat(root.scrollPaddingTop) +
-				Number.parseFloat(getComputedStyle(el).scrollMarginTop)
-			);
-		}, id);
+	expect(new Set(lefts).size).toBeGreaterThan(1);
 
-		if (!atEnd) expect(Math.abs(heading.y - expected)).toBeLessThanOrEqual(1);
-	}
+	// And no group is cut in two by a column's foot.
+	const split = await page
+		.locator('.group')
+		.evaluateAll((els) => els.some((el) => el.getClientRects().length > 1));
+	expect(split).toBe(false);
 });
 
-test('the search field stays put, a step below the bar', async ({ page }) => {
-	await open(page);
+test('a phone has one column, and the strip scrolls sideways', async ({
+	page,
+}) => {
+	await open(page, { width: 390, height: 844 });
 
-	const field = page.locator('.search');
-	await page.evaluate(() => window.scrollTo(0, 2500));
+	const lefts = await page
+		.locator('.group')
+		.evaluateAll((els) =>
+			els.map((el) => Math.round(el.getBoundingClientRect().left)),
+		);
+	expect(new Set(lefts).size).toBe(1);
 
-	const box = (await field.boundingBox())!;
-	const header = (await page.locator('header').boundingBox())!;
+	// The tabs stay on one line rather than wrapping, so the dock keeps its
+	// height; the strip scrolls instead, and the page does not.
+	const strip = await page.locator('.tabs').evaluate((el) => ({
+		scrolls: el.scrollWidth > el.clientWidth,
+		rows: new Set(
+			[...el.querySelectorAll('button')].map((b) =>
+				Math.round(b.getBoundingClientRect().top),
+			),
+		).size,
+		page: document.documentElement.scrollWidth <= window.innerWidth,
+	}));
+	expect(strip).toEqual({ scrolls: true, rows: 1, page: true });
+});
 
-	// A step clear of the bar rather than seated against it.
-	expect(box.y).toBeGreaterThan(header.height);
+test('the strip starts on the search field’s edge', async ({ page }) => {
+	await open(page, { width: 1100, height: 900 });
 
+	const field = (await page.locator('.search').boundingBox())!;
+	const first = (await pressed(page).boundingBox())!;
+	expect(Math.round(first.x)).toBe(Math.round(field.x));
+});
+
+test('the strip stands beside the field where there is room, under it where not', async ({
+	page,
+}) => {
 	/*
-	 * AND NEVER SEE-THROUGH WITHOUT A BLUR BEHIND IT — the same contract the bar
-	 * keeps, and asked the same way. The field wears the frost now, so it is no
-	 * longer simply opaque; what must hold is that the emojis are never merely
-	 * faint behind the words being typed. Either there is glass, or there is the
-	 * opaque floor.
-	 *
-	 * Compared against the PAGE's own background rather than a colour: these run
-	 * in light mode by default and the site has two.
+	 * Clear of the field's FOCUS RING, which is drawn 4px outside its edge: the
+	 * strip used to sit 4px away and the ring touched it.
 	 */
-	const frost = await page.evaluate(() => {
-		const style = getComputedStyle(document.querySelector('.search')!);
-		const blur =
-			style.backdropFilter ||
-			(style as unknown as Record<string, string>).webkitBackdropFilter ||
-			'none';
-		return {
-			supported:
-				CSS.supports('backdrop-filter', 'blur(1px)') ||
-				CSS.supports('-webkit-backdrop-filter', 'blur(1px)'),
-			hasBlur: blur !== 'none' && blur !== '',
-			fieldBg: style.backgroundColor,
-			pageBg: getComputedStyle(document.documentElement).backgroundColor,
-		};
+	const RING = 4;
+
+	for (const [size, beside] of [
+		[WIDE, true],
+		[{ width: 1100, height: 900 }, false],
+	] as const) {
+		await open(page, size);
+		await page.evaluate(() => window.scrollTo(0, 1500));
+
+		const tabs = (await page.locator('.tabs').boundingBox())!;
+		const header = (await page.locator('header').boundingBox())!;
+		const search = (await page.locator('.search').boundingBox())!;
+
+		// Clear of the bar wherever the page is.
+		expect(tabs.y).toBeGreaterThan(header.height);
+
+		if (beside) {
+			expect(Math.round(tabs.y)).toBe(Math.round(search.y));
+			expect(tabs.x - (search.x + search.width)).toBeGreaterThan(RING);
+		} else {
+			expect(Math.round(tabs.x)).toBe(Math.round(search.x));
+			expect(tabs.y - (search.y + search.height)).toBeGreaterThan(RING);
+		}
+	}
+});
+
+test('All is on show at first, and one choice is ever pressed', async ({
+	page,
+}) => {
+	await open(page);
+
+	await expect(pressed(page)).toHaveCount(1);
+	await expect(pressed(page)).toHaveText('All');
+	await expect(page.locator('.group')).toHaveCount(9);
+});
+
+test('a tab shows its group alone, across the whole sheet', async ({
+	page,
+}) => {
+	await open(page);
+
+	await tab(page, 'Food & Drink').click();
+
+	await expect(pressed(page)).toHaveText('Food & Drink');
+	await expect(page.locator('.group')).toHaveCount(1);
+	await expect(page.locator('.group h2')).toHaveText('Food & Drink');
+
+	// Not standing in one column of the sheet with the rest of it empty: as
+	// wide as the scroller has room for, its scrollbar's gutter aside.
+	const width = await page.evaluate(() => [
+		document.querySelector('.group')!.getBoundingClientRect().width,
+		document.querySelector('.scroller')!.clientWidth,
+	]);
+	expect(Math.round(width[0])).toBe(Math.round(width[1]));
+
+	await tab(page, 'All').click();
+	await expect(page.locator('.group')).toHaveCount(9);
+});
+
+test('choosing a group starts it from the top', async ({ page }) => {
+	await open(page);
+	const scroller = page.locator('.scroller');
+	await scroller.evaluate((el) => el.scrollTo(0, 800));
+
+	await tab(page, 'Flags').click();
+
+	await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBe(0);
+});
+
+test('a choice outlasts a search that empties it', async ({ page }) => {
+	await open(page);
+
+	await tab(page, 'Flags').click();
+	const search = page.getByRole('searchbox');
+
+	// Nothing among the flags is a cat, so the strip shows All for as long as
+	// the search lasts…
+	await search.fill('cat');
+	await expect(pressed(page)).toHaveText('All');
+	await expect(page.locator('.group')).toHaveCount(2);
+
+	// …and clearing it puts the reader back where they had chosen to be.
+	await search.fill('');
+	await expect(pressed(page)).toHaveText('Flags');
+	await expect(page.locator('.group')).toHaveCount(1);
+});
+
+test('the panel stands still while the wall scrolls inside it', async ({
+	page,
+}) => {
+	await open(page);
+
+	const where = () =>
+		page.evaluate(() => ({
+			search: Math.round(
+				document.querySelector('.search')!.getBoundingClientRect().top,
+			),
+			page: Math.round(scrollY),
+		}));
+	const before = await where();
+
+	await page.locator('.scroller').evaluate((el) => el.scrollTo(0, 800));
+
+	// The wall moved and nothing else did: the field is where it was, and so is
+	// the page.
+	expect(await page.locator('.scroller').evaluate((el) => el.scrollTop)).toBe(
+		800,
+	);
+	expect(await where()).toEqual(before);
+
+	// The panel is the window less the bar and a gap at either end, whatever
+	// the wall holds.
+	const fits = await page.evaluate(() => {
+		const sheet = document.querySelector('.sheet')!.getBoundingClientRect();
+		const bar = document.querySelector('header')!.getBoundingClientRect();
+		return Math.round(sheet.bottom - bar.bottom) <= innerHeight;
 	});
-
-	if (frost.supported) {
-		expect(frost.hasBlur).toBe(true);
-	} else {
-		expect(frost.fieldBg).toBe(frost.pageBg);
-	}
+	expect(fits).toBe(true);
 });
 
-test('a heading clears the bar AND the field that stays under it', async ({
+test('past the wall’s end, the page scrolls on to the footer', async ({
 	page,
 }) => {
 	await open(page);
 
-	for (const id of ['animals-nature', 'activities']) {
-		await page.locator(`.toc a[href="#${id}"]`).click();
+	const scroller = page.locator('.scroller');
+	const box = (await scroller.boundingBox())!;
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 
-		const heading = (await page.locator(`#${id}`).boundingBox())!;
-		const field = (await page.locator('.search').boundingBox())!;
+	// Wheel until both have nothing left to give.
+	for (let i = 0; i < 40; i++) await page.mouse.wheel(0, 500);
 
-		// The heading has two things to get past now, not one. Landing it behind
-		// the search would hide the very thing the reader asked to see.
-		expect(heading.y).toBeGreaterThanOrEqual(field.y + field.height);
-	}
+	await expect
+		.poll(() =>
+			scroller.evaluate(
+				(el) => el.scrollHeight - el.clientHeight - el.scrollTop,
+			),
+		)
+		.toBeLessThanOrEqual(1);
+	await expect(page.locator('footer')).toBeInViewport();
 });
 
-/*
- * THE MARK MUST AGREE WITH THE JUMP, which it did not.
- *
- * Following "Animals & Nature" scrolled to the right heading and then marked
- * "People & Gestures". Two numbers were deciding: the browser landed the
- * heading at `scroll-padding-block-start` (92px), while the mark asked which
- * heading had passed the bar's lower edge (77px). The heading a reader had just
- * asked for sat below the deciding line, so the group above it stayed marked.
- */
-test('following a link marks the group it lands on', async ({ page }) => {
+test('the choice is told apart by more than its colour', async ({ page }) => {
 	await open(page);
 
-	for (const id of ['animals-nature', 'food-drink', 'activities']) {
-		await page.locator(`.toc a[href="#${id}"]`).click();
+	// The whole tab is the accent, and the words on it are the accent's own
+	// black: light letters on the yellow would be 1.3:1.
+	await expect(pressed(page)).toHaveCSS(
+		'background-color',
+		'rgb(255, 214, 10)',
+	);
+	await expect(pressed(page)).toHaveCSS('color', 'rgb(0, 0, 0)');
 
-		await expect
-			.poll(
-				() =>
-					page.locator('.toc a[aria-current="location"]').getAttribute('href'),
-				{ message: `after following #${id}` },
-			)
-			.toBe(`#${id}`);
-	}
-});
-
-test('the marked group is told apart by more than its colour', async ({
-	page,
-}) => {
-	await open(page);
-
-	const marked = page.locator('.toc a[aria-current="location"]');
-	// The accent alone would not do it: yellow on white is 1.4:1, so the mark is
-	// a rule beside the words and the words come back to full strength as well.
-	await expect(marked).toHaveCSS('border-left-color', 'rgb(255, 214, 10)');
-
-	const unmarked = page.locator('.toc a:not([aria-current])').first();
-	await expect(unmarked).toHaveCSS('border-left-color', 'rgba(0, 0, 0, 0)');
+	const unpressed = page.locator('.tabs button[aria-pressed="false"]').first();
+	await expect(unpressed).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 });

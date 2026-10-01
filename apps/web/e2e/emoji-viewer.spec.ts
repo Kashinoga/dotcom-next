@@ -40,14 +40,10 @@ test.beforeEach(async ({ page, context, browserName }) => {
 	 * — and then reports the page as broken, which cost an hour of hunting the
 	 * clipboard for a fault that was never there.
 	 *
-	 * The TOC's mark is written by an effect that only runs on the client, so its
-	 * arrival is the moment the client has the page. `attached` and not `visible`:
-	 * the rail is display:none below 70rem, where it is still perfectly hydrated.
+	 * The strip marks itself live from an effect, which runs only on the
+	 * client, so its arrival is the moment the client has the page.
 	 */
-	await page
-		.locator('.toc a[aria-current="location"]')
-		.first()
-		.waitFor({ state: 'attached' });
+	await page.locator('.tabs[data-live]').waitFor({ state: 'attached' });
 });
 
 /*
@@ -72,9 +68,9 @@ test('a search narrows the wall to the groups that still have something in them'
 
 	await expect(page.locator('.group')).toHaveCount(2);
 	await expect(page.locator('.wall button')).toHaveCount(4);
-	// The list beside the wall narrows with it, rather than offering a jump to a
-	// group that is no longer there.
-	await expect(page.locator('.toc a')).toHaveCount(2);
+	// The strip narrows with it, All and the two groups, rather than offering a
+	// group with nothing left in it.
+	await expect(page.locator('.tabs button')).toHaveCount(3);
 });
 
 test('a search that finds nothing says so', async ({ page }) => {
