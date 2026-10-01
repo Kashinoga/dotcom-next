@@ -268,7 +268,13 @@
 		if (!L || !map || !layer) return;
 		const seen = new Set<string>();
 
-		for (const pin of pins) {
+		/*
+		 * BASES ON TOP of anything at the same spot, the hotel over its own check-in.
+		 * Added last, which is the order Leaflet draws them in before the map has a
+		 * view, and raised after, which is what works once it has one.
+		 */
+		const ordered = pins.toSorted((a, b) => +a.base - +b.base);
+		for (const pin of ordered) {
 			seen.add(pin.id);
 			const key = `${pin.at.lat},${pin.at.lon},${pin.base},${pin.title}`;
 			const old = drawn.get(pin.id);
@@ -297,8 +303,6 @@
 				marker.getElement()?.setAttribute('data-pin', pin.id),
 			);
 			marker.addTo(layer);
-			// Bases on top of anything at the same spot.
-			if (pin.base) marker.bringToFront();
 			drawn.set(pin.id, { marker, key });
 		}
 
@@ -307,6 +311,8 @@
 			remove(marker);
 			drawn.delete(id);
 		}
+		for (const pin of pins)
+			if (pin.base) drawn.get(pin.id)?.marker.bringToFront();
 
 		// Framed once, so a friend's change does not yank the view from under you.
 		if (!fitted && pins.length) {
@@ -440,6 +446,26 @@
 		fill-opacity: 1;
 		stroke: var(--bg);
 		stroke-width: 2;
+	}
+
+	/*
+	 * IN DARK, WHITE AND RINGED IN BLACK, with a faint glow. The page's own text
+	 * colour is a grey, and the dark map's roads and names are greys too.
+	 */
+	@media (prefers-color-scheme: dark) {
+		:global(:root:not([data-mode='light'])) .map :global(.pin:not(.base)) {
+			fill: #fff;
+			stroke: #000;
+			stroke-width: 2.5;
+			filter: drop-shadow(0 0 2px rgb(255 255 255 / 55%));
+		}
+	}
+
+	:global(:root[data-mode='dark']) .map :global(.pin:not(.base)) {
+		fill: #fff;
+		stroke: #000;
+		stroke-width: 2.5;
+		filter: drop-shadow(0 0 2px rgb(255 255 255 / 55%));
 	}
 
 	.map :global(.pin.base) {
