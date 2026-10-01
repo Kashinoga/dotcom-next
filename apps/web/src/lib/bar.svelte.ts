@@ -32,7 +32,14 @@ export interface BarStatus {
 	Icon?: Component;
 }
 
+/* An app the bar names in place of the site's, like those in $lib/apps. */
+export interface BarApp {
+	name: string;
+	Icon: Component;
+}
+
 let title = $state<string | null>(null);
+let app = $state<BarApp | null>(null);
 let status = $state<BarStatus | null>(null);
 
 export const bar = {
@@ -44,12 +51,28 @@ export const bar = {
 		return status;
 	},
 
+	get app() {
+		return app;
+	},
+
 	/* Call inside an $effect. Returns the cleanup, so the name leaves with the page
 	 * — and so an effect re-run with a new name replaces the old one in a step. */
 	name(value: string) {
 		title = value;
 		return () => {
 			title = null;
+		};
+	},
+
+	/*
+	 * AN APP WITHOUT A PUBLIC ADDRESS, for the layout to wear as it wears one in
+	 * $lib/apps: the Trip Planner, whose address is a secret and so cannot be
+	 * written into that list to be looked up.
+	 */
+	claim(value: BarApp) {
+		app = value;
+		return () => {
+			app = null;
 		};
 	},
 

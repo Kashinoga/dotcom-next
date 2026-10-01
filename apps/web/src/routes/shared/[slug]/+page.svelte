@@ -60,7 +60,7 @@
 	trip's name in its tab.
 -->
 <Seo
-	title={heading?.title ?? 'For Your Eyes Only'}
+	title={heading ? `${heading.title} | Trip Planner` : 'For Your Eyes Only'}
 	separator=" | "
 	description="A private page."
 	path={page.url.pathname}

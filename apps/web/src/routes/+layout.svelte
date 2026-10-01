@@ -78,9 +78,10 @@
 		if (onApps) return { name: 'Apps', Icon: LayoutGrid, fullscreen: false };
 
 		const app = apps.find((a) => a.href === path);
-		return app?.icon
-			? { name: app.name, Icon: app.icon, fullscreen: !!app.fullscreen }
-			: null;
+		if (app?.icon)
+			return { name: app.name, Icon: app.icon, fullscreen: !!app.fullscreen };
+		// An app at an address that cannot be listed, claimed by its own page.
+		return bar.app ? { ...bar.app, fullscreen: false } : null;
 	});
 
 	/*
