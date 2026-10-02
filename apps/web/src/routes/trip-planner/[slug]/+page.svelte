@@ -1,12 +1,17 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import ChevronsDownUp from '@lucide/svelte/icons/chevrons-down-up';
+	import ChevronsUpDown from '@lucide/svelte/icons/chevrons-up-down';
 	import KeyRound from '@lucide/svelte/icons/key-round';
 	import RotateCcwClock from '@lucide/svelte/icons/rotate-ccw-clock';
 	import Settings from '@lucide/svelte/icons/settings';
 	import { page } from '$app/state';
 	import Letter from '$lib/components/Letter.svelte';
 	import Seo from '$lib/components/Seo.svelte';
-	import TripBoard from '$lib/components/TripBoard.svelte';
+	import TripBoard, {
+		FOLDS,
+		type Fold,
+	} from '$lib/components/TripBoard.svelte';
 	import { NICKNAME_MAX, type Trip } from '$lib/trip';
 	import { tripIcons } from '$lib/trip-icons';
 	import type { PageProps } from './$types';
@@ -39,6 +44,9 @@
 	 */
 	/* The board's side panels, opened from the masthead. */
 	let panel = $state<'history' | 'settings' | null>(null);
+
+	/* The board's folded sections, all of them folded or opened from here too. */
+	let folded = $state<Fold[]>([]);
 
 	let live = $state<Pick<Trip, 'title' | 'tagline' | 'icon'> | null>(null);
 	const heading = $derived(live ?? (data.state === 'open' ? data.trip : null));
@@ -85,6 +93,22 @@
 			<button
 				type="button"
 				class="control"
+				aria-label="Collapse all"
+				title="Collapse all"
+				disabled={folded.length === FOLDS.length}
+				onclick={() => (folded = [...FOLDS])}><ChevronsDownUp /></button
+			>
+			<button
+				type="button"
+				class="control"
+				aria-label="Expand all"
+				title="Expand all"
+				disabled={!folded.length}
+				onclick={() => (folded = [])}><ChevronsUpDown /></button
+			>
+			<button
+				type="button"
+				class="control"
 				aria-label="History"
 				title="History"
 				data-open={panel === 'history' || undefined}
@@ -105,6 +129,7 @@
 		-->
 		<TripBoard
 			bind:panel
+			bind:folded
 			stored={{
 				trip: data.trip,
 				version: data.version,

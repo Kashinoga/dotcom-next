@@ -1,12 +1,22 @@
+<script lang="ts" module>
+	/*
+	 * THE SECTIONS THAT FOLD. Before we go folds with the Schedule: it is what
+	 * the days need done, and the two stand side by side as one row.
+	 */
+	export const FOLDS = ['map', 'schedule', 'ideas'] as const;
+	export type Fold = (typeof FOLDS)[number];
+</script>
+
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { flip } from 'svelte/animate';
-	import { blur, crossfade } from 'svelte/transition';
+	import { blur, crossfade, slide } from 'svelte/transition';
 
 	// One deep import per icon, as everywhere else.
 	import ArrowDown from '@lucide/svelte/icons/arrow-down';
 	import ArrowUp from '@lucide/svelte/icons/arrow-up';
 	import CalendarPlus from '@lucide/svelte/icons/calendar-plus';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import Car from '@lucide/svelte/icons/car';
 	import Footprints from '@lucide/svelte/icons/footprints';
 	import GripVertical from '@lucide/svelte/icons/grip-vertical';
@@ -22,6 +32,7 @@
 	import StickyNote from '@lucide/svelte/icons/sticky-note';
 	import X from '@lucide/svelte/icons/x';
 	import Ticket from '@lucide/svelte/icons/ticket';
+	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import Utensils from '@lucide/svelte/icons/utensils';
 	import Waves from '@lucide/svelte/icons/waves';
 	import type { Component } from 'svelte';
@@ -35,6 +46,8 @@
 		areaParam,
 		basesOf,
 		CATEGORIES,
+		kindsOf,
+		LIMITS,
 		type Coords,
 		formatDate,
 		FAR_MILES,
@@ -65,6 +78,7 @@
 		endpoint,
 		ontrip,
 		panel = $bindable(null),
+		folded = $bindable([]),
 	}: {
 		/* The first answer, from the page's load. The board keeps it from here. */
 		stored: { trip: Trip; version: number; history: Revision[] };
@@ -77,6 +91,8 @@
 		ontrip?: (trip: Trip) => void;
 		/* Which side panel is open, if any. The page's masthead opens them. */
 		panel?: 'history' | 'settings' | null;
+		/* Which sections are folded away. The masthead folds or opens them all. */
+		folded?: Fold[];
 	} = $props();
 
 	/* ─── The side panels ──────────────────────────────────────────────────── */
@@ -170,6 +186,51 @@
 		return sync.start();
 	});
 
+	/* ─── Folding a section ─────────────────────────────────────────────────── */
+
+	/*
+	 * THIS BROWSER'S, like locking: folding the map away on a phone says nothing
+	 * about anybody else's screen. Kept by section, for every trip, so a section
+	 * someone never looks at stays out of their way on the next trip too. Storage
+	 * can be missing or refuse (a private window), and then a fold lasts as long
+	 * as the page.
+	 */
+	const FOLDED_KEY = 'trip-planner:folded';
+	let foldsLoaded = false;
+
+	$effect(() => {
+		try {
+			const saved = JSON.parse(localStorage.getItem(FOLDED_KEY) ?? '[]');
+			if (Array.isArray(saved))
+				folded = FOLDS.filter((section) => saved.includes(section));
+		} catch {
+			// Nothing saved, or nothing readable: everything open.
+		}
+		foldsLoaded = true;
+	});
+
+	/* Saved however it changed: a section's name, or the masthead's buttons. */
+	$effect(() => {
+		const value = JSON.stringify(folded);
+		if (!foldsLoaded) return;
+		try {
+			localStorage.setItem(FOLDED_KEY, value);
+		} catch {
+			// Kept for this page only.
+		}
+	});
+
+	/* A folded map has nothing to fill the window with. */
+	$effect(() => {
+		if (folded.includes('map')) fullMap = false;
+	});
+
+	function toggleFold(section: Fold) {
+		folded = folded.includes(section)
+			? folded.filter((s) => s !== section)
+			: [...folded, section];
+	}
+
 	/* ─── History ──────────────────────────────────────────────────────────── */
 
 	/*
@@ -261,8 +322,11 @@
 		other: Footprints,
 	};
 
+	/* This trip's Kinds, in its order and by its names. */
+	const kinds = $derived(kindsOf(trip));
+
 	const categoryName = (id: CategoryId) =>
-		CATEGORIES.find((c) => c.id === id)?.name ?? '';
+		kinds.find((c) => c.id === id)?.name ?? '';
 
 	const dayName = (index: number) => `Day ${index + 1}`;
 
@@ -455,7 +519,7 @@
 
 	/* The Kinds with a dot on the map, in the Kinds' own order, for its legend. */
 	const kindsOnMap = $derived(
-		CATEGORIES.filter((c) => pins.some((p) => p.kind === c.id)),
+		kinds.filter((c) => pins.some((p) => p.kind === c.id)),
 	);
 
 	let tripMap = $state<ReturnType<typeof TripMap>>();
@@ -493,6 +557,8 @@
 
 	let editing = $state<string | null>(null);
 	let editingDay = $state<string | null>(null);
+	/* The Kind whose name is open for editing, in Not scheduled yet. */
+	let editingKind = $state<CategoryId | null>(null);
 	let adding = $state<string | null>(null);
 
 	/* A delete asks twice, and this is which thing is on its second asking. */
@@ -529,8 +595,12 @@
 			},
 		});
 
-		// The form stays open, because the next thing is usually another thing.
+		// The form stays open, because the next thing is usually another thing,
+		// and of the same Kind: a reset would put the Kind back to the first.
 		form.reset();
+		const kind = form.elements.namedItem('category');
+		if (kind instanceof HTMLSelectElement)
+			kind.value = String(data.get('category'));
 		form.querySelector<HTMLInputElement>('input[name=title]')?.focus();
 	}
 
@@ -715,25 +785,27 @@
 		if (!drag) return;
 
 		if (drag.moved) {
-			/*
-			 * NEAR AN EDGE, THE PAGE SCROLLS, faster the closer the finger is. The top
-			 * edge is the bar's lower one and not the window's, because the bar
-			 * covers the window's.
-			 */
-			const top =
-				document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
-			const reach = 64;
-			let speed = 0;
-			if (drag.y < top + reach) speed = -(top + reach - drag.y) / 4;
-			else if (drag.y > innerHeight - reach)
-				speed = (drag.y - (innerHeight - reach)) / 4;
-			if (speed) window.scrollBy(0, speed);
-			scrollY = window.scrollY;
-
+			edgeScroll(drag.y);
 			aim(drag);
 		}
 
 		frame = requestAnimationFrame(step);
+	}
+
+	/*
+	 * NEAR AN EDGE, THE PAGE SCROLLS, faster the closer the finger is. The top
+	 * edge is the bar's lower one and not the window's, because the bar covers
+	 * the window's.
+	 */
+	function edgeScroll(y: number) {
+		const top =
+			document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
+		const reach = 64;
+		let speed = 0;
+		if (y < top + reach) speed = -(top + reach - y) / 4;
+		else if (y > innerHeight - reach) speed = (y - (innerHeight - reach)) / 4;
+		if (speed) window.scrollBy(0, speed);
+		scrollY = window.scrollY;
 	}
 
 	/*
@@ -800,8 +872,188 @@
 		};
 	}
 
+	/* ─── Dragging a card ────────────────────────────────────────────────────── */
+
+	/*
+	 * A WHOLE DAY OR KIND MOVES AS A ROW DOES, the same pointer events, the same
+	 * following by `translate`, the same scrolling at the edges, and the same op
+	 * as its editor's Earlier and Later.
+	 *
+	 * BY ITS HEAD WITH A MOUSE, anywhere but its buttons. A finger on a card's
+	 * head is as likely to be scrolling the page, so a finger has the card's grip,
+	 * which is the only part of the head that keeps the gesture from the page.
+	 *
+	 * The cards stand in a grid, so where it lands is beside the card whose middle
+	 * is nearest, before or after it by which side of that middle the pointer is
+	 * on, and the line showing it stands upright in the gap between the two. Only
+	 * the Kinds holding something have a card, so the place is worked out in the
+	 * whole list: just before or after that Kind, wherever the empty ones are.
+	 */
+	type CardGroup = 'day' | 'kind';
+
+	type CardDrag = {
+		group: CardGroup;
+		id: string;
+		startX: number;
+		startY: number;
+		startScroll: number;
+		x: number;
+		y: number;
+		moved: boolean;
+		index: number | null;
+		line: { top: number; left: number; height: number } | null;
+	};
+
+	let cardDrag = $state<CardDrag | null>(null);
+	let cardFrame = 0;
+
+	const cardOffset = $derived(
+		cardDrag?.moved
+			? `${cardDrag.x - cardDrag.startX}px ${cardDrag.y - cardDrag.startY + (scrollY - cardDrag.startScroll)}px`
+			: '',
+	);
+
+	/* Every day's or Kind's id, in order, shown or not. */
+	const order = (group: CardGroup) =>
+		group === 'day' ? trip.days.map((d) => d.id) : kinds.map((k) => k.id);
+
+	/* Translated where it is shown, the dragged card following the pointer. */
+	const lifted = (group: CardGroup, id: string) =>
+		cardDrag?.group === group && cardDrag.id === id ? cardOffset : undefined;
+
+	function onCardDown(
+		event: PointerEvent,
+		group: CardGroup,
+		id: string,
+		byGrip: boolean,
+	) {
+		if (event.button !== 0 || drag || cardDrag) return;
+		if (!byGrip) {
+			if (event.pointerType !== 'mouse') return;
+			if (
+				(event.target as Element).closest('button, a, input, select, textarea')
+			)
+				return;
+		}
+		event.preventDefault();
+		try {
+			(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+		} catch {
+			/* As with a row: the drag goes ahead on the moves it does receive. */
+		}
+
+		scrollY = window.scrollY;
+		cardDrag = {
+			group,
+			id,
+			startX: event.clientX,
+			startY: event.clientY,
+			startScroll: window.scrollY,
+			x: event.clientX,
+			y: event.clientY,
+			moved: false,
+			index: null,
+			line: null,
+		};
+		cardFrame = requestAnimationFrame(cardStep);
+	}
+
+	function onCardMove(event: PointerEvent) {
+		if (!cardDrag) return;
+		cardDrag.x = event.clientX;
+		cardDrag.y = event.clientY;
+		if (
+			Math.hypot(cardDrag.x - cardDrag.startX, cardDrag.y - cardDrag.startY) > 4
+		)
+			cardDrag.moved = true;
+	}
+
+	function onCardUp() {
+		if (!cardDrag) return;
+		// Aimed again here, for a release quicker than the next frame.
+		if (cardDrag.moved) aimCard(cardDrag);
+		const { group, id, moved, index } = cardDrag;
+		endCard();
+		if (!moved || index === null) return;
+		moveCard(group, id, index);
+	}
+
+	function moveCard(group: CardGroup, id: string, index: number) {
+		if (order(group).indexOf(id) === index) return;
+		if (group === 'day') {
+			sync.do({ type: 'moveDay', id, index });
+			announcement = `Moved to ${dayName(index)}.`;
+		} else {
+			sync.do({ type: 'moveKind', id: id as CategoryId, index });
+			announcement = `Moved to ${index + 1} of ${kinds.length}.`;
+		}
+	}
+
+	function endCard() {
+		cancelAnimationFrame(cardFrame);
+		cardDrag = null;
+	}
+
+	function cardStep() {
+		if (!cardDrag) return;
+		if (cardDrag.moved) {
+			edgeScroll(cardDrag.y);
+			aimCard(cardDrag);
+		}
+		cardFrame = requestAnimationFrame(cardStep);
+	}
+
+	function aimCard(cardDrag: CardDrag) {
+		const others = [
+			...document.querySelectorAll<HTMLElement>(`[data-${cardDrag.group}]`),
+		].filter((card) => card.dataset[cardDrag.group] !== cardDrag.id);
+		if (!others.length) return;
+
+		let nearest = 0;
+		let distance = Infinity;
+		const rects = others.map((card) => card.getBoundingClientRect());
+		rects.forEach((r, i) => {
+			const d = Math.hypot(
+				cardDrag.x - (r.left + r.width / 2),
+				cardDrag.y - (r.top + Math.min(r.height, 120) / 2),
+			);
+			if (d < distance) {
+				distance = d;
+				nearest = i;
+			}
+		});
+
+		const r = rects[nearest];
+		const after = cardDrag.x > r.left + r.width / 2;
+		const rest = order(cardDrag.group).filter((id) => id !== cardDrag.id);
+		cardDrag.index =
+			rest.indexOf(others[nearest].dataset[cardDrag.group]!) + (after ? 1 : 0);
+		// Half the grid's gap out from the card's edge, into the gap.
+		cardDrag.line = {
+			top: r.top,
+			left: after ? r.right + 4 : r.left - 4,
+			height: r.height,
+		};
+	}
+
+	/*
+	 * A KIND'S EARLIER AND LATER step past the Kinds with no card, to just
+	 * before or after the next one that has, so every press visibly moves it.
+	 */
+	function stepKind(id: CategoryId, later: boolean) {
+		const shown = kinds
+			.filter((k) => k.id === id || trip.ideas.some((i) => i.category === k.id))
+			.map((k) => k.id);
+		const at = shown.indexOf(id);
+		const beside = shown[later ? at + 1 : at - 1];
+		if (!beside) return;
+		const rest = kinds.map((k) => k.id).filter((k) => k !== id);
+		moveCard('kind', id, rest.indexOf(beside) + (later ? 1 : 0));
+	}
+
 	function onDragKey(event: KeyboardEvent) {
-		if (drag && event.key === 'Escape') end();
+		if (cardDrag && event.key === 'Escape') endCard();
+		else if (drag && event.key === 'Escape') end();
 		else if (fullMap && event.key === 'Escape') fullMap = false;
 	}
 </script>
@@ -812,6 +1064,15 @@
 <p class="visually-hidden" id="move-help">
 	Use the up and down arrow keys to move it, including onto another day.
 </p>
+
+{#if cardDrag?.moved && cardDrag.line}
+	<div
+		class="drop-line upright"
+		aria-hidden="true"
+		style="top: {cardDrag.line.top}px; left: {cardDrag.line
+			.left}px; height: {cardDrag.line.height}px"
+	></div>
+{/if}
 
 {#if drag?.line}
 	<div
@@ -840,77 +1101,6 @@
 	width holds at 20rem each, every row starting on one line.
 -->
 <div class="board" data-ready={ready || undefined}>
-	<!-- ─── Before we go ──────────────────────────────────────────────────────── -->
-
-	<section class="section before" aria-labelledby="prep-heading">
-		<h2 id="prep-heading" class="section-title">Before we go</h2>
-
-		<div class="grid">
-			<section class="card" aria-labelledby="checklist-heading">
-				<div class="card-head">
-					<h3 id="checklist-heading" class="card-title">
-						Checklist{#if prep.open.length}<span class="dim"
-								>{' · '}<Morph key={prep.open.length}>{prep.open.length}</Morph
-								>{' left'}</span
-							>{/if}
-					</h3>
-				</div>
-
-				{#if prep.open.length}
-					<ul class="checklist">
-						{#each prep.open as { item, where } (item.id)}
-							<li
-								in:receivePrep={{ key: item.id }}
-								out:sendPrep={{ key: item.id }}
-							>
-								<label>
-									<input
-										type="checkbox"
-										onchange={() => edit(item.id, { prepDone: true })}
-									/>
-									<span>
-										{item.prep}
-										<span class="dim">— {item.title}, {listName(where)}</span>
-									</span>
-								</label>
-							</li>
-						{/each}
-					</ul>
-				{:else}
-					<p class="empty">Nothing left to book or pack.</p>
-				{/if}
-
-				{#if prep.done.length}
-					<details class="done">
-						<summary
-							><Morph key={prep.done.length}>{prep.done.length}</Morph> done</summary
-						>
-						<ul class="checklist">
-							{#each prep.done as { item, where } (item.id)}
-								<li
-									in:receivePrep={{ key: item.id }}
-									out:sendPrep={{ key: item.id }}
-								>
-									<label>
-										<input
-											type="checkbox"
-											checked
-											onchange={() => edit(item.id, { prepDone: false })}
-										/>
-										<span>
-											<s>{item.prep}</s>
-											<span class="dim">— {item.title}, {listName(where)}</span>
-										</span>
-									</label>
-								</li>
-							{/each}
-						</ul>
-					</details>
-				{/if}
-			</section>
-		</div>
-	</section>
-
 	<!-- ─── Map ───────────────────────────────────────────────────────────────── -->
 
 	<!--
@@ -924,67 +1114,172 @@
 			aria-labelledby="map-heading"
 		>
 			<div class="drawer-head">
-				<h2 id="map-heading" class="section-title">Map</h2>
-				<div class="actions">
-					<button type="button" class="pill" onclick={() => tripMap?.fit()}>
-						Show everything
-					</button>
-					<button
-						type="button"
-						class="pill"
-						onclick={() => (fullMap = !fullMap)}
-					>
-						{#if fullMap}<Minimize2 /> Back to the page{:else}<Maximize2 /> Full view{/if}
-					</button>
-				</div>
+				{@render foldTitle('map', 'map-heading', 'Map')}
+				{#if !folded.includes('map')}
+					<div class="actions">
+						<button type="button" class="pill" onclick={() => tripMap?.fit()}>
+							Show everything
+						</button>
+						{#if pins.some((p) => p.base)}
+							<button
+								type="button"
+								class="pill"
+								onclick={() => tripMap?.fit('bases')}
+							>
+								Show the bases
+							</button>
+						{/if}
+						<button
+							type="button"
+							class="pill"
+							onclick={() => (fullMap = !fullMap)}
+						>
+							{#if fullMap}<Minimize2 /> Back to the page{:else}<Maximize2 /> Full
+								view{/if}
+						</button>
+					</div>
+				{/if}
 			</div>
 			<!--
+				HIDDEN, NOT TAKEN AWAY: a map made again frames its pins from scratch, and
+				one made while sliding open framed them in a sliver. Kept, it opens on
+				the view it was folded at.
+			-->
+			<div class="section-body" id="map-body" hidden={folded.includes('map')}>
+				<!--
 				THE KINDS ON THE MAP, by name: the colours alone are not enough to tell
 				seven apart, for anybody, so a badge's icon and this say which is which.
 			-->
-			<ul class="legend" aria-label="Kinds on the map">
-				{#each kindsOnMap as category (category.id)}
-					{@const Icon = ICONS[category.id]}
-					<li>
-						<span class="swatch" style:--kind="var(--kind-{category.id})"
-							><Icon aria-hidden="true" /></span
-						>{category.name}
-					</li>
-				{/each}
-			</ul>
-			<TripMap
-				bind:this={tripMap}
-				{pins}
-				full={fullMap}
-				editor={mapEditor}
-				remove={(id) => sync.do({ type: 'remove', id })}
-				{editBase}
-			/>
+				<ul class="legend" aria-label="Kinds on the map">
+					{#each kindsOnMap as category (category.id)}
+						{@const Icon = ICONS[category.id]}
+						<li>
+							<span class="swatch" style:--kind="var(--kind-{category.id})"
+								><Icon aria-hidden="true" /></span
+							>{category.name}
+						</li>
+					{/each}
+				</ul>
+				<TripMap
+					bind:this={tripMap}
+					{pins}
+					full={fullMap}
+					editor={mapEditor}
+					remove={(id) => sync.do({ type: 'remove', id })}
+					{editBase}
+				/>
+			</div>
 		</section>
 	{/if}
+
+	<!-- ─── Before we go ──────────────────────────────────────────────────────── -->
+
+	<section class="section before" aria-labelledby="prep-heading">
+		{@render foldTitle('schedule', 'prep-heading', 'Before we go')}
+
+		{#if !folded.includes('schedule')}
+			<div
+				class="grid"
+				id="before-body"
+				transition:slide={{ duration: morphDuration() }}
+			>
+				<section class="card" aria-labelledby="checklist-heading">
+					<div class="card-head">
+						<h3 id="checklist-heading" class="card-title">
+							Checklist{#if prep.open.length}<span class="dim"
+									>{' · '}<Morph key={prep.open.length}
+										>{prep.open.length}</Morph
+									>{' left'}</span
+								>{/if}
+						</h3>
+					</div>
+
+					{#if prep.open.length}
+						<ul class="checklist">
+							{#each prep.open as { item, where } (item.id)}
+								<li
+									in:receivePrep={{ key: item.id }}
+									out:sendPrep={{ key: item.id }}
+								>
+									<label>
+										<input
+											type="checkbox"
+											onchange={() => edit(item.id, { prepDone: true })}
+										/>
+										<span>
+											{item.prep}
+											<span class="dim">— {item.title}, {listName(where)}</span>
+										</span>
+									</label>
+								</li>
+							{/each}
+						</ul>
+					{:else}
+						<p class="empty">Nothing left to book or pack.</p>
+					{/if}
+
+					{#if prep.done.length}
+						<details class="done">
+							<summary
+								><Morph key={prep.done.length}>{prep.done.length}</Morph> done</summary
+							>
+							<ul class="checklist">
+								{#each prep.done as { item, where } (item.id)}
+									<li
+										in:receivePrep={{ key: item.id }}
+										out:sendPrep={{ key: item.id }}
+									>
+										<label>
+											<input
+												type="checkbox"
+												checked
+												onchange={() => edit(item.id, { prepDone: false })}
+											/>
+											<span>
+												<s>{item.prep}</s>
+												<span class="dim"
+													>— {item.title}, {listName(where)}</span
+												>
+											</span>
+										</label>
+									</li>
+								{/each}
+							</ul>
+						</details>
+					{/if}
+				</section>
+			</div>
+		{/if}
+	</section>
 
 	<!-- ─── Schedule ──────────────────────────────────────────────────────────── -->
 
 	<section class="section schedule" aria-labelledby="schedule-heading">
-		<h2 id="schedule-heading" class="section-title">Schedule</h2>
+		{@render foldTitle('schedule', 'schedule-heading', 'Schedule')}
 
-		<div class="grid">
-			{#each trip.days as day, d (day.id)}
-				{@render daySection(day, d)}
-			{/each}
+		{#if !folded.includes('schedule')}
+			<div
+				class="grid"
+				id="schedule-body"
+				transition:slide={{ duration: morphDuration() }}
+			>
+				{#each trip.days as day, d (day.id)}
+					{@render daySection(day, d)}
+				{/each}
 
-			<!--
+				<!--
 				THE NEXT CELL, where the next day will appear. A card with nothing in it
 				but its header row, so the button stands where a new day's name will.
 			-->
-			<div class="card next">
-				<div class="card-head">
-					<button type="button" class="pill" onclick={addDay}>
-						<CalendarPlus /> Add a day
-					</button>
+				<div class="card next">
+					<div class="card-head">
+						<button type="button" class="pill" onclick={addDay}>
+							<CalendarPlus /> Add a day
+						</button>
+					</div>
 				</div>
 			</div>
-		</div>
+		{/if}
 	</section>
 
 	<!-- ─── Not scheduled yet ─────────────────────────────────────────────────── -->
@@ -994,9 +1289,9 @@
 		its kind, so which card it lands nearest says nothing; the whole section
 		lights up instead of one card pretending to be the target.
 
-		ONE CARD, GROUPED BY KIND, and only the kinds that hold something. A card
-		for every kind stood three empty boxes on a short trip; the form's Kind
-		field already says where a new one goes.
+		A CARD FOR EACH KIND, laid out as the Schedule's days are, and only the
+		kinds that hold something. A card for every kind stood three empty boxes on
+		a short trip; the form's Kind field already says where a new one goes.
 	-->
 	<section
 		class="section ideas"
@@ -1004,30 +1299,107 @@
 		aria-labelledby="ideas-heading"
 		data-drop={IDEAS}
 	>
-		<h2 id="ideas-heading" class="section-title">Not scheduled yet</h2>
+		{@render foldTitle('ideas', 'ideas-heading', 'Not scheduled yet')}
 
-		<div class="grid">
-			<div class="card">
-				{#each CATEGORIES as category (category.id)}
+		{#if !folded.includes('ideas')}
+			<div
+				class="grid"
+				id="ideas-body"
+				transition:slide={{ duration: morphDuration() }}
+			>
+				{#each kinds as category (category.id)}
 					{@const items = trip.ideas.filter(
 						(item) => item.category === category.id,
 					)}
 					{@const Icon = ICONS[category.id]}
 					{#if items.length}
-						<section class="group" aria-labelledby="group-{category.id}">
-							<h3
-								id="group-{category.id}"
-								class="card-title"
-								style:--kind="var(--kind-{category.id})"
+						<section
+							class="card"
+							aria-labelledby="group-{category.id}"
+							data-kind={category.id}
+							data-dragging={cardDrag?.moved && cardDrag.id === category.id
+								? ''
+								: undefined}
+							style:translate={lifted('kind', category.id)}
+						>
+							<div
+								class="card-head handle"
+								role="presentation"
+								onpointerdown={(e) => onCardDown(e, 'kind', category.id, false)}
+								onpointermove={onCardMove}
+								onpointerup={onCardUp}
+								onpointercancel={endCard}
 							>
-								<Icon aria-hidden="true" />
-								<span
-									>{category.name}<span class="dim"
-										>{' · '}<Morph key={items.length}>{items.length}</Morph
-										></span
-									></span
+								<h3
+									id="group-{category.id}"
+									class="card-title group-title"
+									style:--kind="var(--kind-{category.id})"
 								>
-							</h3>
+									<Icon aria-hidden="true" />
+									<span
+										>{category.name}<span class="dim"
+											>{' · '}<Morph key={items.length}>{items.length}</Morph
+											></span
+										></span
+									>
+								</h3>
+								<div class="card-tools">
+									<button
+										type="button"
+										class="control grip"
+										tabindex="-1"
+										aria-label="Move {category.name}"
+										onpointerdown={(e) => {
+											e.stopPropagation();
+											onCardDown(e, 'kind', category.id, true);
+										}}
+										onpointermove={onCardMove}
+										onpointerup={onCardUp}
+										onpointercancel={endCard}
+									>
+										<GripVertical />
+									</button>
+									<!-- As a day's plus: the form opens under the head, filed here. -->
+									<button
+										type="button"
+										class="control"
+										aria-label="Add to {category.name}"
+										aria-expanded={adding === `kind:${category.id}`}
+										data-open={adding === `kind:${category.id}` || undefined}
+										onclick={() => {
+											adding =
+												adding === `kind:${category.id}`
+													? null
+													: `kind:${category.id}`;
+											if (editingKind === category.id) editingKind = null;
+										}}
+									>
+										<Plus />
+									</button>
+									<button
+										type="button"
+										class="control"
+										aria-label="Edit {category.name}"
+										aria-expanded={editingKind === category.id}
+										data-open={editingKind === category.id || undefined}
+										onclick={() => {
+											editingKind =
+												editingKind === category.id ? null : category.id;
+											if (adding === `kind:${category.id}`) adding = null;
+										}}
+									>
+										<Pencil />
+									</button>
+								</div>
+							</div>
+
+							{#if editingKind === category.id}
+								{@render kindEditor(category.id, category.name)}
+							{/if}
+
+							{#if adding === `kind:${category.id}`}
+								{@render adderForm(IDEAS, category.id)}
+							{/if}
 
 							<ul class="items">
 								{#each items as item (item.id)}
@@ -1050,15 +1422,21 @@
 					{/if}
 				{/each}
 
-				{#if !trip.ideas.length}
-					<p class="empty">
-						Nothing waiting. Drag a thing here to unschedule it.
-					</p>
-				{/if}
+				<!--
+					THE NEXT CELL, as the Schedule's is: the outline of a card with the
+					button in it, and a card once the form is open in it.
+				-->
+				<div class="card" class:next={adding !== IDEAS}>
+					{#if !trip.ideas.length}
+						<p class="empty">
+							Nothing waiting. Drag a thing here to unschedule it.
+						</p>
+					{/if}
 
-				{@render adder(IDEAS, defaultCategory(trip.ideas))}
+					{@render adder(IDEAS, defaultCategory(trip.ideas))}
+				</div>
 			</div>
-		</div>
+		{/if}
 	</section>
 
 	<!-- ─── History ───────────────────────────────────────────────────────────── -->
@@ -1432,10 +1810,20 @@
 	<section
 		class="card"
 		aria-labelledby="day-{day.id}"
+		data-day={day.id}
+		data-dragging={cardDrag?.moved && cardDrag.id === day.id ? '' : undefined}
+		style:translate={lifted('day', day.id)}
 		in:blur={morphIn()}
 		out:blur={morphOut()}
 	>
-		<div class="card-head">
+		<div
+			class="card-head handle"
+			role="presentation"
+			onpointerdown={(e) => onCardDown(e, 'day', day.id, false)}
+			onpointermove={onCardMove}
+			onpointerup={onCardUp}
+			onpointercancel={endCard}
+		>
 			<h3 id="day-{day.id}" class="card-title">
 				<!-- The space is in the expression, where neither Svelte nor a formatter
 			     will trim it off the front of the span. -->
@@ -1448,6 +1836,25 @@
 				open a form under the head, and two at once would be a card of forms.
 			-->
 			<div class="card-tools">
+				<!--
+					A FINGER'S HANDLE, and a mouse's too if it wants one. Not reachable by
+					Tab: the keyboard's way is Earlier and Later in the day's editor.
+				-->
+				<button
+					type="button"
+					class="control grip"
+					tabindex="-1"
+					aria-label="Move {dayName(d)}"
+					onpointerdown={(e) => {
+						e.stopPropagation();
+						onCardDown(e, 'day', day.id, true);
+					}}
+					onpointermove={onCardMove}
+					onpointerup={onCardUp}
+					onpointercancel={endCard}
+				>
+					<GripVertical />
+				</button>
 				<button
 					type="button"
 					class="control"
@@ -1701,180 +2108,194 @@
 )}
 	<!--
 		BY QUESTION: what it is, when, where, then the words and the to-do.
+
+		ON THE PAGE, THE MAP CARD'S SHAPE: the fields, and a band down the end edge
+		with the close at its head and the delete at its foot. In a card on the
+		map, the map's own band holds them.
 	-->
-	<div class="editor">
-		<div class="row">
-			<label class="field grow">
-				<span>Title</span>
-				<input
-					class="input"
-					value={item.title}
-					maxlength="200"
-					onchange={(e) => onTitle(item, e.currentTarget)}
-				/>
-			</label>
-			<label class="field">
-				<span>Kind</span>
-				<select
-					class="input"
-					value={item.category}
-					onchange={(e) =>
-						edit(item.id, { category: e.currentTarget.value as CategoryId })}
-				>
-					{#each CATEGORIES as category (category.id)}
-						<option value={category.id}>{category.name}</option>
-					{/each}
-				</select>
-			</label>
-		</div>
+	<div class="editor" class:banded={onPage}>
+		<div class="editor-fields">
+			<div class="row">
+				<label class="field grow">
+					<span>Title</span>
+					<input
+						class="input"
+						value={item.title}
+						maxlength="200"
+						onchange={(e) => onTitle(item, e.currentTarget)}
+					/>
+				</label>
+				<label class="field">
+					<span>Kind</span>
+					<select
+						class="input"
+						value={item.category}
+						onchange={(e) =>
+							edit(item.id, { category: e.currentTarget.value as CategoryId })}
+					>
+						{#each kinds as category (category.id)}
+							<option value={category.id}>{category.name}</option>
+						{/each}
+					</select>
+				</label>
+			</div>
 
-		<div class="row">
-			<label class="field">
-				<span>Day</span>
-				<select
-					class="input"
-					value={list}
-					onchange={(e) => {
-						const to = e.currentTarget.value;
-						const length =
-							to === IDEAS
-								? trip.ideas.length
-								: (trip.days.find((day) => day.id === to)?.items.length ?? 0);
-						void move(item.id, to, length, onPage);
-					}}
-				>
-					{#each trip.days as day, d (day.id)}
-						<option value={day.id}>
-							{dayName(d)}{day.date ? ` · ${formatDate(day.date)}` : ''}
-						</option>
-					{/each}
-					<option value={IDEAS}>Not scheduled yet</option>
-				</select>
-			</label>
-			<label class="field">
-				<span>Time</span>
-				<input
-					class="input"
-					type="time"
-					value={item.time}
-					onchange={(e) => edit(item.id, { time: e.currentTarget.value })}
-				/>
-			</label>
-		</div>
+			<div class="row">
+				<label class="field">
+					<span>Day</span>
+					<select
+						class="input"
+						value={list}
+						onchange={(e) => {
+							const to = e.currentTarget.value;
+							const length =
+								to === IDEAS
+									? trip.ideas.length
+									: (trip.days.find((day) => day.id === to)?.items.length ?? 0);
+							void move(item.id, to, length, onPage);
+						}}
+					>
+						{#each trip.days as day, d (day.id)}
+							<option value={day.id}>
+								{dayName(d)}{day.date ? ` · ${formatDate(day.date)}` : ''}
+							</option>
+						{/each}
+						<option value={IDEAS}>Not scheduled yet</option>
+					</select>
+				</label>
+				<label class="field">
+					<span>Time</span>
+					<input
+						class="input"
+						type="time"
+						value={item.time}
+						onchange={(e) => edit(item.id, { time: e.currentTarget.value })}
+					/>
+				</label>
+			</div>
 
-		<div class="row">
-			<label class="field grow">
-				<span>Place</span>
-				<input
-					class="input"
-					value={item.place}
-					maxlength="200"
-					placeholder="An address or a name, for the map"
-					onchange={(e) =>
-						edit(item.id, { place: e.currentTarget.value.trim() })}
-					onkeydown={(e) => {
-						if (e.key !== 'Enter') return;
-						e.preventDefault();
-						void find(item.id, e.currentTarget.value);
-					}}
-				/>
-			</label>
-			<button
-				type="button"
-				class="pill"
-				onclick={(e) =>
-					find(
-						item.id,
-						e.currentTarget
-							.closest('.row')
-							?.querySelector<HTMLInputElement>('input.input')?.value ?? '',
-					)}
-			>
-				<Search /> Find
-			</button>
-		</div>
-		<div class="check-line">
-			<label class="check">
-				<input
-					type="checkbox"
-					checked={!!item.base}
-					onchange={(e) => edit(item.id, { base: e.currentTarget.checked })}
-				/>
-				Measure from here
-			</label>
-			<!--
+			<div class="row">
+				<label class="field grow">
+					<span>Place</span>
+					<input
+						class="input"
+						value={item.place}
+						maxlength="200"
+						placeholder="An address or a name, for the map"
+						onchange={(e) =>
+							edit(item.id, { place: e.currentTarget.value.trim() })}
+						onkeydown={(e) => {
+							if (e.key !== 'Enter') return;
+							e.preventDefault();
+							void find(item.id, e.currentTarget.value);
+						}}
+					/>
+				</label>
+				<button
+					type="button"
+					class="pill"
+					onclick={(e) =>
+						find(
+							item.id,
+							e.currentTarget
+								.closest('.row')
+								?.querySelector<HTMLInputElement>('input.input')?.value ?? '',
+						)}
+				>
+					<Search /> Find
+				</button>
+			</div>
+			<div class="check-line">
+				<label class="check">
+					<input
+						type="checkbox"
+						checked={!!item.base}
+						onchange={(e) => edit(item.id, { base: e.currentTarget.checked })}
+					/>
+					Measure from here
+				</label>
+				<!--
 				OUTSIDE THE LABEL, so pressing it does not tick the box. Focusable, so a
 				tap or the keyboard shows the tip as a pointer resting on it does.
 			-->
-			<button
-				type="button"
-				class="info"
-				aria-label={MEASURE_TIP}
-				data-tip={MEASURE_TIP}><Info aria-hidden="true" /></button
-			>
-		</div>
-		{#if finding?.id === item.id}
-			{@render matches(finding)}
-		{:else if item.place && item.at === null}
-			<p class="note">
-				Not found on the map. Press Find to see what the map knows, or add the
-				town or state.
-			</p>
-		{/if}
-
-		<label class="field">
-			<span>Notes</span>
-			<textarea
-				class="input"
-				rows="3"
-				maxlength="4000"
-				value={item.notes}
-				onchange={(e) => edit(item.id, { notes: e.currentTarget.value.trim() })}
-			></textarea>
-		</label>
-
-		<div class="row">
-			<label class="field grow">
-				<span>Before we go</span>
-				<input
-					class="input"
-					value={item.prep}
-					maxlength="200"
-					placeholder="Book it, reserve it, pack for it"
-					onchange={(e) =>
-						edit(item.id, { prep: e.currentTarget.value.trim() })}
-				/>
-			</label>
-			<label class="check">
-				<input
-					type="checkbox"
-					checked={item.prepDone}
-					onchange={(e) => edit(item.id, { prepDone: e.currentTarget.checked })}
-				/>
-				<!-- Not "Done", which is the button below. -->
-				Handled
-			</label>
-		</div>
-
-		<!-- In a card on the map, the band holds these: its pencil puts the form
-		away, and its foot deletes. -->
-		{#if onPage}
-			<div class="actions">
 				<button
 					type="button"
-					class="pill danger"
+					class="info"
+					aria-label={MEASURE_TIP}
+					data-tip={MEASURE_TIP}><Info aria-hidden="true" /></button
+				>
+			</div>
+			{#if finding?.id === item.id}
+				{@render matches(finding)}
+			{:else if item.place && item.at === null}
+				<p class="note">
+					Not found on the map. Press Find to see what the map knows, or add the
+					town or state.
+				</p>
+			{/if}
+
+			<label class="field">
+				<span>Notes</span>
+				<textarea
+					class="input"
+					rows="3"
+					maxlength="4000"
+					value={item.notes}
+					onchange={(e) =>
+						edit(item.id, { notes: e.currentTarget.value.trim() })}></textarea>
+			</label>
+
+			<div class="row">
+				<label class="field grow">
+					<span>Before we go</span>
+					<input
+						class="input"
+						value={item.prep}
+						maxlength="200"
+						placeholder="Book it, reserve it, pack for it"
+						onchange={(e) =>
+							edit(item.id, { prep: e.currentTarget.value.trim() })}
+					/>
+				</label>
+				<label class="check">
+					<input
+						type="checkbox"
+						checked={item.prepDone}
+						onchange={(e) =>
+							edit(item.id, { prepDone: e.currentTarget.checked })}
+					/>
+					<!-- Not "Done", which is the button below. -->
+					Handled
+				</label>
+			</div>
+		</div>
+
+		{#if onPage}
+			{@const arming = confirming === item.id}
+			<div class="band">
+				<button
+					type="button"
+					class="control"
+					aria-label="Close"
+					title="Close"
+					onclick={done}><X /></button
+				>
+				<button
+					type="button"
+					class="control remove"
+					aria-label={arming
+						? `Delete ${item.title} for everyone`
+						: `Delete ${item.title}`}
+					title={arming ? 'Press again to delete for everyone' : 'Delete'}
+					data-open={arming || undefined}
 					onclick={() => {
-						if (confirming !== item.id) return (confirming = item.id);
+						if (!arming) return (confirming = item.id);
 						confirming = null;
 						done();
 						sync.do({ type: 'remove', id: item.id });
 					}}
-					onblur={() => confirming === item.id && (confirming = null)}
+					onblur={() => arming && (confirming = null)}><Trash2 /></button
 				>
-					{confirming === item.id ? 'Delete for everyone' : 'Delete'}
-				</button>
-				<span class="spacer"></span>
-				<button type="button" class="pill primary" onclick={done}>Done</button>
 			</div>
 		{/if}
 	</div>
@@ -1940,6 +2361,69 @@
 
 <!-- ─── Adding ────────────────────────────────────────────────────────────── -->
 
+<!--
+	A KIND'S NAME, FOR THIS TRIP. Its colour and icon stay its own, so it is still
+	itself on the map; what is filed under it stays filed there. Earlier and Later
+	are the keyboard's way to move it, as a day's are.
+-->
+{#snippet kindEditor(id: CategoryId, name: string)}
+	{@const own = CATEGORIES.find((c) => c.id === id)!.name}
+	<div class="editor">
+		<label class="field">
+			<span>Name</span>
+			<input
+				class="input"
+				value={name === own ? '' : name}
+				placeholder={own}
+				maxlength={LIMITS.kind}
+				onchange={(e) =>
+					sync.do({ type: 'editKind', id, name: e.currentTarget.value.trim() })}
+			/>
+		</label>
+		<p class="note">
+			Renamed for everyone on this trip. Leave it empty to call it {own} again.
+		</p>
+		<div class="actions">
+			<button type="button" class="pill" onclick={() => stepKind(id, false)}>
+				<ArrowUp /> Earlier
+			</button>
+			<button type="button" class="pill" onclick={() => stepKind(id, true)}>
+				<ArrowDown /> Later
+			</button>
+			<span class="spacer"></span>
+			<button
+				type="button"
+				class="pill primary"
+				onclick={() => (editingKind = null)}
+			>
+				Done
+			</button>
+		</div>
+	</div>
+{/snippet}
+
+<!--
+	A SECTION'S NAME IS ITS FOLD: the whole name is the button, with a chevron
+	that turns to say which way it will go. Before we go and the Schedule are one
+	fold under two names, so either name folds both.
+-->
+{#snippet foldTitle(section: Fold, id: string, name: string)}
+	{@const open = !folded.includes(section)}
+	<h2 {id} class="section-title">
+		<button
+			type="button"
+			class="fold"
+			aria-expanded={open}
+			aria-controls={section === 'schedule'
+				? 'before-body schedule-body'
+				: `${section}-body`}
+			onclick={() => toggleFold(section)}
+		>
+			<ChevronDown aria-hidden="true" />{name}
+		</button>
+	</h2>
+{/snippet}
+
 {#snippet adder(to: string, category: CategoryId, key: string = to)}
 	{#if adding === key}
 		{@render adderForm(to, category)}
@@ -1983,7 +2467,7 @@
 			<label class="field">
 				<span>Kind</span>
 				<select class="input" name="category" value={category}>
-					{#each CATEGORIES as c (c.id)}
+					{#each kinds as c (c.id)}
 						<option value={c.id}>{c.name}</option>
 					{/each}
 				</select>
@@ -2096,7 +2580,7 @@
 
 	/* A Kind's icon wears its colour beside its name; the words keep the ink. */
 	.category :global(svg),
-	.group .card-title :global(svg) {
+	.group-title :global(svg) {
 		color: var(--kind);
 	}
 
@@ -2127,8 +2611,8 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(min(20rem, 100%), 1fr));
 		align-items: start;
-		/* The pane's padding, so a card is as far from the next as from the edge. */
-		gap: var(--space-12);
+		/* Less than the pane's padding, so the cards read as one group inside it. */
+		gap: var(--space-8);
 	}
 
 	/*
@@ -2156,7 +2640,6 @@
 
 	/* A section of one card gives it the whole width, at any size. */
 	.before .grid,
-	.ideas .grid,
 	.changes .grid {
 		grid-template-columns: minmax(0, 1fr);
 	}
@@ -2238,34 +2721,26 @@
 		grid-template-columns: minmax(0, 1fr);
 	}
 
-	/* A kind of idea inside the one ideas card. */
-	.group {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-4);
-	}
-
-	.group + .group {
-		padding-block-start: var(--space-8);
-		border-block-start: 1px solid var(--frame);
-	}
-
 	/*
-	 * TWO COLUMNS ONCE THERE IS ROOM: the schedule takes the width, and what is
-	 * waiting to happen stands beside it. The document order is untouched, so a
-	 * phone and a screen reader still go checklist, schedule, ideas, history.
-	 * 68rem is 1088px, the narrowest the schedule still holds two days of 20rem
-	 * beside the 22rem rail.
+	 * TWO COLUMNS ONCE THERE IS ROOM: the schedule takes the width, and the
+	 * checklist stands beside it. What is waiting to happen gets the whole width
+	 * under both, so its Kinds lie in columns as the days do. The document order
+	 * is the same, so a phone and a screen reader go map, checklist, schedule,
+	 * ideas, with the checklist and the schedule together as the one fold they
+	 * are. 68rem is 1088px, the narrowest the schedule still holds two
+	 * days of 20rem beside the 22rem rail.
+	 *
+	 * The checklist is as tall as what is in it, not as the schedule: a long
+	 * trip stood it as a tall empty pane.
 	 */
 	@media (min-width: 68rem) {
 		.board {
 			display: grid;
 			grid-template-columns: minmax(0, 1fr) 22rem;
-			grid-template-rows: auto auto 1fr;
 			grid-template-areas:
 				'map map'
 				'schedule before'
-				'schedule ideas';
+				'ideas ideas';
 			align-items: stretch;
 			gap: var(--gap-panel);
 		}
@@ -2280,6 +2755,7 @@
 
 		.before {
 			grid-area: before;
+			align-self: start;
 		}
 
 		.ideas {
@@ -2379,6 +2855,56 @@
 		letter-spacing: var(--tracking-tight);
 	}
 
+	/*
+	 * THE NAME, PRESSABLE: it keeps the heading's look, with a chevron before it
+	 * that points down while the section is open and along the line once folded.
+	 */
+	.fold {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-4);
+		padding: 0;
+		border: none;
+		background: none;
+		color: inherit;
+		font: inherit;
+		letter-spacing: inherit;
+		text-align: start;
+		cursor: pointer;
+	}
+
+	.fold :global(svg) {
+		inline-size: 1em;
+		block-size: 1em;
+		flex: none;
+		color: color-mix(in oklab, var(--fg) 60%, transparent);
+		transition: rotate var(--motion-morph) ease-out;
+	}
+
+	.fold[aria-expanded='false'] :global(svg) {
+		rotate: -90deg;
+	}
+
+	.fold:hover :global(svg) {
+		color: var(--fg);
+	}
+
+	/* What a section holds under its name, when there is more than its grid. */
+	.section-body {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-12);
+	}
+
+	.section-body[hidden] {
+		display: none;
+	}
+
+	.map-section.full .section-body {
+		flex: 1;
+		min-block-size: 0;
+	}
+
 	.day-title {
 		font-style: italic;
 	}
@@ -2404,7 +2930,9 @@
 		display: grid;
 		grid-template-columns: var(--control-block-size) minmax(0, 1fr);
 		column-gap: var(--space-8);
-		padding-block: var(--space-4);
+		margin-inline: calc(var(--space-4) * -1);
+		padding: var(--space-4);
+		border-radius: var(--radius-m);
 		cursor: pointer;
 	}
 
@@ -2517,8 +3045,11 @@
 		grid-template-columns: auto minmax(0, 1fr) auto;
 		align-items: start;
 		gap: 0 var(--space-8);
-		padding-block: var(--space-4);
-		border-radius: var(--radius-s);
+		/* Out into the card's padding by as much as it is padded, so its shade
+		 * has room around the grip and the pencil and the words stay put. */
+		margin-inline: calc(var(--space-4) * -1);
+		padding: var(--space-4);
+		border-radius: var(--radius-m);
 	}
 
 	/*
@@ -2570,6 +3101,16 @@
 		.item > .control,
 		.card-tools > .control {
 			opacity: 0;
+		}
+
+		/*
+		 * THE ROW POINTED AT IS SHADED, a checklist line's too, so it is plain
+		 * which one the grip and the pencil belong to. The shade is see-through,
+		 * so a control's own hover still shows on top of it.
+		 */
+		.item:hover:not([data-dragging]),
+		.checklist label:hover {
+			background-color: var(--surface-hover);
 		}
 
 		.item:hover > .control,
@@ -2862,6 +3403,40 @@
 		pointer-events: none;
 	}
 
+	/* Between two days, standing in the gap beside them. */
+	.drop-line.upright {
+		inline-size: 4px;
+		margin-block-start: 0;
+		margin-inline-start: -2px;
+	}
+
+	/*
+	 * A DAY'S OR KIND'S HEAD IS ITS HANDLE, for a mouse: it says so on hover,
+	 * and the card being moved is lifted as a row is.
+	 */
+	@media (hover: hover) and (pointer: fine) {
+		.handle {
+			cursor: grab;
+		}
+	}
+
+	.card[data-dragging] {
+		position: relative;
+		z-index: 0;
+		box-shadow:
+			inset 0 0 0 1px var(--edge),
+			0 var(--space-4) var(--space-16) rgb(0 0 0 / 12%);
+	}
+
+	.card[data-dragging] .handle {
+		cursor: grabbing;
+	}
+
+	:global(html:has(.card[data-dragging])) {
+		cursor: grabbing;
+		user-select: none;
+	}
+
 	/* ─── The forms ─── */
 
 	/*
@@ -2879,6 +3454,49 @@
 		border-radius: var(--radius-l);
 		background-color: var(--bg);
 		box-shadow: inset 0 0 0 1px var(--edge);
+	}
+
+	.editor-fields {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-12);
+	}
+
+	/*
+	 * UNDER A ROW, THE MAP CARD'S SHAPE: the fields padded as the editor was, and
+	 * the band down the end edge drawn as the map's is, see TripMap.svelte.
+	 */
+	.editor.banded {
+		flex-direction: row;
+		gap: 0;
+		padding: 0;
+	}
+
+	.banded .editor-fields {
+		flex: 1;
+		min-inline-size: 0;
+		padding: var(--space-16);
+	}
+
+	.band {
+		flex: none;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: var(--space-6);
+		border-start-end-radius: var(--radius-l);
+		border-end-end-radius: var(--radius-l);
+		background-color: var(--shell);
+		box-shadow: inset 0 0 0 1px var(--edge);
+	}
+
+	.band .remove {
+		margin-block-start: auto;
+	}
+
+	.band :global(svg) {
+		inline-size: 1rem;
+		block-size: 1rem;
 	}
 
 	/* A card's fields, stacked with the gap an editor gives its own. */

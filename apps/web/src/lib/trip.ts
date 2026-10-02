@@ -41,6 +41,37 @@ export const CATEGORIES = [
 
 export type CategoryId = (typeof CATEGORIES)[number]['id'];
 
+/*
+ * A TRIP'S OWN KINDS: the seven, in the order and by the names this trip gave
+ * them. Their ids, colours and icons stay fixed, so a renamed Kind is still
+ * drawn as itself on the map and nothing filed under it moves. Stored only once
+ * somebody renames or reorders one.
+ */
+export interface Kind {
+	id: CategoryId;
+	name: string;
+}
+
+/**
+ * The trip's Kinds, all seven, in its order. A name left blank, or a Kind the
+ * stored list is missing, falls back to the site's own.
+ */
+export function kindsOf(trip: Pick<Trip, 'kinds'>): Kind[] {
+	const out: Kind[] = [];
+	for (const kind of trip.kinds ?? []) {
+		const own = CATEGORIES.find((c) => c.id === kind.id);
+		if (!own || out.some((k) => k.id === kind.id)) continue;
+		out.push({ id: own.id, name: kind.name.trim() || own.name });
+	}
+	for (const c of CATEGORIES)
+		if (!out.some((k) => k.id === c.id)) out.push({ id: c.id, name: c.name });
+	return out;
+}
+
+/** What this trip calls a Kind. */
+export const kindName = (trip: Pick<Trip, 'kinds'>, id: CategoryId) =>
+	kindsOf(trip).find((k) => k.id === id)?.name ?? '';
+
 export interface Item {
 	id: string;
 	title: string;
@@ -143,6 +174,8 @@ export interface Trip {
 	days: Day[];
 	/* Optional, as `icon` is. */
 	bases?: Base[];
+	/* Optional, as `icon` is; read it through `kindsOf`. */
+	kinds?: Kind[];
 	/* NOT SCHEDULED YET. Kept in the order they arrived; the page groups them by
 	 * category, so an order among them is not something anybody arranges. */
 	ideas: Item[];
@@ -172,6 +205,9 @@ export type TripOp =
 	| { type: 'addBase'; base: Omit<Base, 'at'> }
 	| { type: 'editBase'; id: string; fields: Partial<BaseFields> }
 	| { type: 'removeBase'; id: string }
+	/* An empty name gives a Kind back the site's own. */
+	| { type: 'editKind'; id: CategoryId; name: string }
+	| { type: 'moveKind'; id: CategoryId; index: number }
 	/* Where an item's or a base's place was found. Carries the place it looked
 	 * up, so an answer that arrives after the place changed lands nowhere. */
 	| { type: 'pin'; id: string; place: string; at: Coords | null };
@@ -194,6 +230,8 @@ export const LIMITS = {
 	items: 600,
 	title: 200,
 	notes: 4000,
+	/* A Kind's name is a card's heading and a word in a dropdown. */
+	kind: 60,
 };
 
 /** The list an id is in, and where in it. `null` when nothing has that id. */
@@ -288,11 +326,18 @@ export function applyOp(current: Trip, op: TripOp): Trip {
 			return trip;
 		}
 
+		/*
+		 * THE DATES STAY WHERE THEY WERE. Moving a day moves its plans and what it
+		 * is about; the calendar under the days does not reorder with them, so
+		 * Day 1 is still the first date after the Santa Fe day is dragged onto it.
+		 */
 		case 'moveDay': {
 			const index = trip.days.findIndex((d) => d.id === op.id);
 			if (index === -1) return current;
+			const dates = trip.days.map((d) => d.date);
 			const [day] = trip.days.splice(index, 1);
 			trip.days.splice(clamp(op.index, trip.days.length), 0, day);
+			trip.days.forEach((d, i) => (d.date = dates[i]));
 			return trip;
 		}
 
@@ -306,6 +351,26 @@ export function applyOp(current: Trip, op: TripOp): Trip {
 			if (index === -1) return current;
 			const [day] = trip.days.splice(index, 1);
 			trip.ideas.push(...day.items);
+			return trip;
+		}
+
+		case 'editKind': {
+			const kinds = kindsOf(trip);
+			const kind = kinds.find((k) => k.id === op.id);
+			if (!kind) return current;
+			kind.name =
+				op.name.trim() || CATEGORIES.find((c) => c.id === op.id)!.name;
+			trip.kinds = kinds;
+			return trip;
+		}
+
+		case 'moveKind': {
+			const kinds = kindsOf(trip);
+			const index = kinds.findIndex((k) => k.id === op.id);
+			if (index === -1) return current;
+			const [kind] = kinds.splice(index, 1);
+			kinds.splice(clamp(op.index, kinds.length), 0, kind);
+			trip.kinds = kinds;
 			return trip;
 		}
 
@@ -574,7 +639,7 @@ export function describeOp(before: Trip, op: TripOp): string {
 					? `Set ${name} for ${formatTime(f.time)}`
 					: `Cleared the time on ${name}`;
 			if (f.category !== undefined)
-				return `Filed ${name} under ${CATEGORIES.find((c) => c.id === f.category)?.name}`;
+				return `Filed ${name} under ${kindName(before, f.category)}`;
 			if (f.place !== undefined)
 				return f.place
 					? `Set the place for ${name} to “${f.place}”`
@@ -641,6 +706,20 @@ export function describeOp(before: Trip, op: TripOp): string {
 
 		case 'removeBase':
 			return `Removed the base ${baseLabel(op.id)}`;
+
+		case 'editKind': {
+			const was = kindName(before, op.id);
+			const own = CATEGORIES.find((c) => c.id === op.id)!.name;
+			return op.name.trim()
+				? `Renamed the Kind ${was} to “${op.name.trim()}”`
+				: `Renamed the Kind ${was} back to ${own}`;
+		}
+
+		case 'moveKind': {
+			const count = CATEGORIES.length;
+			const to = Math.min(op.index, count - 1) + 1;
+			return `Moved the Kind ${kindName(before, op.id)} to ${to} of ${count}`;
+		}
 
 		/* A lookup, not a decision anybody made, so it has no line in the history. */
 		case 'pin':
@@ -944,6 +1023,18 @@ export function readOp(v: unknown): TripOp | null {
 			const id = readId(v.id);
 			return id ? { type: 'removeBase', id } : null;
 		}
+		case 'editKind': {
+			const name = text(v.name, LIMITS.kind);
+			return isCategory(v.id) && name !== null
+				? { type: 'editKind', id: v.id, name }
+				: null;
+		}
+		case 'moveKind': {
+			const index = readIndex(v.index);
+			return isCategory(v.id) && index !== null
+				? { type: 'moveKind', id: v.id, index }
+				: null;
+		}
 		case 'pin': {
 			const id = readId(v.id);
 			const place = text(v.place, LIMITS.title);
@@ -1014,9 +1105,22 @@ export function readTrip(v: unknown): Trip | null {
 		}
 	}
 
+	let kinds: Kind[] | undefined;
+	if (v.kinds !== undefined) {
+		if (!Array.isArray(v.kinds) || v.kinds.length > CATEGORIES.length)
+			return null;
+		kinds = [];
+		for (const raw of v.kinds) {
+			const name = isRecord(raw) ? text(raw.name, LIMITS.kind) : null;
+			if (!isRecord(raw) || !isCategory(raw.id) || name === null) return null;
+			kinds.push({ id: raw.id, name });
+		}
+	}
+
 	const trip: Trip = { title, tagline, days, ideas };
 	if (v.icon !== undefined) trip.icon = v.icon;
 	if (bases) trip.bases = bases;
+	if (kinds) trip.kinds = kinds;
 	if (days.length > LIMITS.days || countItems(trip) > LIMITS.items) return null;
 	return trip;
 }

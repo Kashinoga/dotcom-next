@@ -735,6 +735,14 @@ body {
 	outline-offset: 2px;
 }
 
+/* NOTHING TO DO, such as Expand all with everything open: dimmed, and pointing
+ * at it does not light it up. */
+.control:disabled {
+	background: none;
+	opacity: 0.4;
+	cursor: default;
+}
+
 /* OPEN, meaning the thing this control leads to is what you are looking at.
  * Filled with the site's one colour. The icon alone in the accent would not do:
  * yellow on white is 1.4:1, so the mark has to be the fill and the icon has to

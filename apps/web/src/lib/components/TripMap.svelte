@@ -154,8 +154,20 @@
 			L = leaflet;
 		});
 
-		/* The card grows and shrinks with the window, and Leaflet only measures once. */
-		const resize = new ResizeObserver(() => map?.invalidateSize());
+		/*
+		 * The card grows and shrinks with the window, and Leaflet only measures
+		 * once. Not while folded away: measured at nothing, the map would lose
+		 * its centre.
+		 */
+		const resize = new ResizeObserver(() => {
+			if (!container?.clientWidth) return;
+			map?.invalidateSize();
+			// Unfolded for the first time: the framing it could not do folded.
+			if (L && map && !fitted && pins.length) {
+				fitted = true;
+				fit('bases');
+			}
+		});
 		resize.observe(container);
 
 		return () => {
@@ -418,10 +430,11 @@
 
 		for (const id of drawn.keys()) if (!seen.has(id)) remove(id);
 
-		// Framed once, so a friend's change does not yank the view from under you.
-		if (!fitted && pins.length) {
+		// Framed once, so a friend's change does not yank the view from under you;
+		// and not while folded away, where it has no size to frame them in.
+		if (!fitted && pins.length && container?.clientWidth) {
 			fitted = true;
-			fit();
+			fit('bases');
 		}
 	});
 
@@ -435,10 +448,16 @@
 		drawn.delete(id);
 	}
 
-	/** Frame every pin. */
-	export function fit() {
-		if (!L || !map || !pins.length) return;
-		const bounds = L.latLngBounds(pins.map((p) => [p.at.lat, p.at.lon]));
+	/**
+	 * Frame every pin, or only the bases: where the days start and end, and
+	 * the first view, since a far-off idea zooms everything else to a dot. A
+	 * trip with no base yet is framed whole.
+	 */
+	export function fit(only: 'bases' | 'all' = 'all') {
+		const bases = pins.filter((p) => p.base);
+		const shown = only === 'bases' && bases.length ? bases : pins;
+		if (!L || !map || !shown.length) return;
+		const bounds = L.latLngBounds(shown.map((p) => [p.at.lat, p.at.lon]));
 		map.fitBounds(bounds, { padding: [32, 32], maxZoom: 14 });
 	}
 </script>
